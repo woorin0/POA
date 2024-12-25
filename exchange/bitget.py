@@ -182,7 +182,7 @@ class Bitget:
                     trade_side = "open"
                 params = { "tradeSide": trade_side }
                 
-        params |= { "marginMode": order_info.margin_mode or "isolated" }
+        params |= { "marginMode": order_info.margin_mode or "cross" }
         if order_info.margin_mode is not None:
             self.client.set_margin_mode(order_info.margin_mode, symbol)
 
