@@ -104,6 +104,45 @@ class Binance:
         else:
             raise error.PositionNoneError()
 
+    def get_position_detail(self, symbol: str, target_side: str):
+        try:
+            if self.order_info.is_coinm:
+                positions = self.client.fetch_balance()["info"]["positions"]
+                market_id = self.client.market(symbol).get("id")
+                for pos in positions:
+                    if pos["symbol"] == market_id:
+                        pos_side = pos.get("positionSide", "BOTH")
+                        amt = float(pos.get("positionAmt", 0))
+                        entry_price = float(pos.get("entryPrice", 0))
+                        leverage = float(pos.get("leverage", 1))
+                        if pos_side == "LONG" and target_side == "long" and amt > 0:
+                            return {"entry_price": entry_price, "contracts": amt, "leverage": leverage}
+                        elif pos_side == "SHORT" and target_side == "short" and amt < 0:
+                            return {"entry_price": entry_price, "contracts": abs(amt), "leverage": leverage}
+                        elif pos_side == "BOTH":
+                            if target_side == "long" and amt > 0:
+                                return {"entry_price": entry_price, "contracts": amt, "leverage": leverage}
+                            elif target_side == "short" and amt < 0:
+                                return {"entry_price": entry_price, "contracts": abs(amt), "leverage": leverage}
+            else:
+                positions = self.client.fetch_positions(symbols=[symbol])
+                if positions:
+                    for pos in positions:
+                        side = pos.get("side")
+                        contracts = float(pos.get("contracts") or 0)
+                        if side == target_side and contracts > 0:
+                            entry_price = float(pos.get("entryPrice") or pos.get("info", {}).get("entryPrice") or 0)
+                            leverage = float(pos.get("leverage") or self.order_info.leverage or 1)
+                            return {
+                                "entry_price": entry_price,
+                                "contracts": contracts,
+                                "leverage": leverage,
+                            }
+        except Exception as e:
+            from loguru import logger
+            logger.warning(f"바이낸스 포지션 상세 정보 조회 실패: {e}")
+        return None
+
     def get_balance(self, base: str):
         free_balance_by_base = None
 
@@ -330,6 +369,8 @@ class Binance:
         from exchange.pexchange import retry
 
         symbol = self.order_info.unified_symbol  # self.parse_symbol(base, quote)
+        target_side = "short" if order_info.is_buy else "long"
+        pos_detail = self.get_position_detail(symbol, target_side)
         close_amount = self.get_amount(order_info)
         if self.position_mode == "one-way":
             params = {"reduceOnly": True}
@@ -347,7 +388,7 @@ class Binance:
             params = {"positionSide": positionSide}
 
         try:
-            return retry(
+            result = retry(
                 self.client.create_order,
                 symbol,
                 order_info.type.lower(),
@@ -360,6 +401,20 @@ class Binance:
                 delay=0.1,
                 instance=self,
             )
+            if isinstance(result, dict):
+                if pos_detail:
+                    result["entry_price"] = pos_detail.get("entry_price")
+                    result["pos_leverage"] = pos_detail.get("leverage")
+
+                close_price = result.get("price") or result.get("average")
+                if not close_price or close_price == 0:
+                    try:
+                        close_price = self.get_price(symbol)
+                        result["price"] = close_price
+                    except Exception:
+                        pass
+                result["close_price"] = close_price
+            return result
         except Exception as e:
             raise error.OrderError(e, self.order_info)
 

@@ -82,6 +82,27 @@ class Bitget:
         else:
             raise error.PositionNoneError()
 
+    def get_position_detail(self, symbol: str, target_side: str):
+        try:
+            positions = self.client.fetch_positions([symbol])
+            if positions and isinstance(positions, list):
+                for pos in positions:
+                    side = pos.get("side")
+                    info = pos.get("info", {})
+                    available = float(info.get("available") or pos.get("contracts") or 0)
+                    if side == target_side and available > 0:
+                        entry_price = float(pos.get("entryPrice") or info.get("openPriceAvg") or info.get("breakEvenPrice") or 0)
+                        leverage = float(pos.get("leverage") or info.get("leverage") or self.order_info.leverage or 1)
+                        return {
+                            "entry_price": entry_price,
+                            "contracts": available,
+                            "leverage": leverage,
+                        }
+        except Exception as e:
+            from loguru import logger
+            logger.warning(f"비트겟 포지션 상세 정보 조회 실패: {e}")
+        return None
+
     def get_balance(self, base: str):
         free_balance_by_base = None
         if self.order_info.is_entry or (
@@ -210,6 +231,8 @@ class Bitget:
         from exchange.pexchange import retry
 
         symbol = self.order_info.unified_symbol
+        target_side = "short" if order_info.is_buy else "long"
+        pos_detail = self.get_position_detail(symbol, target_side)
         close_amount = self.get_amount(order_info)
         final_side = order_info.side
         if self.position_mode == "one-way":
@@ -235,6 +258,19 @@ class Bitget:
                 instance=self,
             )
 
+            if isinstance(result, dict):
+                if pos_detail:
+                    result["entry_price"] = pos_detail.get("entry_price")
+                    result["pos_leverage"] = pos_detail.get("leverage")
+
+                close_price = result.get("price") or result.get("average")
+                if not close_price or close_price == 0:
+                    try:
+                        close_price = self.get_price(symbol)
+                        result["price"] = close_price
+                    except Exception:
+                        pass
+                result["close_price"] = close_price
             return result
         except Exception as e:
             raise error.OrderError(e, self.order_info)

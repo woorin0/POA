@@ -112,6 +112,26 @@ class Okx:
         else:
             raise error.PositionNoneError()
 
+    def get_position_detail(self, symbol: str, target_side: str):
+        try:
+            positions = self.client.fetch_positions([symbol])
+            if positions:
+                for pos in positions:
+                    side = pos.get("side")
+                    contracts = float(pos.get("contracts") or 0)
+                    if side == target_side and contracts > 0:
+                        entry_price = float(pos.get("entryPrice") or pos.get("info", {}).get("avgPx") or 0)
+                        leverage = float(pos.get("leverage") or pos.get("info", {}).get("lever") or self.order_info.leverage or 1)
+                        return {
+                            "entry_price": entry_price,
+                            "contracts": contracts,
+                            "leverage": leverage,
+                        }
+        except Exception as e:
+            from loguru import logger
+            logger.warning(f"OKX 포지션 상세 정보 조회 실패: {e}")
+        return None
+
     def get_amount(self, order_info: MarketOrder) -> float:
         if order_info.amount is not None and order_info.percent is not None:
             raise error.AmountPercentBothError()
@@ -317,6 +337,8 @@ class Okx:
         from exchange.pexchange import retry
 
         symbol = self.order_info.unified_symbol
+        target_side = "short" if order_info.is_buy else "long"
+        pos_detail = self.get_position_detail(symbol, target_side)
         close_amount = self.get_amount(order_info)
 
         if self.position_mode == "one-way":
@@ -348,7 +370,7 @@ class Okx:
                 params = {"posSide": pos_side, "tdMode": "cross"}
 
         try:
-            return retry(
+            result = retry(
                 self.client.create_order,
                 symbol,
                 order_info.type.lower(),
@@ -361,5 +383,19 @@ class Okx:
                 delay=0.1,
                 instance=self,
             )
+            if isinstance(result, dict):
+                if pos_detail:
+                    result["entry_price"] = pos_detail.get("entry_price")
+                    result["pos_leverage"] = pos_detail.get("leverage")
+
+                close_price = result.get("price") or result.get("average")
+                if not close_price or close_price == 0:
+                    try:
+                        close_price = self.get_price(symbol)
+                        result["price"] = close_price
+                    except Exception:
+                        pass
+                result["close_price"] = close_price
+            return result
         except Exception as e:
             raise error.OrderError(e, self.order_info)

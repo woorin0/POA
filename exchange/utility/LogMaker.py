@@ -51,6 +51,21 @@ def parse_time(utc_timestamp):
     return date.strftime("%y-%m-%d %H:%M:%S")
 
 
+def format_price(val):
+    if val is None:
+        return ""
+    try:
+        val = float(val)
+        if val >= 100:
+            return f"{val:,.2f}".rstrip("0").rstrip(".")
+        elif val >= 1:
+            return f"{val:,.4f}".rstrip("0").rstrip(".")
+        else:
+            return f"{val:,.8f}".rstrip("0").rstrip(".")
+    except Exception:
+        return str(val)
+
+
 def logger_test():
     date = parse_time(datetime.utcnow().timestamp())
     logger.info(date)
@@ -146,36 +161,123 @@ def log_order_message(exchange_name, order_result: dict, order_info: MarketOrder
             side = "매도"
 
     if exchange_name in STOCK_EXCHANGES:  # ("KRX", "NASDAQ", "NYSE", "AMEX"):
-        content = f"일시\n{date}\n\n거래소\n{exchange_name}\n\n티커\n{order_info.base}\n\n거래유형\n{side}\n\n{amount}"
+        pnl_result = None
+        if order_info.is_sell:
+            exit_type = getattr(order_info, "exit_type", None)
+            text_to_check = f"{order_info.order_name or ''} {exit_type or ''}".lower()
+            if any(w in text_to_check for w in ("익절", "profit", "tp", "take profit", "수익")):
+                pnl_result = "익절"
+            elif any(w in text_to_check for w in ("손절", "loss", "sl", "stop loss", "손실")):
+                pnl_result = "손절"
+
+        color = 0x0000FF
+        side_display = side
+        if pnl_result == "익절":
+            color = 0x00FF00
+            side_display = f"{side} (익절 🟢)"
+        elif pnl_result == "손절":
+            color = 0xFF0000
+            side_display = f"{side} (손절 🔴)"
+
+        content = f"일시\n{date}\n\n거래소\n{exchange_name}\n\n티커\n{order_info.base}\n\n거래유형\n{side_display}\n\n{amount}"
         embed = Embed(
             title=order_info.order_name,
-            description=f"체결 {exchange_name} {order_info.base} {side} {amount}",
-            color=0x0000FF,
+            description=f"체결 {exchange_name} {order_info.base} {side_display} {amount}",
+            color=color,
         )
         embed.add_field(name="일시", value=str(date), inline=False)
         embed.add_field(name="거래소", value=exchange_name, inline=False)
         embed.add_field(name="티커", value=order_info.base, inline=False)
-        embed.add_field(name="거래유형", value=side, inline=False)
+        embed.add_field(name="거래유형", value=side_display, inline=False)
         embed.add_field(name="수량", value=amount, inline=False)
         embed.add_field(name="계좌", value=f"{order_info.kis_number}번째 계좌", inline=False)
+        if pnl_result:
+            embed.add_field(name="손익 여부", value=pnl_result, inline=False)
         log_message(content, embed)
     else:
-        content = f"일시\n{date}\n\n거래소\n{exchange_name}\n\n심볼\n{symbol}\n\n거래유형\n{order_result.get('side')}\n\n{amount}"
+        pnl_result = None
+        pnl_rate = None
+        entry_price = None
+        close_price = None
+
+        if order_result and isinstance(order_result, dict):
+            entry_price = order_result.get("entry_price")
+            close_price = order_result.get("close_price") or order_result.get("price") or order_result.get("average")
+
+        # 1. 진입가 및 체결가 기반 손익 계산 (포지션 종료 시)
+        if order_info.is_close and entry_price and close_price and float(entry_price) > 0:
+            leverage = order_info.leverage or (order_result.get("pos_leverage") if isinstance(order_result, dict) else None) or 1
+            e_price = float(entry_price)
+            c_price = float(close_price)
+            lev = float(leverage)
+            if order_info.is_sell:  # 롱 종료
+                rate = ((c_price - e_price) / e_price) * 100 * lev
+            else:  # 숏 종료 (is_buy)
+                rate = ((e_price - c_price) / e_price) * 100 * lev
+            pnl_rate = round(rate, 2)
+            if pnl_rate > 0.0001:
+                pnl_result = "익절"
+            elif pnl_rate < -0.0001:
+                pnl_result = "손절"
+            else:
+                pnl_result = "본전"
+
+        # 2. 웹훅 파라미터(exit_type, order_name) 기반 보조 판별 (진입가 정보가 없을 때의 폴백)
+        if not pnl_result and order_info.is_close:
+            exit_type = getattr(order_info, "exit_type", None)
+            text_to_check = f"{order_info.order_name or ''} {exit_type or ''}".lower()
+            if any(w in text_to_check for w in ("익절", "profit", "tp", "take profit", "수익")):
+                pnl_result = "익절"
+            elif any(w in text_to_check for w in ("손절", "loss", "sl", "stop loss", "손실")):
+                pnl_result = "손절"
+
+        color = 0x0000FF  # 기본 파란색
+        side_display = side
+        if pnl_result == "익절":
+            color = 0x00FF00  # 초록색
+            side_display = f"{side} (익절 🟢)"
+        elif pnl_result == "손절":
+            color = 0xFF0000  # 빨간색
+            side_display = f"{side} (손절 🔴)"
+        elif pnl_result == "본전":
+            color = 0x95A5A6  # 회색
+            side_display = f"{side} (본전 ⚪)"
+
+        embed_title = order_info.order_name
+        if pnl_result and order_info.order_name in ("주문", "Order"):
+            embed_title = f"{pnl_result} 알림"
+
+        pnl_text = ""
+        if pnl_result:
+            pnl_text = f" [{pnl_result}]"
+            if pnl_rate is not None:
+                pnl_text += f" ({'+' if pnl_rate > 0 else ''}{pnl_rate}%)"
+
+        content = f"일시\n{date}\n\n거래소\n{exchange_name}\n\n심볼\n{symbol}\n\n거래유형\n{side_display}{pnl_text}\n\n{amount}"
         embed = Embed(
-            title=order_info.order_name,
-            description=f"체결: {exchange_name} {symbol} {side} {amount}",
-            color=0x0000FF,
+            title=embed_title,
+            description=f"체결: {exchange_name} {symbol} {side_display} {amount}",
+            color=color,
         )
         embed.add_field(name="일시", value=str(date), inline=False)
         embed.add_field(name="거래소", value=exchange_name, inline=False)
         embed.add_field(name="심볼", value=symbol, inline=False)
-        embed.add_field(name="거래유형", value=side, inline=False)
+        embed.add_field(name="거래유형", value=side_display, inline=False)
         if amount:
             embed.add_field(name=f_name, value=amount, inline=False)
         if order_info.leverage is not None:
             embed.add_field(name="레버리지", value=f"{order_info.leverage}배", inline=False)
-        if order_result.get("price"):
-            embed.add_field(name="체결가", value=str(order_result.get("price")), inline=False)
+        if entry_price:
+            embed.add_field(name="진입가", value=format_price(entry_price), inline=False)
+        if close_price:
+            embed.add_field(name="체결가", value=format_price(close_price), inline=False)
+        elif order_result.get("price"):
+            embed.add_field(name="체결가", value=format_price(order_result.get("price")), inline=False)
+        if pnl_result:
+            pnl_value = pnl_result
+            if pnl_rate is not None:
+                pnl_value += f" ({'+' if pnl_rate > 0 else ''}{pnl_rate}%)"
+            embed.add_field(name="손익 여부", value=pnl_value, inline=False)
         log_message(content, embed)
 
 
