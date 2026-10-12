@@ -1,7 +1,7 @@
 import sys
 from exchange.model import MarketOrder, COST_BASED_ORDER_EXCHANGES, STOCK_EXCHANGES
 from exchange.utility import settings
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dhooks import Webhook, Embed
 from loguru import logger
 from devtools import debug, pformat
@@ -21,34 +21,29 @@ logger.add(
     format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level}</level> | <level>{message}</level>",
 )
 
+hook = None
 try:
     url = settings.DISCORD_WEBHOOK_URL.replace("discordapp", "discord")
     hook = Webhook(url)
-except Exception as e:
-    print("웹훅 URL이 유효하지 않습니다: ", settings.DISCORD_WEBHOOK_URL)
+except Exception:
+    print("DISCORD_WEBHOOK_CONFIGURATION_INVALID")
 
 
 def get_error(e):
-    tb = traceback.extract_tb(e.__traceback__)
-    target_folder = os.path.abspath(os.path.dirname(tb[0].filename))
-    error_msg = []
+    return "ORDER_PROCESSING_FAILED"
 
-    for tb_info in tb:
-        # if target_folder in tb_info.filename:
-        error_msg.append(f"File {tb_info.filename}, line {tb_info.lineno}, in {tb_info.name}")
-        if "raise error." in tb_info.line:
-            continue
-        error_msg.append(f"  {tb_info.line}")
 
-    error_msg.append(str(e))
-
-    return "\n".join(error_msg)
+KST = timezone(timedelta(hours=9))
 
 
 def parse_time(utc_timestamp):
-    timestamp = utc_timestamp + timedelta(hours=9).seconds
-    date = datetime.fromtimestamp(timestamp)
-    return date.strftime("%y-%m-%d %H:%M:%S")
+    try:
+        dt = datetime.fromtimestamp(float(utc_timestamp), tz=timezone.utc).astimezone(KST)
+        return dt.strftime("%y-%m-%d %H:%M:%S")
+    except Exception:
+        timestamp = utc_timestamp + timedelta(hours=9).seconds
+        date = datetime.fromtimestamp(timestamp)
+        return date.strftime("%y-%m-%d %H:%M:%S")
 
 
 def format_price(val):
@@ -73,10 +68,14 @@ def logger_test():
 
 def log_message(message="None", embed: Embed = None):
     if hook:
-        if embed:
-            hook.send(embed=embed)
-        else:
-            hook.send(message)
+        try:
+            if embed:
+                hook.send(embed=embed)
+            else:
+                hook.send(message)
+        except Exception:
+            # Transport exceptions may include the webhook URL/token.
+            raise RuntimeError("DISCORD_DELIVERY_FAILED") from None
         # hook.send(str(message), embed)
     else:
         logger.info(message)
@@ -299,19 +298,18 @@ def log_hedge_message(exchange, base, quote, exchange_amount, upbit_amount, hedg
 
 
 def log_error_message(error, name):
-    embed = Embed(title=f"{name} 에러", description=f"[{name} 에러가 발생했습니다]\n{error}", color=0xFF0000)
-    logger.error(f"{name} [에러가 발생했습니다]\n{error}")
+    embed = Embed(title="오류", description="REQUEST_PROCESSING_FAILED", color=0xFF0000)
+    logger.error("REQUEST_PROCESSING_FAILED")
     log_message(embed=embed)
 
 
 def log_order_error_message(error: str | Exception, order_info: MarketOrder):
-    if isinstance(error, Exception):
-        error = get_error(error)
+    error = "ORDER_PROCESSING_FAILED"
 
     if order_info is not None:
         # discord
         embed = Embed(
-            title=order_info.order_name,
+            title="주문 오류",
             description=f"[주문 오류가 발생했습니다]\n{error}",
             color=0xFF0000,
         )
@@ -333,29 +331,24 @@ def log_order_error_message(error: str | Exception, order_info: MarketOrder):
 
 
 def log_validation_error_message(msg):
-    logger.error(f"검증 오류가 발생했습니다\n{msg}")
-    log_message(msg)
+    logger.error("REQUEST_VALIDATION_FAILED")
+    log_message("REQUEST_VALIDATION_FAILED")
 
 
 def print_alert_message(order_info: MarketOrder, result="성공"):
-    msg = pformat(order_info.dict(exclude_none=True))
-
     if result == "성공":
-        logger.info(f"주문 {result} 웹훅메세지\n{msg}")
+        logger.info("WEBHOOK_ORDER_SUCCESS")
     else:
-        logger.error(f"주문 {result} 웹훅메세지\n{msg}")
+        logger.error("WEBHOOK_ORDER_FAILED")
 
 
 def log_alert_message(order_info: MarketOrder, result="성공"):
     # discrod
     embed = Embed(
-        title=order_info.order_name,
-        description="[웹훅 alert_message]",
+        title="웹훅 처리 결과",
+        description="WEBHOOK_ORDER_SUCCESS" if result == "성공" else "WEBHOOK_ORDER_FAILED",
         color=0xFF0000,
     )
-    order_info_dict = order_info.dict(exclude_none=True)
-    for key, value in order_info_dict.items():
-        embed.add_field(name=key, value=str(value), inline=False)
     log_message(embed=embed)
 
     # logger

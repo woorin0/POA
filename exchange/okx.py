@@ -129,7 +129,7 @@ class Okx:
                         }
         except Exception as e:
             from loguru import logger
-            logger.warning(f"OKX 포지션 상세 정보 조회 실패: {e}")
+            logger.warning("OKX_POSITION_DETAIL_FAILED")
         return None
 
     def get_amount(self, order_info: MarketOrder) -> float:

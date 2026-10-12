@@ -94,7 +94,7 @@ class Bybit:
                         }
         except Exception as e:
             from loguru import logger
-            logger.warning(f"바이비트 포지션 상세 정보 조회 실패: {e}")
+            logger.warning("BYBIT_POSITION_DETAIL_FAILED")
         return None
 
     def get_balance(self, base: str):
@@ -170,7 +170,7 @@ class Bybit:
                 order_amount = order_result["amount"]
                 break
             except Exception as e:
-                print("...", e)
+                print("BYBIT_ORDER_READ_FAILED")
                 time.sleep(0.5)
         return order_amount
 

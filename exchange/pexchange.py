@@ -130,12 +130,16 @@ def retry(
 ):
     attempts = 0
 
+    if settings.SAFE_RETRY_ENABLED and func.__name__ == "create_order":
+        from exchange.safe_retry import safe_submit
+        return safe_submit(func, args, order_info, instance, settings)
+
     while attempts < max_attempts:
         try:
             result = func(*args)  # 함수 실행
             return result
         except Exception as e:
-            logger.error(f"에러 발생: {str(e)}")
+            logger.error("EXCHANGE_OPERATION_FAILED")
             attempts += 1
             if func.__name__ == "create_order" or func.__name__ == "set_leverage":
                 if order_info.exchange in ("BINANCE"):

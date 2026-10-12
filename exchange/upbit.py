@@ -94,6 +94,18 @@ class Upbit:
         order_info.amount = sell_amount
         return self.market_order(order_info)
 
+    def market_entry(self, order_info: MarketOrder):
+        if order_info.is_buy:
+            return self.market_buy(order_info)
+        else:
+            return self.market_sell(order_info)
+
+    def market_close(self, order_info: MarketOrder):
+        if order_info.is_sell:
+            return self.market_sell(order_info)
+        else:
+            return self.market_buy(order_info)
+
     def get_order(self, order_id: str):
         return self.client.fetch_order(order_id)
 

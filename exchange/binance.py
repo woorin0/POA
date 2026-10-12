@@ -140,7 +140,7 @@ class Binance:
                             }
         except Exception as e:
             from loguru import logger
-            logger.warning(f"바이낸스 포지션 상세 정보 조회 실패: {e}")
+            logger.warning("BINANCE_POSITION_DETAIL_FAILED")
         return None
 
     def get_balance(self, base: str):

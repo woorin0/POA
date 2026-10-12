@@ -86,6 +86,45 @@ crypto_futures_code = ("PERP", ".P")
 
 
 class Settings(BaseSettings):
+    SAFE_RETRY_ENABLED: bool = False
+    ORDER_RECONCILIATION_ENABLED: bool = False
+    DUPLICATE_SIGNAL_PROTECTION: bool = False
+    PERSIST_ORDER_STATE: bool = False
+    RETRY_DISCORD_ALERTS: bool = False
+    MAX_RETRY_ATTEMPTS: int = 3
+    RETRY_BASE_DELAY: float = 0.5
+    RETRY_MAX_DELAY: float = 8.0
+    RETRY_JITTER_ENABLED: bool = True
+    ENTRY_SIGNAL_TTL_SECONDS: float = 30
+    MAX_ENTRY_PRICE_DEVIATION_PCT: float = 0.1
+    SAFE_RETRY_DB_PATH: str = "safe_orders.sqlite3"
+    UPBIT_SAFE_RETRY_ENABLED: bool = False
+    # Verified PnL and Discord Alert Feature Flags (Defaults to False)
+    VERIFIED_DISCORD_ALERTS: bool = False
+    VERIFIED_FILL_PRICE: bool = False
+    NET_REALIZED_PNL_ENABLED: bool = False
+    EXIT_REASON_CLASSIFICATION_V2: bool = False
+    PARTIAL_FILL_ALERTS: bool = False
+    DISCORD_OUTBOX_ENABLED: bool = False
+    DISCORD_RETRY_ENABLED: bool = False
+    EXCHANGE_NATIVE_TPSL_MONITOR: bool = False
+    FILL_VERIFICATION_TIMEOUT_SEC: float = 30.0
+    DISCORD_RETRY_MAX_ATTEMPTS: int = 5
+    VERIFIED_NOTIFICATIONS_DB_PATH: str = "notifications.sqlite3"
+    # Only enable after verifying a flat start and complete, exclusively owned history.
+    VERIFIED_COST_BASIS_COMPLETE: bool = False
+    # Lightweight profile & Staged verification options (Defaults to False / safe defaults)
+    LIGHTWEIGHT_MODE: bool = False
+    VERIFY_MAX_CONCURRENCY: int = 2
+    VERIFY_STAGED_DELAYS: list[float] = [2.0, 5.0, 10.0, 20.0, 40.0]
+    LONG_TERM_RECOVERY_ENABLED: bool = True
+    LONG_TERM_RECOVERY_MAX_DELAY: float = 300.0
+    # Upbit Verified PnL and Alert Feature Flags (Defaults to False / safe defaults)
+    UPBIT_VERIFIED_ALERTS: bool = False
+    UPBIT_NET_PNL_ENABLED: bool = False
+    UPBIT_PARTIAL_FILL_ALERTS: bool = False
+    UPBIT_MAX_VERIFY_ATTEMPTS: int = 5
+    UPBIT_VERIFY_BACKOFF_ENABLED: bool = True
     PASSWORD: str
     WHITELIST: list[str] | None = None
     PORT: int | None = None
@@ -184,6 +223,9 @@ def parse_quote(quote: str):
 
 
 class OrderRequest(BaseModel):
+    signal_id: str | None = None
+    signal_time: float | None = None
+    strategy_id: str | None = None
     exchange: EXCHANGE_LITERAL
     base: str
     quote: QUOTE_LITERAL
