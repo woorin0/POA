@@ -1,0 +1,461 @@
+#cloud-config
+# NEW Debian 12 amd64 only. Edit the JSON inputs below before submitting.
+# Keep filled user-data private. Upload the verified source ZIP to GitHub main first.
+package_update: true
+package_upgrade: true
+timezone: UTC
+packages:
+  - "git"
+  - "ca-certificates"
+  - "curl"
+  - "unzip"
+  - "ufw"
+  - "caddy"
+  - "python3.11"
+  - "python3.11-venv"
+  - "python3-pip"
+  - "build-essential"
+  - "python3.11-dev"
+  - "systemd-timesyncd"
+bootcmd:
+  - ["systemctl", "mask", "caddy.service"]
+write_files:
+  - path: "/root/poa-install-input.json"
+    owner: "root:root"
+    permissions: "0600"
+    content: |
+      {
+        "domain": "YOUR_DOMAIN.example",
+        "repo_ref": "main",
+        "db_admin_email": "poa-admin@example.com",
+        "credentials": {
+          "PASSWORD": "CHANGE_ME_WEBHOOK_PASSWORD",
+          "DISCORD_WEBHOOK_URL": "CHANGE_ME_DISCORD_WEBHOOK_URL",
+          "UPBIT_KEY": "",
+          "UPBIT_SECRET": "",
+          "BINANCE_KEY": "",
+          "BINANCE_SECRET": "",
+          "BYBIT_KEY": "",
+          "BYBIT_SECRET": "",
+          "OKX_KEY": "",
+          "OKX_SECRET": "",
+          "OKX_PASSPHRASE": "",
+          "BITGET_KEY": "",
+          "BITGET_SECRET": "",
+          "BITGET_PASSPHRASE": ""
+        }
+      }
+  - path: "/usr/local/lib/poa/fix_alerts.py"
+    owner: "root:root"
+    permissions: "0644"
+    content: |
+      """Offline local-file update. No server restart, network, order or Discord calls.
+      
+      Run with the service stopped: python3 fix_alerts.py /root/POA --enable-alerts
+      Existing .env fields and DB files are preserved. Backups contain secrets: keep private.
+      """
+      import argparse
+      from datetime import datetime, timezone
+      from pathlib import Path
+      import os
+      import re
+      import shutil
+      
+      
+      def apply(root, enable=False):
+          root = Path(root).resolve()
+          target = root / 'exchange/utility/LogMaker.py'
+          original = target.read_text(encoding='utf-8')
+          old = 'datetime.utcnow().timestamp()'
+          new = 'datetime.now(timezone.utc).timestamp()'
+          if original.count(old) not in (0, 3):
+              raise SystemExit('Unexpected source version; review manually. No files changed.')
+          if old not in original and original.count(new) != 3:
+              raise SystemExit('Unsupported source layout. No files changed.')
+          compile(original.replace(old, new), str(target), 'exec')
+          env_path = root / '.env'
+          settings = {
+              'VERIFIED_DISCORD_ALERTS': 'True', 'VERIFIED_FILL_PRICE': 'True',
+              'DISCORD_OUTBOX_ENABLED': 'True', 'DISCORD_RETRY_ENABLED': 'True',
+              'EXIT_REASON_CLASSIFICATION_V2': 'True', 'UPBIT_VERIFIED_ALERTS': 'True',
+          }
+          if enable:
+              schema = (root / 'exchange/model/schemas.py').read_text(encoding='utf-8')
+              if not all(re.search(r'^    ' + key + r'\s*:', schema, re.M) for key in settings):
+                  raise SystemExit('Installed code does not support required alert flags.')
+              if not (root / 'exchange/verified_pnl/dispatcher.py').is_file() or not env_path.is_file():
+                  raise SystemExit('Missing verification module or .env; no files changed.')
+              env = env_path.read_text(encoding='utf-8')
+              for key, value in settings.items():
+                  pattern = r'^\s*(?:export\s+)?' + key + r'\s*=.*$'
+                  if re.search(pattern, env, re.M):
+                      env = re.sub(pattern, key + '=' + value, env, flags=re.M)
+                  else:
+                      env = env.rstrip() + '\n' + key + '=' + value + '\n'
+          stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
+          backup = root / ('alert-fix-backup-' + stamp)
+          backup.mkdir(mode=0o700)
+          shutil.copy2(target, backup / 'LogMaker.py')
+          if enable:
+              shutil.copy2(env_path, backup / '.env')
+              os.chmod(backup / '.env', 0o600)
+          def write(path, content, mode):
+              temp = path.with_name(path.name + '.alert-fix-' + stamp)
+              try:
+                  with temp.open('x', encoding='utf-8', newline='\n') as f:
+                      os.chmod(temp, mode)
+                      f.write(content)
+                      f.flush()
+                      os.fsync(f.fileno())
+                  os.replace(temp, path)
+              finally:
+                  if temp.exists():
+                      temp.unlink()
+          write(target, original.replace(old, new), target.stat().st_mode & 0o777)
+          if enable:
+              write(env_path, env, 0o600)
+          print('Updated notification clock' + (' and six alert flags.' if enable else '.'))
+          print('Private backup directory:', backup)
+          print('No service started or restarted; no DB files modified.')
+      
+      
+      if __name__ == '__main__':
+          parser = argparse.ArgumentParser()
+          parser.add_argument('root')
+          parser.add_argument('--enable-alerts', action='store_true')
+          args = parser.parse_args()
+          apply(args.root, args.enable_alerts)
+  - path: "/usr/local/lib/poa/validate_config.py"
+    owner: "root:root"
+    permissions: "0644"
+    content: |
+      from dotenv import dotenv_values
+      from urllib.parse import urlsplit
+      from pathlib import Path
+      import sys
+      values = dotenv_values('/root/POA/.env')
+      required = ('PASSWORD', 'DB_ID', 'DB_PASSWORD', 'DISCORD_WEBHOOK_URL')
+      ok = all(values.get(key) for key in required)
+      url = urlsplit(values.get('DISCORD_WEBHOOK_URL') or '')
+      ok = ok and url.scheme == 'https' and url.hostname in ('discord.com', 'discordapp.com')
+      ok = ok and any(values.get(ex + '_KEY') and values.get(ex + '_SECRET')
+                      for ex in ('BINANCE', 'BYBIT', 'OKX', 'UPBIT', 'BITGET'))
+      ok = ok and not (Path('/root/POA/.env').stat().st_mode & 0o077)
+      if not ok:
+          print('POA_CONFIGURATION_INCOMPLETE_OR_INSECURE; inspect .env locally', file=sys.stderr)
+          sys.exit(1)
+  - path: "/etc/systemd/system/poa.service"
+    owner: "root:root"
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=POA webhook service
+      After=network-online.target pocketbase.service
+      Wants=network-online.target
+      Requires=pocketbase.service
+      ConditionPathExists=/root/POA/ENABLE_LIVE_SERVICE
+      [Service]
+      Type=simple
+      User=root
+      WorkingDirectory=/root/POA
+      Environment=TZ=UTC
+      Environment=PYTHONUNBUFFERED=1
+      UMask=0077
+      ExecStartPre=/root/POA/.venv/bin/python /usr/local/lib/poa/validate_config.py
+      ExecStart=/root/POA/.venv/bin/python run.py --host=127.0.0.1 --port=8000
+      Restart=on-failure
+      RestartSec=5
+      TimeoutStopSec=120
+      [Install]
+      WantedBy=multi-user.target
+  - path: "/etc/systemd/system/pocketbase.service"
+    owner: "root:root"
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=POA PocketBase (legacy-compatible version)
+      After=network.target
+      [Service]
+      Type=simple
+      User=root
+      WorkingDirectory=/root/db
+      UMask=0077
+      ExecStart=/root/db/pocketbase serve --http=127.0.0.1:8090
+      Restart=on-failure
+      RestartSec=5
+      [Install]
+      WantedBy=multi-user.target
+  - path: "/usr/local/lib/poa/install_once.py"
+    owner: "root:root"
+    permissions: "0600"
+    content: |
+      """Fresh Debian 12 amd64 provisioning; invoked by cloud-init, never on an old server."""
+      import hashlib
+      import json
+      import os
+      import ipaddress
+      from pathlib import Path
+      import re
+      import secrets
+      import shutil
+      import socket
+      import ssl
+      import subprocess
+      import sys
+      import time
+      from urllib.error import HTTPError, URLError
+      from urllib.request import Request, urlopen
+      import zipfile
+      
+      INPUT = Path('/root/poa-install-input.json')
+      APP = Path('/root/POA')
+      DB = Path('/root/db')
+      ENV_KEYS = ('PASSWORD', 'BINANCE_KEY', 'BINANCE_SECRET', 'BYBIT_KEY', 'BYBIT_SECRET',
+                  'OKX_KEY', 'OKX_SECRET', 'OKX_PASSPHRASE', 'UPBIT_KEY', 'UPBIT_SECRET',
+                  'BITGET_KEY', 'BITGET_SECRET', 'BITGET_PASSPHRASE', 'DISCORD_WEBHOOK_URL')
+      FLAGS = {'VERIFIED_DISCORD_ALERTS': True, 'VERIFIED_FILL_PRICE': True,
+               'DISCORD_OUTBOX_ENABLED': True, 'DISCORD_RETRY_ENABLED': True,
+               'EXIT_REASON_CLASSIFICATION_V2': True, 'UPBIT_VERIFIED_ALERTS': True,
+               'NET_REALIZED_PNL_ENABLED': False, 'UPBIT_NET_PNL_ENABLED': False,
+               'VERIFIED_COST_BASIS_COMPLETE': False, 'PARTIAL_FILL_ALERTS': False,
+               'UPBIT_PARTIAL_FILL_ALERTS': False, 'EXCHANGE_NATIVE_TPSL_MONITOR': False}
+      
+      
+      class InstallError(Exception):
+          pass
+      
+      
+      def validate(data):
+          domain = data.get('domain', '')
+          if (not isinstance(domain, str) or not re.fullmatch(r'[a-zA-Z0-9](?:[a-zA-Z0-9.-]{0,251}[a-zA-Z0-9])?', domain)
+                  or '.' not in domain or '..' in domain or domain.endswith(('.example', '.invalid'))
+                  or domain == 'example.com' or any(len(p) > 63 or p.startswith('-') or p.endswith('-') for p in domain.split('.'))):
+              raise InstallError('DOMAIN_REQUIRED')
+          values = data.get('credentials')
+          if not isinstance(values, dict):
+              raise InstallError('CREDENTIALS_REQUIRED')
+          for key in ENV_KEYS:
+              value = values.get(key, '')
+              if not isinstance(value, str) or any(c in value for c in '\n\r\x00') or '${' in value:
+                  raise InstallError('INVALID_CREDENTIAL_FORMAT')
+              if value.startswith(('CHANGE_ME', 'YOUR_')):
+                  raise InstallError('REPLACE_PLACEHOLDERS')
+          if not values.get('PASSWORD'):
+              raise InstallError('WEBHOOK_PASSWORD_REQUIRED')
+          try:
+              ipaddress.ip_address(domain)
+          except ValueError:
+              pass
+          else:
+              raise InstallError('DOMAIN_REQUIRED')
+          from urllib.parse import urlsplit
+          try:
+              url = urlsplit(values.get('DISCORD_WEBHOOK_URL', ''))
+              port = url.port
+          except ValueError:
+              raise InstallError('DISCORD_WEBHOOK_REQUIRED') from None
+          if (url.scheme != 'https' or url.hostname not in ('discord.com', 'discordapp.com')
+                  or url.username or url.password or port or url.query or url.fragment
+                  or not re.fullmatch(r'/api/webhooks/\d+/[A-Za-z0-9_-]+', url.path)):
+              raise InstallError('DISCORD_WEBHOOK_REQUIRED')
+          configured = False
+          for ex in ('BINANCE', 'BYBIT', 'OKX', 'UPBIT', 'BITGET'):
+              key, secret = values.get(ex + '_KEY'), values.get(ex + '_SECRET')
+              if bool(key) != bool(secret):
+                  raise InstallError('INCOMPLETE_EXCHANGE_CREDENTIALS')
+              if key:
+                  configured = True
+                  if ex in ('OKX', 'BITGET') and not values.get(ex + '_PASSPHRASE'):
+                      raise InstallError('EXCHANGE_PASSPHRASE_REQUIRED')
+          if not configured:
+              raise InstallError('EXCHANGE_CREDENTIALS_REQUIRED')
+          ref = data.get('repo_ref', 'main')
+          if not isinstance(ref, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._/-]{0,127}', ref) or '..' in ref:
+              raise InstallError('INVALID_REPOSITORY_REF')
+          email = data.get('db_admin_email', 'poa-admin@example.com')
+          if not isinstance(email, str) or not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', email):
+              raise InstallError('INVALID_DB_ADMIN_EMAIL')
+          return values
+      
+      
+      def run(args, code, cwd=None, timeout=300):
+          # Captured command output is not printed: API tokens must never enter logs.
+          result = subprocess.run(args, cwd=cwd, capture_output=True, timeout=timeout)
+          if result.returncode:
+              raise InstallError(code)
+          return result.stdout
+      
+      
+      def write_private(path, content):
+          fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+          with os.fdopen(fd, 'w', encoding='utf-8') as f:
+              f.write(content)
+      
+      
+      def api(path, data=None, token=None):
+          request = Request('http://127.0.0.1:8090' + path,
+                            data=json.dumps(data).encode() if data is not None else None,
+                            headers={'Content-Type': 'application/json', **({'Authorization': token} if token else {})})
+          with urlopen(request, timeout=10) as response:
+              return json.load(response)
+      
+      
+      def bootstrap_db(email, password, request=api):
+          # v0.16.6 permits first-admin creation only while there are no admins.
+          request('/api/admins', {'email': email, 'password': password, 'passwordConfirm': password})
+          auth = request('/api/admins/auth-with-password', {'identity': email, 'password': password})
+          token = auth['token']
+          fields = [{'id': hashlib.sha256(name.encode()).hexdigest()[:8], 'name': name,
+                     'type': 'number' if name == 'amount' else 'text', 'required': True,
+                     'unique': False, 'system': False,
+                     'options': {'min': None, 'max': None, **({'noDecimal': False} if name == 'amount' else {'pattern': ''})}}
+                    for name in ('exchange', 'base', 'quote', 'amount')]
+          request('/api/collections', {'name': 'kimp', 'type': 'base', 'schema': fields,
+                                      'listRule': None, 'viewRule': None, 'createRule': None,
+                                      'updateRule': None, 'deleteRule': None}, token)
+          check = request('/api/collections/kimp', token=token)
+          if {f['name']: f['type'] for f in check['schema']} != {f['name']: f['type'] for f in fields}:
+              raise InstallError('DB_SCHEMA_CHECK_FAILED')
+      
+      
+      def wait_ready(check, code, seconds=90):
+          deadline = time.monotonic() + seconds
+          while time.monotonic() < deadline:
+              try:
+                  if check():
+                      return
+              except (OSError, URLError, HTTPError, ValueError):
+                  pass
+              time.sleep(1)
+          raise InstallError(code)
+      
+      
+      def local_https(domain):
+          # Verify the actual local Caddy certificate; never POST a trading webhook.
+          with socket.create_connection(('127.0.0.1', 443), timeout=5) as sock:
+              with ssl.create_default_context().wrap_socket(sock, server_hostname=domain) as tls:
+                  tls.sendall(('GET / HTTP/1.1\r\nHost: ' + domain + '\r\nConnection: close\r\n\r\n').encode())
+                  return tls.recv(128).startswith(b'HTTP/1.1 403')
+      
+      
+      def verify_source():
+          path = APP / 'release_manifest_sha256.json'
+          if not path.is_file():
+              raise InstallError('UPLOAD_VERIFIED_GITHUB_ZIP_FIRST')
+          for entry in json.loads(path.read_text(encoding='utf-8')):
+              file = (APP / entry['Path']).resolve()
+              if not file.is_relative_to(APP.resolve()) or not file.is_file():
+                  raise InstallError('SOURCE_MANIFEST_INVALID')
+              if hashlib.sha256(file.read_bytes()).hexdigest().upper() != entry['SHA256']:
+                  raise InstallError('SOURCE_HASH_MISMATCH')
+      
+      
+      def install(data):
+          values = validate(data)
+          if os.geteuid() != 0 or APP.exists() or DB.exists():
+              raise InstallError('NEW_SERVER_ONLY')
+          os_release = Path('/etc/os-release').read_text()
+          if not re.search(r'^ID=debian$', os_release, re.M) or not re.search(r'^VERSION_ID="?12"?$', os_release, re.M):
+              raise InstallError('DEBIAN_12_REQUIRED')
+          if run(['dpkg', '--print-architecture'], 'ARCH_CHECK_FAILED').strip() != b'amd64':
+              raise InstallError('AMD64_REQUIRED')
+          owned = False
+          try:
+              print('POA_INSTALL_STAGE=SOURCE', flush=True)
+              run(['git', 'init', str(APP)], 'GIT_INIT_FAILED')
+              owned = True
+              run(['git', '-C', str(APP), 'remote', 'add', 'origin', 'https://github.com/woorin0/POA.git'], 'GIT_REMOTE_FAILED')
+              run(['git', '-C', str(APP), 'fetch', '--depth', '1', 'origin', data.get('repo_ref', 'main')], 'GIT_FETCH_FAILED')
+              run(['git', '-C', str(APP), 'checkout', '--detach', 'FETCH_HEAD'], 'GIT_CHECKOUT_FAILED')
+              verify_source()
+              commit = run(['git', '-C', str(APP), 'rev-parse', 'HEAD'], 'COMMIT_CHECK_FAILED').decode().strip()
+              print('POA_INSTALL_STAGE=DEPENDENCIES', flush=True)
+              run(['python3.11', '-m', 'venv', str(APP / '.venv')], 'VENV_FAILED')
+              python = str(APP / '.venv/bin/python')
+              run([python, '-m', 'pip', 'install', '--no-cache-dir', '-r', str(APP / 'requirements.txt')], 'REQUIREMENTS_INSTALL_FAILED', timeout=1800)
+              run([python, '-m', 'pip', 'check'], 'PIP_CHECK_FAILED')
+              password = secrets.token_urlsafe(32)
+              email = data.get('db_admin_email', 'poa-admin@example.com')
+              env = {**{key: values.get(key, '') for key in ENV_KEYS}, 'DB_ID': email, 'DB_PASSWORD': password,
+                     'PORT': 8000, 'WHITELIST': ['127.0.0.1'], **FLAGS,
+                     'VERIFIED_NOTIFICATIONS_DB_PATH': str(APP / 'notifications.sqlite3')}
+              write_private(APP / '.env', ''.join(key + '=' + (json.dumps(value, ensure_ascii=False) if isinstance(value, str)
+                            else json.dumps(value)) + '\n' for key, value in env.items()))
+              run(['python3.11', '/usr/local/lib/poa/fix_alerts.py', str(APP)], 'CLOCK_PATCH_FAILED')
+              run([python, '/usr/local/lib/poa/validate_config.py'], 'CONFIG_CHECK_FAILED')
+              print('POA_INSTALL_STAGE=DATABASE', flush=True)
+              DB.mkdir(mode=0o700)
+              archive = DB / 'pocketbase.zip'
+              run(['curl', '--fail', '--location', '--retry', '3', '--output', str(archive),
+                   'https://github.com/pocketbase/pocketbase/releases/download/v0.16.6/pocketbase_0.16.6_linux_amd64.zip'], 'POCKETBASE_DOWNLOAD_FAILED')
+              with zipfile.ZipFile(archive) as z:
+                  (DB / 'pocketbase').write_bytes(z.read('pocketbase'))
+              (DB / 'pocketbase').chmod(0o700)
+              archive.unlink()
+              run(['systemctl', 'daemon-reload'], 'SYSTEMD_RELOAD_FAILED')
+              run(['systemctl', 'start', 'pocketbase'], 'POCKETBASE_START_FAILED')
+              wait_ready(lambda: api('/api/health').get('code') == 200, 'POCKETBASE_NOT_READY')
+              bootstrap_db(email, password)
+              print('POA_INSTALL_STAGE=WEBHOOK', flush=True)
+              (APP / 'ENABLE_LIVE_SERVICE').touch(mode=0o600)
+              run(['systemctl', 'start', 'poa'], 'POA_START_FAILED')
+              def poa_ready():
+                  with urlopen('http://127.0.0.1:8000/hi', timeout=5) as response:
+                      return json.load(response) == 'hi!!'
+              wait_ready(poa_ready, 'POA_NOT_READY')
+              print('POA_INSTALL_STAGE=HTTPS', flush=True)
+              domain = data['domain']
+              caddy = domain + ''' {
+          @tradingview {
+              remote_ip 52.89.214.238 34.212.75.30 54.218.53.128 52.32.178.7 127.0.0.1
+              method POST
+              path / /order
+          }
+          handle @tradingview {
+              reverse_proxy 127.0.0.1:8000
+          }
+          respond 403
+      }
+      '''
+              Path('/etc/caddy/Caddyfile').write_text(caddy)
+              run(['caddy', 'validate', '--config', '/etc/caddy/Caddyfile'], 'CADDY_CONFIG_FAILED')
+              for port in ('22/tcp', '80/tcp', '443/tcp'):
+                  run(['ufw', 'allow', port], 'FIREWALL_FAILED')
+              run(['ufw', '--force', 'enable'], 'FIREWALL_FAILED')
+              run(['systemctl', 'unmask', 'caddy'], 'CADDY_UNMASK_FAILED')
+              run(['systemctl', 'start', 'caddy'], 'CADDY_START_FAILED')
+              wait_ready(lambda: local_https(domain), 'HTTPS_NOT_READY_CHECK_DNS', seconds=180)
+              run(['systemctl', 'enable', 'pocketbase', 'poa', 'caddy'], 'AUTOSTART_FAILED')
+              for service in ('pocketbase', 'poa', 'caddy'):
+                  run(['systemctl', 'is-active', '--quiet', service], 'SERVICE_HEALTH_FAILED')
+              write_private(Path('/root/POA_INSTALL_RESULT.json'), json.dumps(
+                  {'status': 'RUNNING', 'commit': commit, 'webhook_url': 'https://' + domain + '/order',
+                   'python': run([python, '--version'], 'PYTHON_VERSION_FAILED').decode().strip()}, indent=2))
+              print('POA_INSTALL_SUCCESS', flush=True)
+          except Exception:
+              if owned:
+                  # Keep all journals and databases; only stop this new installation.
+                  for service in ('caddy', 'poa', 'pocketbase'):
+                      try:
+                          run(['systemctl', 'stop', service], 'CLEANUP_STOP_FAILED', timeout=150)
+                          run(['systemctl', 'disable', service], 'CLEANUP_DISABLE_FAILED')
+                      except Exception:
+                          print('POA_INSTALL_CLEANUP_REQUIRES_REVIEW', flush=True)
+                  (APP / 'ENABLE_LIVE_SERVICE').unlink(missing_ok=True)
+              raise
+      
+      
+      if __name__ == '__main__':
+          os.umask(0o077)
+          try:
+              install(json.loads(INPUT.read_text(encoding='utf-8')))
+          except InstallError as error:
+              # Only codes raised by this file; never dump command, request or secrets.
+              print('POA_INSTALL_FAILED=' + str(error), file=sys.stderr)
+              sys.exit(1)
+          except Exception:
+              print('POA_INSTALL_FAILED=UNEXPECTED_FAILURE', file=sys.stderr)
+              sys.exit(1)
+runcmd:
+  - ["timedatectl", "set-ntp", "true"]
+  - ["python3.11", "/usr/local/lib/poa/install_once.py"]
