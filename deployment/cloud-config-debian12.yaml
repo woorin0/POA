@@ -1,0 +1,65 @@
+#cloud-config
+{
+  "package_update": true,
+  "package_upgrade": true,
+  "timezone": "UTC",
+  "packages": [
+    "git",
+    "ca-certificates",
+    "curl",
+    "unzip",
+    "ufw",
+    "caddy",
+    "python3.11",
+    "python3.11-venv",
+    "python3-pip",
+    "build-essential",
+    "python3.11-dev",
+    "systemd-timesyncd"
+  ],
+  "write_files": [
+    {
+      "path": "/usr/local/lib/poa/fix_alerts.py",
+      "owner": "root:root",
+      "permissions": "0644",
+      "content": "\"\"\"Offline local-file update. No server restart, network, order or Discord calls.\n\nRun with the service stopped: python3 fix_alerts.py /root/POA --enable-alerts\nExisting .env fields and DB files are preserved. Backups contain secrets: keep private.\n\"\"\"\nimport argparse\nfrom datetime import datetime, timezone\nfrom pathlib import Path\nimport os\nimport re\nimport shutil\n\n\ndef apply(root, enable=False):\n    root = Path(root).resolve()\n    target = root / 'exchange/utility/LogMaker.py'\n    original = target.read_text(encoding='utf-8')\n    old = 'datetime.utcnow().timestamp()'\n    new = 'datetime.now(timezone.utc).timestamp()'\n    if original.count(old) not in (0, 3):\n        raise SystemExit('Unexpected source version; review manually. No files changed.')\n    if old not in original and original.count(new) != 3:\n        raise SystemExit('Unsupported source layout. No files changed.')\n    compile(original.replace(old, new), str(target), 'exec')\n    env_path = root / '.env'\n    settings = {\n        'VERIFIED_DISCORD_ALERTS': 'True', 'VERIFIED_FILL_PRICE': 'True',\n        'DISCORD_OUTBOX_ENABLED': 'True', 'DISCORD_RETRY_ENABLED': 'True',\n        'EXIT_REASON_CLASSIFICATION_V2': 'True', 'UPBIT_VERIFIED_ALERTS': 'True',\n    }\n    if enable:\n        schema = (root / 'exchange/model/schemas.py').read_text(encoding='utf-8')\n        if not all(re.search(r'^    ' + key + r'\\s*:', schema, re.M) for key in settings):\n            raise SystemExit('Installed code does not support required alert flags.')\n        if not (root / 'exchange/verified_pnl/dispatcher.py').is_file() or not env_path.is_file():\n            raise SystemExit('Missing verification module or .env; no files changed.')\n        env = env_path.read_text(encoding='utf-8')\n        for key, value in settings.items():\n            pattern = r'^\\s*(?:export\\s+)?' + key + r'\\s*=.*$'\n            if re.search(pattern, env, re.M):\n                env = re.sub(pattern, key + '=' + value, env, flags=re.M)\n            else:\n                env = env.rstrip() + '\\n' + key + '=' + value + '\\n'\n    stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')\n    backup = root / ('alert-fix-backup-' + stamp)\n    backup.mkdir(mode=0o700)\n    shutil.copy2(target, backup / 'LogMaker.py')\n    if enable:\n        shutil.copy2(env_path, backup / '.env')\n        os.chmod(backup / '.env', 0o600)\n    def write(path, content, mode):\n        temp = path.with_name(path.name + '.alert-fix-' + stamp)\n        try:\n            with temp.open('x', encoding='utf-8', newline='\\n') as f:\n                os.chmod(temp, mode)\n                f.write(content)\n                f.flush()\n                os.fsync(f.fileno())\n            os.replace(temp, path)\n        finally:\n            if temp.exists():\n                temp.unlink()\n    write(target, original.replace(old, new), target.stat().st_mode & 0o777)\n    if enable:\n        write(env_path, env, 0o600)\n    print('Updated notification clock' + (' and six alert flags.' if enable else '.'))\n    print('Private backup directory:', backup)\n    print('No service started or restarted; no DB files modified.')\n\n\nif __name__ == '__main__':\n    parser = argparse.ArgumentParser()\n    parser.add_argument('root')\n    parser.add_argument('--enable-alerts', action='store_true')\n    args = parser.parse_args()\n    apply(args.root, args.enable_alerts)\n"
+    },
+    {
+      "path": "/usr/local/lib/poa/validate_config.py",
+      "owner": "root:root",
+      "permissions": "0644",
+      "content": "from dotenv import dotenv_values\nfrom urllib.parse import urlsplit\nfrom pathlib import Path\nimport sys\nvalues = dotenv_values('/root/POA/.env')\nrequired = ('PASSWORD', 'DB_ID', 'DB_PASSWORD', 'DISCORD_WEBHOOK_URL')\nok = all(values.get(key) for key in required)\nurl = urlsplit(values.get('DISCORD_WEBHOOK_URL') or '')\nok = ok and url.scheme == 'https' and url.hostname in ('discord.com', 'discordapp.com')\nok = ok and any(values.get(ex + '_KEY') and values.get(ex + '_SECRET')\n                for ex in ('BINANCE', 'BYBIT', 'OKX', 'UPBIT', 'BITGET'))\nok = ok and not (Path('/root/POA/.env').stat().st_mode & 0o077)\nif not ok:\n    print('POA_CONFIGURATION_INCOMPLETE_OR_INSECURE; inspect .env locally', file=sys.stderr)\n    sys.exit(1)\n"
+    },
+    {
+      "path": "/root/poa.env.template",
+      "owner": "root:root",
+      "permissions": "0600",
+      "content": "# Fill locally after provisioning; NEVER put real keys in cloud-init user-data.\nPASSWORD=\"\"\nBINANCE_KEY=\"\"\nBINANCE_SECRET=\"\"\nBYBIT_KEY=\"\"\nBYBIT_SECRET=\"\"\nOKX_KEY=\"\"\nOKX_SECRET=\"\"\nOKX_PASSPHRASE=\"\"\nUPBIT_KEY=\"\"\nUPBIT_SECRET=\"\"\nBITGET_KEY=\"\"\nBITGET_SECRET=\"\"\nBITGET_PASSPHRASE=\"\"\nDISCORD_WEBHOOK_URL=\"\"\nDB_ID=\"\"\nDB_PASSWORD=\"\"\nWHITELIST=[\"127.0.0.1\"]\nPORT=8000\nVERIFIED_DISCORD_ALERTS=True\nVERIFIED_FILL_PRICE=True\nDISCORD_OUTBOX_ENABLED=True\nDISCORD_RETRY_ENABLED=True\nEXIT_REASON_CLASSIFICATION_V2=True\nUPBIT_VERIFIED_ALERTS=True\nNET_REALIZED_PNL_ENABLED=False\nUPBIT_NET_PNL_ENABLED=False\nVERIFIED_COST_BASIS_COMPLETE=False\nPARTIAL_FILL_ALERTS=False\nUPBIT_PARTIAL_FILL_ALERTS=False\nEXCHANGE_NATIVE_TPSL_MONITOR=False\nVERIFIED_NOTIFICATIONS_DB_PATH=\"/root/POA/notifications.sqlite3\"\n# Order execution flags retain their defaults; this template only enables alerts.\n"
+    },
+    {
+      "path": "/etc/systemd/system/poa.service",
+      "owner": "root:root",
+      "permissions": "0644",
+      "content": "[Unit]\nDescription=POA webhook service\nAfter=network-online.target pocketbase.service\nWants=network-online.target\nRequires=pocketbase.service\nConditionPathExists=/root/POA/ENABLE_LIVE_SERVICE\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/root/POA\nEnvironment=TZ=UTC\nEnvironment=PYTHONUNBUFFERED=1\nUMask=0077\nExecStartPre=/root/POA/.venv/bin/python /usr/local/lib/poa/validate_config.py\nExecStart=/root/POA/.venv/bin/python run.py --host=127.0.0.1 --port=8000\nRestart=on-failure\nRestartSec=5\nTimeoutStopSec=120\n[Install]\nWantedBy=multi-user.target\n"
+    },
+    {
+      "path": "/etc/systemd/system/pocketbase.service",
+      "owner": "root:root",
+      "permissions": "0644",
+      "content": "[Unit]\nDescription=POA PocketBase (legacy-compatible version)\nAfter=network.target\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/root/db\nUMask=0077\nExecStart=/root/db/pocketbase serve --http=127.0.0.1:8090\nRestart=on-failure\nRestartSec=5\n[Install]\nWantedBy=multi-user.target\n"
+    },
+    {
+      "path": "/root/Caddyfile.poa.template",
+      "owner": "root:root",
+      "permissions": "0644",
+      "content": "# Replace example.com with your domain, then install as /etc/caddy/Caddyfile.\nexample.com {\n    @tradingview {\n        remote_ip 52.89.214.238 34.212.75.30 54.218.53.128 52.32.178.7 127.0.0.1\n        method POST\n        path / /order\n    }\n    handle @tradingview {\n        reverse_proxy 127.0.0.1:8000\n    }\n    respond 403\n}\n"
+    }
+  ],
+  "runcmd": [
+    [
+      "bash",
+      "-euc",
+      "set -euo pipefail\numask 077\n. /etc/os-release\ntest \"$ID\" = debian && test \"$VERSION_ID\" = 12\ntest \"$(dpkg --print-architecture)\" = amd64\ntest ! -e /root/POA\ntest ! -e /root/db\nsystemctl stop caddy\nsystemctl disable caddy\ntimedatectl set-ntp true\ngit clone --branch main --single-branch https://github.com/woorin0/POA.git /root/POA\ngit -C /root/POA rev-parse HEAD > /root/POA_INSTALLED_COMMIT\npython3.11 -m venv /root/POA/.venv\n/root/POA/.venv/bin/python -m pip install --no-cache-dir -r /root/POA/requirements.txt\n/root/POA/.venv/bin/python -m pip check\ninstall -m 0600 /root/poa.env.template /root/POA/.env\npython3.11 /usr/local/lib/poa/fix_alerts.py /root/POA\nmkdir -m 0700 /root/db\ncurl --fail --location --retry 3 --output /root/pocketbase.zip https://github.com/pocketbase/pocketbase/releases/download/v0.16.6/pocketbase_0.16.6_linux_amd64.zip\nunzip -j /root/pocketbase.zip pocketbase -d /root/db\nchmod 0700 /root/db/pocketbase\n# PocketBase creates a fresh pb_data on first start. Never ship an account DB.\nmkdir -m 0700 /root/db/pb_data\nchmod -R go-rwx /root/db\nsystemctl daemon-reload\nufw allow 22/tcp\nufw allow 80/tcp\nufw allow 443/tcp\nufw --force enable\nprintf '%s\\n' 'Provisioning complete. Services NOT enabled or started. Complete credentials and review before activation.'\n"
+    ]
+  ]
+}

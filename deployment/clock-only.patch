@@ -1,0 +1,29 @@
+--- a/exchange/utility/LogMaker.py
++++ b/exchange/utility/LogMaker.py
+@@ -62,7 +62,7 @@
+ 
+ 
+ def logger_test():
+-    date = parse_time(datetime.utcnow().timestamp())
++    date = parse_time(datetime.now(timezone.utc).timestamp())
+     logger.info(date)
+ 
+ 
+@@ -83,7 +83,7 @@
+ 
+ 
+ def log_order_message(exchange_name, order_result: dict, order_info: MarketOrder):
+-    date = parse_time(datetime.utcnow().timestamp())
++    date = parse_time(datetime.now(timezone.utc).timestamp())
+     if not order_info.is_futures and order_info.is_buy and exchange_name in COST_BASED_ORDER_EXCHANGES:
+         f_name = "비용"
+         if order_info.amount is not None:
+@@ -281,7 +281,7 @@
+ 
+ 
+ def log_hedge_message(exchange, base, quote, exchange_amount, upbit_amount, hedge):
+-    date = parse_time(datetime.utcnow().timestamp())
++    date = parse_time(datetime.now(timezone.utc).timestamp())
+     hedge_type = "헷지" if hedge == "ON" else "헷지 종료"
+     content = f"{hedge_type}: {base} ==> {exchange}:{exchange_amount} UPBIT:{upbit_amount}"
+     embed = Embed(title="헷지", description=content, color=0x0000FF)
