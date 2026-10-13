@@ -1,0 +1,20 @@
+[Unit]
+Description=POA webhook service
+After=network-online.target pocketbase.service
+Wants=network-online.target
+Requires=pocketbase.service
+ConditionPathExists=/root/POA/ENABLE_LIVE_SERVICE
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/POA
+Environment=TZ=UTC
+Environment=PYTHONUNBUFFERED=1
+UMask=0077
+ExecStartPre=/root/POA/.venv/bin/python /usr/local/lib/poa/validate_config.py
+ExecStart=/root/POA/.venv/bin/python run.py --host=127.0.0.1 --port=8000
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=120
+[Install]
+WantedBy=multi-user.target

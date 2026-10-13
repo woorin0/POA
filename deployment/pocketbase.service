@@ -1,0 +1,13 @@
+[Unit]
+Description=POA PocketBase (legacy-compatible version)
+After=network.target
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/db
+UMask=0077
+ExecStart=/root/db/pocketbase serve --http=127.0.0.1:8090
+Restart=on-failure
+RestartSec=5
+[Install]
+WantedBy=multi-user.target
