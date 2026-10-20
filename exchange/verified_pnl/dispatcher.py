@@ -93,6 +93,9 @@ def dispatch_verified_error_alert(error_message, order_info, settings):
 def make_payload(key, fill, info, pnl, entry_price, settings):
     def money(value): return None if value is None else f"{value:+f} {pnl.pnl_currency}"
     reason=classify_exit_reason(info,{"type":fill.verified_order_type}) if settings.EXIT_REASON_CLASSIFICATION_V2 else ExitReason.UNKNOWN
+    notional = None
+    if fill.average_fill_price is not None and fill.filled_quantity > 0:
+        notional = format_decimal(fill.average_fill_price * fill.filled_quantity)
     return NotificationPayload(event_id=key,exchange=fill.exchange,symbol=fill.symbol,
         side=get_side_display(info),order_name=info.order_name or "주문",exit_reason=reason,
         pnl_result=classify_pnl_result(pnl),fill_status=fill.status,order_id=fill.order_id,
@@ -106,19 +109,29 @@ def make_payload(key, fill, info, pnl, entry_price, settings):
         roi_pct=str(pnl.net_roi_pct) if pnl.net_roi_pct is not None else None,
         verification_status=fill.verification_status,verification_source=fill.source+" / PnL: "+pnl.verification_status.value,
         event_timestamp=time.time(),fill_timestamp=fill.fill_timestamp,leverage=info.leverage,
-        fee_breakdown=", ".join(f"{v} {k}" for k,v in fill.fees.items()) or None)
+        fee_breakdown=", ".join(f"{v} {k}" for k,v in fill.fees.items()) or None,
+        signal_id=str(getattr(info, "signal_id", None)) if getattr(info, "signal_id", None) is not None else None,
+        strategy_id=str(getattr(info, "strategy_id", None)) if getattr(info, "strategy_id", None) is not None else None,
+        pnl_currency=getattr(fill, "pnl_currency", None) or getattr(pnl, "pnl_currency", None),
+        notional_amount=notional)
 
 
 def make_manual_review_payload(key, data, reason, settings):
     raw_info = data.get("info", {}) if isinstance(data, dict) else {}
     info = SimpleNamespace(**raw_info)
     signal_id = getattr(info, "signal_id", None) or raw_info.get("signal_id")
-    event_id = f"{key}:manual_review"
+    exchange_name = getattr(info, "exchange", "") or "UNKNOWN"
     symbol = getattr(info, "unified_symbol", None) or f"{getattr(info, 'base', '')}/{getattr(info, 'quote', '')}"
+    strategy_id = getattr(info, "strategy_id", None) or getattr(info, "order_name", None) or "default"
+    account = data.get("account") if isinstance(data, dict) and data.get("account") else "default"
+    if signal_id:
+        event_id = identity(exchange_name, account, strategy_id, symbol, str(signal_id), "manual_review")
+    else:
+        event_id = f"{key}:manual_review"
     reason_desc = "주문 ID 누락 (missing_order_id)" if reason == "missing_order_id" else f"장기 복구 비활성화 ({reason})"
     err_msg = (
         f"수동 확인 필요 (MANUAL_REVIEW 보류) | 사유: {reason_desc} | "
-        f"신호 ID: {signal_id or '없음'} | 거래소: {getattr(info, 'exchange', '')} | 종목: {symbol} | 상태: 미확정(UNVERIFIED)"
+        f"신호 ID: {signal_id or '없음'} | 거래소: {exchange_name} | 종목: {symbol} | 상태: 미확정(UNVERIFIED)"
     )
     res = data.get("result") if (isinstance(data, dict) and isinstance(data.get("result"), dict)) else {}
     order_id = res.get("id") or res.get("uuid")
@@ -126,7 +139,7 @@ def make_manual_review_payload(key, data, reason, settings):
     return NotificationPayload(
         event_type="manual_review",
         event_id=event_id,
-        exchange=getattr(info, "exchange", "") or "UNKNOWN",
+        exchange=exchange_name,
         symbol=symbol,
         side=get_side_display(info) if hasattr(info, "is_futures") else "주문",
         order_name=getattr(info, "order_name", None) or "주문",
@@ -136,6 +149,7 @@ def make_manual_review_payload(key, data, reason, settings):
         order_id=str(order_id) if order_id else None,
         client_order_id=str(client_order_id) if client_order_id else None,
         signal_id=str(signal_id) if signal_id else None,
+        strategy_id=str(getattr(info, "strategy_id", None)) if getattr(info, "strategy_id", None) is not None else None,
         verification_status=VerificationStatus.UNVERIFIED,
         verification_source="수동 검토 보류 (거래소 주문 조회 불가)",
         event_timestamp=time.time(),
@@ -186,8 +200,12 @@ def verification_tick(settings, client_factory):
             if pnl_enabled:
                 # No account-wide funding allocation is guessed. Spot has no funding.
                 from decimal import Decimal
+                spot_margin = None
+                if not info.is_futures and entry is not None and entry > 0 and entry_fee is not None and fill.filled_quantity > 0:
+                    spot_margin = (entry * fill.filled_quantity) + entry_fee
                 pnl=PnlCalculator().calculate_pnl(fill,info,entry_price=entry,
-                    allocated_entry_fee=entry_fee,allocated_funding=Decimal(0) if not info.is_futures else None)
+                    allocated_entry_fee=entry_fee,allocated_funding=Decimal(0) if not info.is_futures else None,
+                    allocated_margin=spot_margin)
             partial_alerts = (settings.UPBIT_PARTIAL_FILL_ALERTS if is_upbit else settings.PARTIAL_FILL_ALERTS)
             max_attempts = getattr(settings, "UPBIT_MAX_VERIFY_ATTEMPTS", 5) if is_upbit else 999
             attempts_exceeded = is_upbit and (attempts >= max_attempts)

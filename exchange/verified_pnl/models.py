@@ -146,6 +146,9 @@ class NotificationPayload(BaseModel):
     amount_field_name: str = "수량"
     error_message: Optional[str] = None
     signal_id: Optional[str] = None
+    strategy_id: Optional[str] = None
+    pnl_currency: Optional[str] = None
+    notional_amount: Optional[str] = None
 
     class Config:
         arbitrary_types_allowed = True

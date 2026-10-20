@@ -33,6 +33,15 @@ class PnlCalculator:
                 if not fill.pnl_includes_entry_fee and allocated_entry_fee is not None: net -= allocated_entry_fee
                 if not fill.pnl_includes_exit_fee and exit_fee is not None: net -= exit_fee
                 if not fill.pnl_includes_funding and allocated_funding is not None: net += allocated_funding
+        if (
+            allocated_margin is None
+            and getattr(fill, "market_type", None) == "spot"
+            and entry_price is not None
+            and entry_price > 0
+            and fill.filled_quantity > 0
+            and allocated_entry_fee is not None
+        ):
+            allocated_margin = (entry_price * fill.filled_quantity) + allocated_entry_fee
         roi = net / allocated_margin * 100 if net is not None and allocated_margin is not None and allocated_margin > 0 else None
         return PnlCalculationResult(gross_realized_pnl=gross, entry_fee_allocated=allocated_entry_fee,
             exit_fee=exit_fee, funding_pnl_allocated=allocated_funding, net_realized_pnl=net,
