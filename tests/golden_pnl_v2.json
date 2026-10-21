@@ -1,0 +1,163 @@
+[
+  {
+    "error": null,
+    "exit_type_preserved": null,
+    "name": "long_entry",
+    "result": {
+      "amount": 0.01,
+      "average": 101,
+      "close_price": 101,
+      "entry_price": null,
+      "id": "fixture",
+      "price": 101
+    },
+    "sent": [
+      {
+        "color": 6583435,
+        "description": "\ub808\ubc84\ub9ac\uc9c0: 2x\n\uc694\uccad\uc218\ub7c9: 0.01\n\ucc38\uace0 \uc8fc\ubb38\uac00(\ubbf8\uac80\uc99d): 101 USDT\n\n\u2139\ufe0f \uac70\ub798\uc18c \uc2e4\uccb4\uacb0\u00b7\uc218\uc218\ub8cc \uac80\uc99d \uc804 \uc811\uc218 \uc54c\ub9bc\uc785\ub2c8\ub2e4\n\ud83d\udd52 1970-01-01 09:00:00 KST",
+        "fields": [],
+        "title": "\u26aa BINANCE \u00b7 BTC/USDT.P \u00b7 \ub871 \uc9c4\uc785 \uc811\uc218 (\ubbf8\uac80\uc99d)"
+      }
+    ]
+  },
+  {
+    "error": null,
+    "exit_type_preserved": null,
+    "name": "long_close",
+    "result": {
+      "amount": 0.01,
+      "average": 101,
+      "close_price": 101,
+      "entry_price": 100,
+      "id": "fixture",
+      "price": 101
+    },
+    "sent": [
+      {
+        "color": 6583435,
+        "description": "\ub808\ubc84\ub9ac\uc9c0: 2x\n\uc694\uccad\uc218\ub7c9: 0.01\n\ucc38\uace0 \uc9c4\uc785\uac00(\ubbf8\uac80\uc99d): 100 USDT\n\ucc38\uace0 \uc8fc\ubb38\uac00(\ubbf8\uac80\uc99d): 101 USDT\n\ud655\uc815\uc190\uc775: \ubbf8\ud655\uc815 (\ub808\uac70\uc2dc \ubbf8\uac80\uc99d \uacbd\ub85c)\n\uc218\uc775\ub960: \ubbf8\ud655\uc815\n\n\u2139\ufe0f \uac70\ub798\uc18c \uc2e4\uccb4\uacb0\u00b7\uc218\uc218\ub8cc \uac80\uc99d \uc804 \uc811\uc218 \uc54c\ub9bc\uc785\ub2c8\ub2e4\n\ud83d\udd52 1970-01-01 09:00:00 KST",
+        "fields": [],
+        "title": "\u26aa BINANCE \u00b7 BTC/USDT.P \u00b7 \ub871 \uc885\ub8cc \uc811\uc218 (\ubbf8\uac80\uc99d)"
+      }
+    ]
+  },
+  {
+    "error": null,
+    "exit_type_preserved": "TP",
+    "name": "TP",
+    "result": {
+      "amount": 0.01,
+      "average": 99,
+      "close_price": 99,
+      "entry_price": 100,
+      "id": "fixture",
+      "price": 99
+    },
+    "sent": [
+      {
+        "color": 6583435,
+        "description": "\ub808\ubc84\ub9ac\uc9c0: 2x\n\uc694\uccad\uc218\ub7c9: 0.01\n\ucc38\uace0 \uc9c4\uc785\uac00(\ubbf8\uac80\uc99d): 100 USDT\n\ucc38\uace0 \uc8fc\ubb38\uac00(\ubbf8\uac80\uc99d): 99 USDT\n\ud655\uc815\uc190\uc775: \ubbf8\ud655\uc815 (\ub808\uac70\uc2dc \ubbf8\uac80\uc99d \uacbd\ub85c)\n\uc218\uc775\ub960: \ubbf8\ud655\uc815\n\n\u2139\ufe0f \uac70\ub798\uc18c \uc2e4\uccb4\uacb0\u00b7\uc218\uc218\ub8cc \uac80\uc99d \uc804 \uc811\uc218 \uc54c\ub9bc\uc785\ub2c8\ub2e4\n\ud83d\udd52 1970-01-01 09:00:00 KST",
+        "fields": [],
+        "title": "\u26aa BINANCE \u00b7 BTC/USDT.P \u00b7 \ub871 \uc885\ub8cc \uc811\uc218 (\ubbf8\uac80\uc99d)"
+      }
+    ]
+  },
+  {
+    "error": null,
+    "exit_type_preserved": "SL",
+    "name": "SL",
+    "result": {
+      "amount": 0.01,
+      "average": 101,
+      "close_price": 101,
+      "entry_price": 100,
+      "id": "fixture",
+      "price": 101
+    },
+    "sent": [
+      {
+        "color": 6583435,
+        "description": "\ub808\ubc84\ub9ac\uc9c0: 2x\n\uc694\uccad\uc218\ub7c9: 0.01\n\ucc38\uace0 \uc9c4\uc785\uac00(\ubbf8\uac80\uc99d): 100 USDT\n\ucc38\uace0 \uc8fc\ubb38\uac00(\ubbf8\uac80\uc99d): 101 USDT\n\ud655\uc815\uc190\uc775: \ubbf8\ud655\uc815 (\ub808\uac70\uc2dc \ubbf8\uac80\uc99d \uacbd\ub85c)\n\uc218\uc775\ub960: \ubbf8\ud655\uc815\n\n\u2139\ufe0f \uac70\ub798\uc18c \uc2e4\uccb4\uacb0\u00b7\uc218\uc218\ub8cc \uac80\uc99d \uc804 \uc811\uc218 \uc54c\ub9bc\uc785\ub2c8\ub2e4\n\ud83d\udd52 1970-01-01 09:00:00 KST",
+        "fields": [],
+        "title": "\u26aa BINANCE \u00b7 BTC/USDT.P \u00b7 \ub871 \uc885\ub8cc \uc811\uc218 (\ubbf8\uac80\uc99d)"
+      }
+    ]
+  },
+  {
+    "error": null,
+    "exit_type_preserved": "TRAIL",
+    "name": "trailing",
+    "result": {
+      "amount": 0.01,
+      "average": 101,
+      "close_price": 101,
+      "entry_price": 100,
+      "id": "fixture",
+      "price": 101
+    },
+    "sent": [
+      {
+        "color": 6583435,
+        "description": "\ub808\ubc84\ub9ac\uc9c0: 2x\n\uc694\uccad\uc218\ub7c9: 0.01\n\ucc38\uace0 \uc9c4\uc785\uac00(\ubbf8\uac80\uc99d): 100 USDT\n\ucc38\uace0 \uc8fc\ubb38\uac00(\ubbf8\uac80\uc99d): 101 USDT\n\ud655\uc815\uc190\uc775: \ubbf8\ud655\uc815 (\ub808\uac70\uc2dc \ubbf8\uac80\uc99d \uacbd\ub85c)\n\uc218\uc775\ub960: \ubbf8\ud655\uc815\n\n\u2139\ufe0f \uac70\ub798\uc18c \uc2e4\uccb4\uacb0\u00b7\uc218\uc218\ub8cc \uac80\uc99d \uc804 \uc811\uc218 \uc54c\ub9bc\uc785\ub2c8\ub2e4\n\ud83d\udd52 1970-01-01 09:00:00 KST",
+        "fields": [],
+        "title": "\u26aa BINANCE \u00b7 BTC/USDT.P \u00b7 \ub871 \uc885\ub8cc \uc811\uc218 (\ubbf8\uac80\uc99d)"
+      }
+    ]
+  },
+  {
+    "error": null,
+    "exit_type_preserved": "TP",
+    "name": "missing_entry",
+    "result": {
+      "amount": 0.01,
+      "average": 101,
+      "close_price": 101,
+      "entry_price": null,
+      "id": "fixture",
+      "price": 101
+    },
+    "sent": [
+      {
+        "color": 6583435,
+        "description": "\ub808\ubc84\ub9ac\uc9c0: 2x\n\uc694\uccad\uc218\ub7c9: 0.01\n\ucc38\uace0 \uc8fc\ubb38\uac00(\ubbf8\uac80\uc99d): 101 USDT\n\ud655\uc815\uc190\uc775: \ubbf8\ud655\uc815 (\ub808\uac70\uc2dc \ubbf8\uac80\uc99d \uacbd\ub85c)\n\uc218\uc775\ub960: \ubbf8\ud655\uc815\n\n\u2139\ufe0f \uac70\ub798\uc18c \uc2e4\uccb4\uacb0\u00b7\uc218\uc218\ub8cc \uac80\uc99d \uc804 \uc811\uc218 \uc54c\ub9bc\uc785\ub2c8\ub2e4\n\ud83d\udd52 1970-01-01 09:00:00 KST",
+        "fields": [],
+        "title": "\u26aa BINANCE \u00b7 BTC/USDT.P \u00b7 \ub871 \uc885\ub8cc \uc811\uc218 (\ubbf8\uac80\uc99d)"
+      }
+    ]
+  },
+  {
+    "error": null,
+    "exit_type_preserved": "SL",
+    "name": "missing_fill",
+    "result": {
+      "amount": 0.01,
+      "average": null,
+      "close_price": null,
+      "entry_price": 100,
+      "id": "fixture",
+      "price": null
+    },
+    "sent": [
+      {
+        "color": 6583435,
+        "description": "\ub808\ubc84\ub9ac\uc9c0: 2x\n\uc694\uccad\uc218\ub7c9: 0.01\n\ucc38\uace0 \uc9c4\uc785\uac00(\ubbf8\uac80\uc99d): 100 USDT\n\ud655\uc815\uc190\uc775: \ubbf8\ud655\uc815 (\ub808\uac70\uc2dc \ubbf8\uac80\uc99d \uacbd\ub85c)\n\uc218\uc775\ub960: \ubbf8\ud655\uc815\n\n\u2139\ufe0f \uac70\ub798\uc18c \uc2e4\uccb4\uacb0\u00b7\uc218\uc218\ub8cc \uac80\uc99d \uc804 \uc811\uc218 \uc54c\ub9bc\uc785\ub2c8\ub2e4\n\ud83d\udd52 1970-01-01 09:00:00 KST",
+        "fields": [],
+        "title": "\u26aa BINANCE \u00b7 BTC/USDT.P \u00b7 \ub871 \uc885\ub8cc \uc811\uc218 (\ubbf8\uac80\uc99d)"
+      }
+    ]
+  },
+  {
+    "error": "RuntimeError",
+    "exit_type_preserved": "TP",
+    "name": "discord_error",
+    "result": {
+      "amount": 0.01,
+      "average": 101,
+      "close_price": 101,
+      "entry_price": 100,
+      "id": "fixture",
+      "price": 101
+    },
+    "sent": []
+  }
+]

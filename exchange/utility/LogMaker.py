@@ -76,10 +76,26 @@ def log_message(message="None", embed: Embed = None):
         except Exception:
             # Transport exceptions may include the webhook URL/token.
             raise RuntimeError("DISCORD_DELIVERY_FAILED") from None
-        # hook.send(str(message), embed)
     else:
         logger.info(message)
         print(message)
+
+
+def _get_discord_embed_module():
+    try:
+        import exchange.utility.discord_embed as mod
+        return mod
+    except ModuleNotFoundError:
+        import importlib.util
+        from pathlib import Path
+        spec = importlib.util.spec_from_file_location(
+            "exchange.utility.discord_embed",
+            Path(__file__).resolve().parent / "discord_embed.py",
+        )
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["exchange.utility.discord_embed"] = mod
+        spec.loader.exec_module(mod)
+        return mod
 
 
 def log_order_message(exchange_name, order_result: dict, order_info: MarketOrder):
@@ -159,125 +175,30 @@ def log_order_message(exchange_name, order_result: dict, order_info: MarketOrder
         elif order_info.is_sell:
             side = "매도"
 
-    if exchange_name in STOCK_EXCHANGES:  # ("KRX", "NASDAQ", "NYSE", "AMEX"):
-        pnl_result = None
-        if order_info.is_sell:
-            exit_type = getattr(order_info, "exit_type", None)
-            text_to_check = f"{order_info.order_name or ''} {exit_type or ''}".lower()
-            if any(w in text_to_check for w in ("익절", "profit", "tp", "take profit", "수익")):
-                pnl_result = "익절"
-            elif any(w in text_to_check for w in ("손절", "loss", "sl", "stop loss", "손실")):
-                pnl_result = "손절"
+    build_legacy_order_embed = _get_discord_embed_module().build_legacy_order_embed
 
-        color = 0x0000FF
-        side_display = side
-        if pnl_result == "익절":
-            color = 0x00FF00
-            side_display = f"{side} (익절 🟢)"
-        elif pnl_result == "손절":
-            color = 0xFF0000
-            side_display = f"{side} (손절 🔴)"
+    entry_price = None
+    close_price = None
+    if order_result and isinstance(order_result, dict):
+        entry_price = order_result.get("entry_price")
+        close_price = order_result.get("close_price") or order_result.get("price") or order_result.get("average")
 
-        content = f"일시\n{date}\n\n거래소\n{exchange_name}\n\n티커\n{order_info.base}\n\n거래유형\n{side_display}\n\n{amount}"
-        embed = Embed(
-            title=order_info.order_name,
-            description=f"체결 {exchange_name} {order_info.base} {side_display} {amount}",
-            color=color,
-        )
-        embed.add_field(name="일시", value=str(date), inline=False)
-        embed.add_field(name="거래소", value=exchange_name, inline=False)
-        embed.add_field(name="티커", value=order_info.base, inline=False)
-        embed.add_field(name="거래유형", value=side_display, inline=False)
-        embed.add_field(name="수량", value=amount, inline=False)
-        embed.add_field(name="계좌", value=f"{order_info.kis_number}번째 계좌", inline=False)
-        if pnl_result:
-            embed.add_field(name="손익 여부", value=pnl_result, inline=False)
-        log_message(content, embed)
-    else:
-        pnl_result = None
-        pnl_rate = None
-        entry_price = None
-        close_price = None
-
-        if order_result and isinstance(order_result, dict):
-            entry_price = order_result.get("entry_price")
-            close_price = order_result.get("close_price") or order_result.get("price") or order_result.get("average")
-
-        # 1. 진입가 및 체결가 기반 손익 계산 (포지션 종료 시)
-        if order_info.is_close and entry_price and close_price and float(entry_price) > 0:
-            leverage = order_info.leverage or (order_result.get("pos_leverage") if isinstance(order_result, dict) else None) or 1
-            e_price = float(entry_price)
-            c_price = float(close_price)
-            lev = float(leverage)
-            if order_info.is_sell:  # 롱 종료
-                rate = ((c_price - e_price) / e_price) * 100 * lev
-            else:  # 숏 종료 (is_buy)
-                rate = ((e_price - c_price) / e_price) * 100 * lev
-            pnl_rate = round(rate, 2)
-            if pnl_rate > 0.0001:
-                pnl_result = "익절"
-            elif pnl_rate < -0.0001:
-                pnl_result = "손절"
-            else:
-                pnl_result = "본전"
-
-        # 2. 웹훅 파라미터(exit_type, order_name) 기반 보조 판별 (진입가 정보가 없을 때의 폴백)
-        if not pnl_result and order_info.is_close:
-            exit_type = getattr(order_info, "exit_type", None)
-            text_to_check = f"{order_info.order_name or ''} {exit_type or ''}".lower()
-            if any(w in text_to_check for w in ("익절", "profit", "tp", "take profit", "수익")):
-                pnl_result = "익절"
-            elif any(w in text_to_check for w in ("손절", "loss", "sl", "stop loss", "손실")):
-                pnl_result = "손절"
-
-        color = 0x0000FF  # 기본 파란색
-        side_display = side
-        if pnl_result == "익절":
-            color = 0x00FF00  # 초록색
-            side_display = f"{side} (익절 🟢)"
-        elif pnl_result == "손절":
-            color = 0xFF0000  # 빨간색
-            side_display = f"{side} (손절 🔴)"
-        elif pnl_result == "본전":
-            color = 0x95A5A6  # 회색
-            side_display = f"{side} (본전 ⚪)"
-
-        embed_title = order_info.order_name
-        if pnl_result and order_info.order_name in ("주문", "Order"):
-            embed_title = f"{pnl_result} 알림"
-
-        pnl_text = ""
-        if pnl_result:
-            pnl_text = f" [{pnl_result}]"
-            if pnl_rate is not None:
-                pnl_text += f" ({'+' if pnl_rate > 0 else ''}{pnl_rate}%)"
-
-        content = f"일시\n{date}\n\n거래소\n{exchange_name}\n\n심볼\n{symbol}\n\n거래유형\n{side_display}{pnl_text}\n\n{amount}"
-        embed = Embed(
-            title=embed_title,
-            description=f"체결: {exchange_name} {symbol} {side_display} {amount}",
-            color=color,
-        )
-        embed.add_field(name="일시", value=str(date), inline=False)
-        embed.add_field(name="거래소", value=exchange_name, inline=False)
-        embed.add_field(name="심볼", value=symbol, inline=False)
-        embed.add_field(name="거래유형", value=side_display, inline=False)
-        if amount:
-            embed.add_field(name=f_name, value=amount, inline=False)
-        if order_info.leverage is not None:
-            embed.add_field(name="레버리지", value=f"{order_info.leverage}배", inline=False)
-        if entry_price:
-            embed.add_field(name="진입가", value=format_price(entry_price), inline=False)
-        if close_price:
-            embed.add_field(name="체결가", value=format_price(close_price), inline=False)
-        elif order_result.get("price"):
-            embed.add_field(name="체결가", value=format_price(order_result.get("price")), inline=False)
-        if pnl_result:
-            pnl_value = pnl_result
-            if pnl_rate is not None:
-                pnl_value += f" ({'+' if pnl_rate > 0 else ''}{pnl_rate}%)"
-            embed.add_field(name="손익 여부", value=pnl_value, inline=False)
-        log_message(content, embed)
+    account_label = f"{order_info.kis_number}번째 계좌" if exchange_name in STOCK_EXCHANGES else None
+    target_symbol = order_info.base if exchange_name in STOCK_EXCHANGES else symbol
+    content, embed = build_legacy_order_embed(
+        exchange_name=exchange_name,
+        symbol=target_symbol,
+        side=side,
+        order_name=order_info.order_name,
+        amount_label=f_name,
+        amount_value=amount,
+        leverage=order_info.leverage,
+        entry_price=entry_price,
+        close_price=close_price,
+        account_label=account_label,
+        timestamp=0.0 if date == "fixed-time" else None,
+    )
+    log_message(content, embed)
 
 
 def log_hedge_message(exchange, base, quote, exchange_amount, upbit_amount, hedge):
@@ -298,35 +219,24 @@ def log_hedge_message(exchange, base, quote, exchange_amount, upbit_amount, hedg
 
 
 def log_error_message(error, name):
-    embed = Embed(title="오류", description="REQUEST_PROCESSING_FAILED", color=0xFF0000)
+    build_error_embed = _get_discord_embed_module().build_error_embed
+    embed = build_error_embed(error, name=name)
     logger.error("REQUEST_PROCESSING_FAILED")
     log_message(embed=embed)
 
 
 def log_order_error_message(error: str | Exception, order_info: MarketOrder):
+    raw_error = error
     error = "ORDER_PROCESSING_FAILED"
 
+    build_error_embed = _get_discord_embed_module().build_error_embed
     if order_info is not None:
-        # discord
-        embed = Embed(
-            title="주문 오류",
-            description=f"[주문 오류가 발생했습니다]\n{error}",
-            color=0xFF0000,
-        )
+        embed = build_error_embed(raw_error, order_info=order_info)
         log_message(embed=embed)
-
-        # logger
         logger.error(f"[주문 오류가 발생했습니다]\n{error}")
     else:
-        # discord
-        embed = Embed(
-            title="오류",
-            description=f"[오류가 발생했습니다]\n{error}",
-            color=0xFF0000,
-        )
+        embed = build_error_embed(raw_error, name="오류")
         log_message(embed=embed)
-
-        # logger
         logger.error(f"[오류가 발생했습니다]\n{error}")
 
 
@@ -343,13 +253,10 @@ def print_alert_message(order_info: MarketOrder, result="성공"):
 
 
 def log_alert_message(order_info: MarketOrder, result="성공"):
-    # discrod
     embed = Embed(
         title="웹훅 처리 결과",
         description="WEBHOOK_ORDER_SUCCESS" if result == "성공" else "WEBHOOK_ORDER_FAILED",
         color=0xFF0000,
     )
     log_message(embed=embed)
-
-    # logger
     print_alert_message(order_info, result)

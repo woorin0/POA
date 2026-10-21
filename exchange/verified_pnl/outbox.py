@@ -1,3 +1,4 @@
+import hashlib
 import json
 import math
 import random
@@ -13,7 +14,7 @@ from typing import Optional, Dict, Any, List
 import requests
 try:
     from dhooks import Embed
-    if not hasattr(Embed, "data"):
+    if hasattr(Embed, "to_dict") and not hasattr(Embed, "data"):
         try:
             Embed.data = property(lambda self: self.to_dict())
         except Exception:
@@ -144,37 +145,39 @@ class NotificationOutboxStore:
     def enqueue(self, payload: NotificationPayload, max_attempts: int = 5) -> bool:
         """Enqueues a new notification payload. Returns True if inserted, False if duplicate."""
         now = time.time()
-        with self._connect() as con:
-            existing = con.execute("SELECT 1 FROM verified_outbox WHERE event_id = ?", (payload.event_id,)).fetchone()
-            if existing:
-                logger.info("verified_alerts: duplicate_event_blocked")
-                return False
-
-            con.execute(
-                """
-                INSERT INTO verified_outbox (
-                    event_id, exchange, symbol, order_id, client_order_id,
-                    event_type, version, payload, status, attempts,
-                    max_attempts, next_retry_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
-                """,
-                (
-                    payload.event_id,
-                    payload.exchange,
-                    payload.symbol,
-                    payload.order_id,
-                    payload.client_order_id,
-                    payload.event_type,
-                    payload.event_version,
-                    payload.json(),
-                    OutboxStatus.PENDING.value,
-                    max_attempts,
-                    now,
-                    now,
-                    now,
-                ),
-            )
-        return True
+        try:
+            with self._connect() as con:
+                cur = con.execute(
+                    """
+                    INSERT OR IGNORE INTO verified_outbox (
+                        event_id, exchange, symbol, order_id, client_order_id,
+                        event_type, version, payload, status, attempts,
+                        max_attempts, next_retry_at, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+                    """,
+                    (
+                        payload.event_id,
+                        payload.exchange,
+                        payload.symbol,
+                        payload.order_id,
+                        payload.client_order_id,
+                        payload.event_type,
+                        payload.event_version,
+                        payload.json(),
+                        OutboxStatus.PENDING.value,
+                        max_attempts,
+                        now,
+                        now,
+                        now,
+                    ),
+                )
+                if cur.rowcount == 0:
+                    logger.info("verified_alerts: duplicate_event_blocked")
+                    return False
+            return True
+        except sqlite3.IntegrityError:
+            logger.info("verified_alerts: duplicate_event_blocked")
+            return False
 
     def get_pending(self, limit: int = 10) -> List[Dict[str, Any]]:
         now = time.time()
@@ -221,8 +224,81 @@ class NotificationOutboxStore:
 
     def hold_unknown(self, event_id):
         with self._connect() as con:
-            con.execute("UPDATE verified_outbox SET status='UNKNOWN',last_error='delivery_unknown',updated_at=? WHERE event_id=?",
-                        (time.time(),event_id))
+            con.execute("UPDATE verified_outbox SET status=?,last_error='delivery_unknown',updated_at=? WHERE event_id=?",
+                        (OutboxStatus.UNKNOWN.value, time.time(), event_id))
+
+    def requeue_unknown(
+        self,
+        event_id: Optional[str] = None,
+        *,
+        confirm_duplicate_risk: bool = False,
+        allow_bulk: bool = False,
+    ) -> int:
+        """Operator recovery helper: transitions UNKNOWN/HELD items back to PENDING for manual resend.
+
+        WARNING:
+            Items placed in UNKNOWN or HELD status typically arose from HTTP 5xx responses,
+            network timeouts, or unconfirmed delivery during previous send attempts.
+            Discord or an intermediary proxy may have already accepted and posted the message.
+            Manually requeueing alerts back to PENDING carries a real risk of posting duplicate
+            messages to the Discord channel.
+            Operators MUST inspect the Discord channel/audit logs before invoking this method
+            to verify that the alert was NOT posted. Complete prevention of duplicate delivery
+            cannot be guaranteed once a 5xx/timeout has occurred; remaining risk is accepted by
+            explicit confirmation.
+
+        Args:
+            event_id: Specific outbox event ID to requeue. If None, allow_bulk must be True.
+            confirm_duplicate_risk: Explicit operator acknowledgment of duplicate notification risk.
+                Must be set to True to execute the requeue.
+            allow_bulk: Must be True to requeue all UNKNOWN/HELD items when event_id is None.
+                Defaults to False to prevent accidental bulk reprocessing.
+
+        Returns:
+            Number of rows transitioned from UNKNOWN/HELD to PENDING.
+
+        Raises:
+            ValueError: If confirm_duplicate_risk is False, or if event_id is None without allow_bulk=True.
+        """
+        if confirm_duplicate_risk is not True:
+            raise ValueError(
+                "Manual requeue rejected: operator must explicitly confirm duplicate alert risk "
+                "(confirm_duplicate_risk=True)."
+            )
+
+        if allow_bulk is not True and allow_bulk is not False:
+            raise ValueError("Manual requeue rejected: allow_bulk must be a boolean.")
+
+        if not event_id and allow_bulk is not True:
+            raise ValueError(
+                "Bulk requeue blocked by default: specify a specific event_id, or explicitly set "
+                "allow_bulk=True if bulk requeue is intended."
+            )
+
+        now = time.time()
+        with self._connect() as con:
+            if event_id:
+                safe_ref = hashlib.sha256(str(event_id).encode("utf-8")).hexdigest()[:16]
+                count = con.execute(
+                    "UPDATE verified_outbox SET status=?, next_retry_at=?, updated_at=? "
+                    "WHERE event_id=? AND status IN (?, ?)",
+                    (OutboxStatus.PENDING.value, now, now, event_id, OutboxStatus.UNKNOWN.value, OutboxStatus.HELD.value),
+                ).rowcount
+                logger.warning(
+                    f"AUDIT_ALERT_REQUEUE: operator requeued outbox item event_ref={safe_ref} (rows_updated={count}). "
+                    "Duplicate Discord notification risk acknowledged."
+                )
+                return count
+            count = con.execute(
+                "UPDATE verified_outbox SET status=?, next_retry_at=?, updated_at=? "
+                "WHERE status IN (?, ?)",
+                (OutboxStatus.PENDING.value, now, now, OutboxStatus.UNKNOWN.value, OutboxStatus.HELD.value),
+            ).rowcount
+            logger.warning(
+                f"AUDIT_ALERT_REQUEUE: operator bulk-requeued outbox items (rows_updated={count}). "
+                "Duplicate Discord notification risk acknowledged."
+            )
+            return count
 
     def recover(self):
         with self._connect() as con:
@@ -264,116 +340,29 @@ class NotificationOutboxStore:
 
 
 def build_verified_embed(payload: NotificationPayload) -> Embed:
-    """Builds a rich, color-coded Discord Embed for verified order execution."""
-    # Determine color
-    if payload.error_message or payload.fill_status == FillStatus.FAILED:
-        color = 0xFF0000  # Red
-    elif payload.pnl_result == PnlResult.PROFIT:
-        color = 0x00FF00  # Green
-    elif payload.pnl_result == PnlResult.LOSS:
-        color = 0xFF0000  # Red
-    elif payload.pnl_result == PnlResult.BREAKEVEN:
-        color = 0x95A5A6  # Gray
-    else:
-        color = 0x0000FF  # Blue (Pending/Unknown)
-
-    # Title & Description
-    status_suffix = ""
-    if payload.fill_status == FillStatus.FILLED:
-        status_suffix = "완료"
-    elif payload.fill_status == FillStatus.PARTIALLY_FILLED:
-        status_suffix = "부분 체결"
-    elif payload.fill_status == FillStatus.PENDING:
-        status_suffix = "접수 완료 (체결 확인 중)"
-    elif payload.fill_status == FillStatus.FAILED:
-        status_suffix = "실패"
-
-    if payload.event_type == "manual_review":
-        title = f"[⚠️ 수동 확인 필요] [{payload.symbol} {payload.side}]"
-    else:
-        title = f"[{payload.symbol} {payload.side} {status_suffix}]"
-    if payload.order_name and payload.order_name not in ("주문", "Order"):
-        title = f"[{payload.order_name}] {title}"
-
-    embed = Embed(
-        title=title[:256],
-        description=f"주문 상태: {payload.exchange} {payload.symbol} {payload.side} {payload.fill_status.value}",
-        color=color,
-    )
-
-    # Date / Time
-    display_time = format_kst(payload.fill_timestamp if payload.fill_timestamp is not None else payload.event_timestamp)
-    time_label = "체결일시" if payload.fill_timestamp is not None else "일시"
-    embed.add_field(name=time_label, value=display_time, inline=False)
-    if payload.leverage is not None:
-        embed.add_field(name="레버리지 (주문 설정)", value=str(payload.leverage), inline=True)
-
-    embed.add_field(name="거래소", value=payload.exchange, inline=True)
-    embed.add_field(name="심볼", value=payload.symbol, inline=True)
-    embed.add_field(name="체결 상태", value=payload.fill_status.value, inline=True)
-
-    if payload.exit_reason != ExitReason.UNKNOWN:
-        embed.add_field(name="청산 원인", value=payload.exit_reason.value, inline=True)
-    embed.add_field(name="손익 결과", value=payload.pnl_result.value, inline=True)
-    if payload.net_pnl is None:
-        embed.add_field(name="순실현손익", value="미확정", inline=True)
-    if payload.exit_price is None:
-        embed.add_field(name="평균 체결가격", value="미확인 / 확인 중", inline=True)
-    if payload.fee_breakdown:
-        embed.add_field(name="확인된 수수료 (통화별)", value=payload.fee_breakdown, inline=False)
-
-    # Quantity
-    if payload.filled_qty:
-        embed.add_field(name="실제 체결 수량", value=payload.filled_qty, inline=True)
-    if payload.remaining_qty and payload.remaining_qty != "0":
-        embed.add_field(name="미체결 수량", value=payload.remaining_qty, inline=True)
-
-    # Prices
-    if payload.entry_price:
-        embed.add_field(name="평균 진입가", value=payload.entry_price, inline=True)
-    if payload.exit_price:
-        embed.add_field(name="실제 평균 체결가", value=payload.exit_price, inline=True)
-
-    # PnL Details
-    if payload.gross_pnl:
-        embed.add_field(name="총실현손익", value=payload.gross_pnl, inline=True)
-    if payload.entry_fee_allocated:
-        embed.add_field(name="진입 수수료 배분액", value=payload.entry_fee_allocated, inline=True)
-    if payload.exit_fee:
-        embed.add_field(name="청산 수수료", value=payload.exit_fee, inline=True)
-    if payload.funding_pnl:
-        embed.add_field(name="펀딩비", value=payload.funding_pnl, inline=True)
-    if payload.net_pnl:
-        embed.add_field(name="순실현손익", value=payload.net_pnl, inline=True)
-
-    # Return & ROI
-    if payload.price_return_pct:
-        embed.add_field(name="가격 수익률", value=f"{payload.price_return_pct}%", inline=True)
-    if payload.roi_pct:
-        embed.add_field(name=payload.roi_label, value=f"{payload.roi_pct}%", inline=True)
-
-    if getattr(payload, "signal_id", None):
-        embed.add_field(name="신호 ID", value=str(payload.signal_id), inline=True)
-
-    if payload.event_type == "manual_review" or "MANUAL_REVIEW" in (payload.error_message or ""):
-        embed.add_field(name="수동 확인 필요 여부", value="필요 (운영자 확인 요망)", inline=False)
-
-    if payload.order_id:
-        embed.add_field(name="주문 ID", value=payload.order_id, inline=True)
-
-    embed.add_field(name="정보 확인", value=payload.verification_source, inline=False)
-
-    if payload.error_message:
-        embed.add_field(name="오류 상세", value=payload.error_message[:500], inline=False)
-
-    return embed
+    """Builds the POA v2 unified mobile-friendly Discord Embed for verified order execution."""
+    try:
+        from exchange.utility.discord_embed import build_mobile_verified_embed
+    except ModuleNotFoundError:
+        import importlib.util
+        import sys
+        spec = importlib.util.spec_from_file_location(
+            "exchange.utility.discord_embed",
+            Path(__file__).resolve().parents[1] / "utility" / "discord_embed.py",
+        )
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["exchange.utility.discord_embed"] = mod
+        spec.loader.exec_module(mod)
+        build_mobile_verified_embed = mod.build_mobile_verified_embed
+    return build_mobile_verified_embed(payload)
 
 
 class DiscordSender:
-    """Dispatches notifications to Discord with exponential backoff and rate-limit handling."""
+    """Dispatches notifications to Discord with safe delivery-unknown holding on 5xx/timeouts (P2-5)."""
 
-    def __init__(self, webhook_url: Optional[str] = None):
+    def __init__(self, webhook_url: Optional[str] = None, retry_on_5xx: bool = False):
         self.webhook_url = (webhook_url or "").replace("discordapp", "discord")
+        self.retry_on_5xx = retry_on_5xx
         self.message_id = None
 
     def send_payload(self, payload: NotificationPayload) -> tuple[bool, Optional[str], Optional[float]]:
@@ -416,10 +405,13 @@ class DiscordSender:
                 # Client permanent error (e.g. 401 unauthorized, 404 not found)
                 return False, f"permanent_http_{resp.status_code}", None
 
-            # 5xx Server error
-            return False, f"Discord server error HTTP {resp.status_code}", 5.0
+            # 5xx Server error: Discord or an intermediary may have already accepted and posted the message.
+            # Default to holding as delivery_unknown to prevent duplicate messages unless retry_on_5xx is explicitly enabled.
+            if self.retry_on_5xx:
+                return False, f"Discord server error HTTP {resp.status_code}", 5.0
+            return False, "delivery_unknown", None
 
         except requests.exceptions.Timeout:
             return False, "delivery_unknown", None
-        except requests.exceptions.RequestException as e:
+        except requests.exceptions.RequestException:
             return False, "delivery_unknown", None
