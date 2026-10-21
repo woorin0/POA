@@ -218,6 +218,27 @@ def classify_error_code(error: Optional[Any], has_order_context: bool = True) ->
             ERROR_CODE_DESCRIPTIONS["NETWORK_UNAVAILABLE"],
         )
 
+    # 1.5 Local / internal errors that must NEVER be classified as confirmed exchange rejections
+    local_system_markers = (
+        "local cache",
+        "reading local",
+        "local error",
+        "local config",
+        "fatal config",
+    )
+    if any(k in lower for k in local_system_markers):
+        if has_order_context:
+            return (
+                "UNKNOWN_ORDER_RESULT",
+                True,
+                ERROR_CODE_DESCRIPTIONS["UNKNOWN_ORDER_RESULT"],
+            )
+        return (
+            "REQUEST_PROCESSING_FAILED",
+            False,
+            ERROR_CODE_DESCRIPTIONS["REQUEST_PROCESSING_FAILED"],
+        )
+
     # 2. If sensitive markers exist in the raw error, never trust substring matches for rejection details
     # and never echo any part of the raw text.
     if _contains_sensitive_marker(probe):
@@ -282,7 +303,6 @@ def classify_error_code(error: Optional[Any], has_order_context: bool = True) ->
         "invalidorder",
         "invalid parameter",
         "invalid_order_params",
-        "fatal config error",
         "거래소 주문 거절",
         "주문 파라미터 거절",
         "badrequest",
@@ -792,6 +812,21 @@ def _evaluate_verification_states(
         and filled_d is not None and filled_d > 0
     )
 
+    pnl_arithmetic_ok = True
+    gross_d, gross_ccy = parse_amount_and_currency(getattr(payload, "gross_pnl", None), default_currency=currency)
+    if gross_d is not None and (gross_ccy is None or gross_ccy.upper() == currency.upper()) and net_pnl_d is not None:
+        total_fee_d, _, _ = _compute_total_fee_with_consistency(payload, currency=currency)
+        funding_d, funding_ccy = parse_amount_and_currency(getattr(payload, "funding_pnl", None), default_currency=currency)
+        fee_val = total_fee_d if total_fee_d is not None else Decimal("0")
+        fund_val = (
+            funding_d
+            if (funding_d is not None and (funding_ccy is None or funding_ccy.upper() == currency.upper()))
+            else Decimal("0")
+        )
+        expected_net = gross_d - fee_val + fund_val
+        if abs(net_pnl_d - expected_net) > Decimal("0.05"):
+            pnl_arithmetic_ok = False
+
     pnl_verified = bool(
         fill_verified
         and pnl_status_ok
@@ -800,6 +835,7 @@ def _evaluate_verification_states(
         and net_pnl_d is not None
         and pnl_ccy_ok
         and prices_and_qty_ok
+        and pnl_arithmetic_ok
     )
 
     roi_label_str = str(getattr(payload, "roi_label", "") or "")
@@ -929,7 +965,10 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
     filled_d = _to_finite_decimal(payload.filled_qty)
     has_partial_fill = filled_d is not None and filled_d > 0
 
-    fill_v_status = getattr(payload, "fill_verification_status", None) or getattr(payload, "verification_status", None)
+    fill_v_status = getattr(payload, "fill_verification_status", None)
+    if fill_v_status is None:
+        fill_v_status = getattr(payload, "verification_status", None)
+
     fill_is_verified = (
         fill_v_status == VerificationStatus.VERIFIED
         or str(getattr(fill_v_status, "value", fill_v_status)).upper() == "VERIFIED"
@@ -945,13 +984,12 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
     )
 
     has_explicit_rejection = has_err_text and not is_err_ambig
+    has_verified_partial_fill = fill_is_verified and has_partial_fill
+
     is_verified_zero_fill = (
-        not has_partial_fill
-        and not fill_is_unverified
-        and (
-            (fill_is_verified and filled_d == Decimal("0"))
-            or fill_is_failed_verified
-        )
+        fill_is_verified
+        and filled_d is not None
+        and filled_d == Decimal("0")
     )
 
     # Determine category & color (Section 3.3)
@@ -965,7 +1003,7 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
         color = COLOR_ORDER_AMBIGUOUS
         category = "CANCELED"
     elif status == FillStatus.FAILED:
-        if has_explicit_rejection and has_partial_fill:
+        if has_explicit_rejection and has_verified_partial_fill:
             color = COLOR_ORDER_FAILED
             category = "FAILED"
         elif has_explicit_rejection and is_verified_zero_fill:
@@ -978,6 +1016,9 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
         if is_sell_or_close_side(payload.side):
             color = COLOR_SELL_COMPLETED
             category = "SELL_FILLED"
+        elif has_partial_fill and not fill_is_verified:
+            color = COLOR_ORDER_AMBIGUOUS
+            category = "AMBIGUOUS"
         else:
             color = COLOR_BUY_COMPLETED
             category = "BUY_FILLED"
@@ -1109,7 +1150,7 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
         if req_qty_d is not None and req_qty_d > 0:
             lines.append(f"요청수량: {format_quantity_display(req_qty_d, base_asset=base_asset)}")
 
-        if has_partial_fill:
+        if has_verified_partial_fill:
             lines.append(f"체결수량: {format_quantity_display(filled_d, base_asset=base_asset)}")
             rem_d = _to_finite_decimal(payload.remaining_qty)
             if rem_d is not None and rem_d > 0:
@@ -1117,7 +1158,7 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
 
         lines.append(f"사유: {err_reason}")
 
-        if has_partial_fill:
+        if has_verified_partial_fill:
             lines.append("상태: 부분 체결 완료 후 잔여 주문 실패")
             lines.append("조치: 실제 체결 수량 확인 및 잔여 주문 확인 필요")
         elif is_verified_zero_fill:
@@ -1139,9 +1180,15 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
         lines.append(f"체결수량: {format_quantity_display(payload.filled_qty, base_asset=base_asset)}")
         if payload.remaining_qty and payload.remaining_qty != "0":
             lines.append(f"미체결수량: {format_quantity_display(payload.remaining_qty, base_asset=base_asset)}")
-        lines.append("상태: 부분 체결 진행 중 (최종 손익 미확정)")
-        lines.append("")
-        lines.append("ℹ️ 잔여 수량 체결 또는 취소 확인 필요")
+        if fill_is_verified:
+            lines.append("상태: 부분 체결 진행 중 (최종 손익 미확정)")
+            lines.append("")
+            lines.append("ℹ️ 잔여 수량 체결 또는 취소 확인 필요")
+        else:
+            lines.append("상태: 실제 체결 여부 확인 필요 (미확정)")
+            lines.append("조치: 거래소 체결 내역 확인 필요 (중복 재주문 금지)")
+            lines.append("")
+            lines.append("⚠️ 미확정 주문 — 거래소 실제 체결 여부를 반드시 확인하세요")
         lines.append(f"🕒 {kst_str}")
 
     elif category == "CANCELED":
@@ -1183,7 +1230,10 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
             lines.append(f"요청수량: {format_quantity_display(req_qty_d, base_asset=base_asset)}")
 
         if has_partial_fill:
-            lines.append(f"체결수량: {format_quantity_display(filled_d, base_asset=base_asset)}")
+            if fill_is_verified:
+                lines.append(f"체결수량: {format_quantity_display(filled_d, base_asset=base_asset)}")
+            else:
+                lines.append(f"체결수량: {format_quantity_display(filled_d, base_asset=base_asset)} (미검증)")
             rem_d = _to_finite_decimal(payload.remaining_qty)
             if rem_d is not None and rem_d > 0:
                 lines.append(f"미체결수량: {format_quantity_display(rem_d, base_asset=base_asset)}")
@@ -1205,7 +1255,10 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
 
         lines.append(f"사유: {reason_text}")
         if has_partial_fill:
-            lines.append("상태: 일부 체결 확인됨 (잔여 주문 상태 미확정)")
+            if fill_is_verified:
+                lines.append("상태: 일부 체결 확인됨 (잔여 주문 상태 미확정)")
+            else:
+                lines.append("상태: 실제 체결 여부 확인 필요 (미확정)")
             lines.append("조치: 거래소 체결 내역 확인 필요 (중복 재주문 금지)")
         else:
             lines.append("상태: 실제 체결 여부 확인 중 (미확정)")
@@ -1341,39 +1394,70 @@ def build_error_embed(
         if amt is not None:
             lines.append(f"요청수량: {format_quantity_display(amt, base_asset=base_asset)}")
 
-        filled_val = getattr(order_info, "filled_qty", None) or getattr(order_info, "filled", None)
+        filled_val = getattr(order_info, "filled_qty", None)
+        if filled_val is None:
+            filled_val = getattr(order_info, "filled", None)
         filled_d = _to_finite_decimal(filled_val)
         has_partial_fill = filled_d is not None and filled_d > 0
-        if has_partial_fill:
-            lines.append(f"체결수량: {format_quantity_display(filled_d, base_asset=base_asset)}")
 
-        v_status = getattr(order_info, "fill_verification_status", None) or getattr(order_info, "verification_status", None)
-        is_unverified = (
+        has_v_attr = hasattr(order_info, "fill_verification_status") or hasattr(order_info, "verification_status")
+        has_qty_attr = hasattr(order_info, "filled_qty") or hasattr(order_info, "filled")
+
+        v_status = getattr(order_info, "fill_verification_status", None)
+        if v_status is None:
+            v_status = getattr(order_info, "verification_status", None)
+
+        is_verified = (
             v_status is not None
-            and (v_status == VerificationStatus.UNVERIFIED or str(getattr(v_status, "value", v_status)).upper() == "UNVERIFIED")
+            and (v_status == VerificationStatus.VERIFIED or str(getattr(v_status, "value", v_status)).upper() == "VERIFIED")
+        )
+        is_verified_zero_fill = (
+            is_verified
+            and filled_d is not None
+            and filled_d == Decimal("0")
+        )
+        has_verified_partial_fill = (
+            is_verified
+            and has_partial_fill
         )
 
         has_explicit_rejection = has_err_text and not is_ambiguous
 
-        if not has_explicit_rejection or is_unverified:
+        if has_explicit_rejection and is_verified_zero_fill:
+            title = f"⚠️ {exchange} · {display_symbol} · {side} 주문 실패"
+            color = COLOR_ORDER_FAILED
+            lines.append(f"사유: {safe_reason}")
+            lines.append("상태: 주문이 체결되지 않았습니다")
+        elif has_explicit_rejection and has_verified_partial_fill:
+            title = f"⚠️ {exchange} · {display_symbol} · {side} 주문 실패"
+            color = COLOR_ORDER_FAILED
+            lines.append(f"체결수량: {format_quantity_display(filled_d, base_asset=base_asset)}")
+            lines.append(f"사유: {safe_reason}")
+            lines.append("상태: 부분 체결 완료 후 잔여 주문 실패")
+            lines.append("조치: 실제 체결 수량 확인 및 잔여 주문 확인 필요")
+        elif has_explicit_rejection and not has_v_attr and not has_qty_attr and not isinstance(error, Exception):
+            title = f"⚠️ {exchange} · {display_symbol} · {side} 주문 실패"
+            color = COLOR_ORDER_FAILED
+            lines.append(f"사유: {safe_reason}")
+            lines.append("상태: 주문이 체결되지 않았습니다")
+        else:
             title = f"⚪ {exchange} · {display_symbol} · {side} 주문 결과 확인 필요"
             color = COLOR_ORDER_AMBIGUOUS
+            if has_partial_fill:
+                if is_verified:
+                    lines.append(f"체결수량: {format_quantity_display(filled_d, base_asset=base_asset)}")
+                else:
+                    lines.append(f"체결수량: {format_quantity_display(filled_d, base_asset=base_asset)} (미검증)")
             lines.append(f"사유: {safe_reason}")
             if has_partial_fill:
-                lines.append("상태: 일부 체결 확인됨 (잔여 주문 상태 미확정)")
+                if is_verified:
+                    lines.append("상태: 일부 체결 확인됨 (잔여 주문 상태 미확정)")
+                else:
+                    lines.append("상태: 실제 체결 여부 확인 필요 (미확정)")
                 lines.append("조치: 거래소 체결 내역 확인 필요 (중복 재주문 금지)")
             else:
                 lines.append("상태: 실제 체결 여부 확인 중 (미확정)")
                 lines.append("조치: 거래소 체결 내역 확인 필요 (중복 재주문 금지)")
-        else:
-            title = f"⚠️ {exchange} · {display_symbol} · {side} 주문 실패"
-            color = COLOR_ORDER_FAILED
-            lines.append(f"사유: {safe_reason}")
-            if has_partial_fill:
-                lines.append("상태: 부분 체결 완료 후 잔여 주문 실패")
-                lines.append("조치: 실제 체결 수량 확인 및 잔여 주문 확인 필요")
-            else:
-                lines.append("상태: 주문이 체결되지 않았습니다")
 
         lines.append("")
         lines.append(f"🕒 {kst_str}")

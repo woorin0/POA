@@ -417,8 +417,10 @@ class DiscordEmbedV2Tests(unittest.TestCase):
             pnl_result=PnlResult.UNKNOWN,
             fill_status=FillStatus.FAILED,
             requested_qty="5.105",
+            filled_qty="0",
             error_message="주문 가능 금액(KRW) 부족",
-            verification_status=VerificationStatus.FAILED,
+            verification_status=VerificationStatus.VERIFIED,
+            fill_verification_status=VerificationStatus.VERIFIED,
             event_timestamp=1760958129.0,
         )
         embed = build_verified_embed(payload).data

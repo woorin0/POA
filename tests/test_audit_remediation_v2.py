@@ -168,6 +168,7 @@ def test_build_error_embed_preserves_partial_fill_context():
         filled_qty=0.35,
         is_futures=False,
         is_buy=True,
+        verification_status=VerificationStatus.VERIFIED,
     )
     embed = de.build_error_embed("INSUFFICIENT_BALANCE", order_info=order_with_partial).data
     desc = embed["description"]
@@ -184,6 +185,7 @@ def test_build_error_embed_preserves_partial_fill_context():
         filled_qty=0,
         is_futures=False,
         is_buy=True,
+        verification_status=VerificationStatus.VERIFIED,
     )
     embed_zero = de.build_error_embed("INSUFFICIENT_BALANCE", order_info=order_zero_fill).data
     assert "상태: 주문이 체결되지 않았습니다" in embed_zero["description"]
@@ -368,6 +370,7 @@ def test_failed_timeout_with_partial_fill_preserves_filled_qty():
         remaining_qty="0.75",
         requested_qty="1.0",
         verification_status=VerificationStatus.UNVERIFIED,
+        fill_verification_status=VerificationStatus.UNVERIFIED,
     )
     embed = de.build_mobile_verified_embed(p).data
     assert embed["title"].startswith("⚪")
@@ -375,7 +378,8 @@ def test_failed_timeout_with_partial_fill_preserves_filled_qty():
     desc = embed["description"]
     assert "체결수량: 0.25 BTC" in desc
     assert "미체결수량: 0.75 BTC" in desc
-    assert "상태: 일부 체결 확인됨 (잔여 주문 상태 미확정)" in desc
+    assert "상태: 실제 체결 여부 확인 필요 (미확정)" in desc
+    assert "일부 체결 확인됨" not in desc
     assert "주문이 체결되지 않았습니다" not in desc
 
 
