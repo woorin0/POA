@@ -1,3 +1,4 @@
+import hashlib
 import json
 import math
 import random
@@ -259,13 +260,16 @@ class NotificationOutboxStore:
         Raises:
             ValueError: If confirm_duplicate_risk is False, or if event_id is None without allow_bulk=True.
         """
-        if not confirm_duplicate_risk:
+        if confirm_duplicate_risk is not True:
             raise ValueError(
                 "Manual requeue rejected: operator must explicitly confirm duplicate alert risk "
                 "(confirm_duplicate_risk=True)."
             )
 
-        if not event_id and not allow_bulk:
+        if allow_bulk is not True and allow_bulk is not False:
+            raise ValueError("Manual requeue rejected: allow_bulk must be a boolean.")
+
+        if not event_id and allow_bulk is not True:
             raise ValueError(
                 "Bulk requeue blocked by default: specify a specific event_id, or explicitly set "
                 "allow_bulk=True if bulk requeue is intended."
@@ -274,13 +278,14 @@ class NotificationOutboxStore:
         now = time.time()
         with self._connect() as con:
             if event_id:
+                safe_ref = hashlib.sha256(str(event_id).encode("utf-8")).hexdigest()[:16]
                 count = con.execute(
                     "UPDATE verified_outbox SET status=?, next_retry_at=?, updated_at=? "
                     "WHERE event_id=? AND status IN (?, ?)",
                     (OutboxStatus.PENDING.value, now, now, event_id, OutboxStatus.UNKNOWN.value, OutboxStatus.HELD.value),
                 ).rowcount
                 logger.warning(
-                    f"AUDIT_ALERT_REQUEUE: operator requeued outbox item event_id={event_id} (rows_updated={count}). "
+                    f"AUDIT_ALERT_REQUEUE: operator requeued outbox item event_ref={safe_ref} (rows_updated={count}). "
                     "Duplicate Discord notification risk acknowledged."
                 )
                 return count

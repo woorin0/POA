@@ -1,4 +1,5 @@
 """Unified mobile-friendly Discord Embed builder and pure formatters for POA v2."""
+import hashlib
 import math
 import re
 from datetime import datetime, timezone, timedelta
@@ -235,7 +236,11 @@ def classify_error_code(error: Optional[Any], has_order_context: bool = True) ->
     # 3. Explicit Confirmed Rejection categories (only when positive evidence of exchange rejection exists)
     insufficient_markers = (
         "insufficient balance",
+        "insufficient_balance",
+        "insufficientbalance",
         "insufficient funds",
+        "insufficient_funds",
+        "insufficientfunds",
         "insufficient margin",
         "account has insufficient balance",
         "not enough balance",
@@ -273,8 +278,10 @@ def classify_error_code(error: Optional[Any], has_order_context: bool = True) ->
 
     invalid_param_markers = (
         "invalid order",
+        "invalid_order",
         "invalidorder",
         "invalid parameter",
+        "invalid_order_params",
         "fatal config error",
         "거래소 주문 거절",
         "주문 파라미터 거절",
@@ -288,7 +295,7 @@ def classify_error_code(error: Optional[Any], has_order_context: bool = True) ->
         )
 
     if any(k in type_name for k in ("authenticationerror", "permissiondenied")) or any(
-        k in lower for k in ("permission denied", "권한 거절", "invalid api-key")
+        k in lower for k in ("permission denied", "권한 거절", "invalid api-key", "auth_permission_rejected")
     ):
         return (
             "AUTH_PERMISSION_REJECTED",
@@ -773,10 +780,10 @@ def _evaluate_verification_states(
     )
 
     explicit_pnl_status = getattr(payload, "pnl_verification_status", None)
-    if explicit_pnl_status is not None:
-        pnl_status_ok = (explicit_pnl_status == VerificationStatus.VERIFIED)
-    else:
-        pnl_status_ok = (payload.verification_status == VerificationStatus.VERIFIED)
+    pnl_status_ok = (
+        explicit_pnl_status == VerificationStatus.VERIFIED
+        or explicit_pnl_status == "VERIFIED"
+    )
 
     pnl_ccy_ok = (net_pnl_ccy is None or net_pnl_ccy.upper() == currency.upper())
     prices_and_qty_ok = (
@@ -804,10 +811,10 @@ def _evaluate_verification_states(
     )
 
     explicit_roi_status = getattr(payload, "roi_verification_status", None)
-    if explicit_roi_status is not None:
-        roi_status_ok = (explicit_roi_status == VerificationStatus.VERIFIED)
-    else:
-        roi_status_ok = True
+    roi_status_ok = (
+        explicit_roi_status == VerificationStatus.VERIFIED
+        or explicit_roi_status == "VERIFIED"
+    )
 
     roi_verified = bool(
         pnl_verified
@@ -879,7 +886,8 @@ def build_notification_details(payload: NotificationPayload) -> List[Dict[str, A
         details.append({"name": payload.roi_label or "ROI", "value": "미확정", "inline": True})
 
     if getattr(payload, "signal_id", None):
-        details.append({"name": "신호 ID", "value": sanitize_discord_text(payload.signal_id, max_len=64), "inline": True})
+        safe_sig_ref = hashlib.sha256(str(payload.signal_id).encode("utf-8")).hexdigest()[:8]
+        details.append({"name": "신호 ID", "value": safe_sig_ref, "inline": True})
 
     if is_manual_review:
         details.append({"name": "수동 확인 필요 여부", "value": "필요 (운영자 확인 요망)", "inline": False})
@@ -1064,12 +1072,30 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
         title = f"⚠️ {exchange} · {display_symbol} · {header_action}"
         if strategy_name:
             lines.append(f"전략: {strategy_name}")
-        req_qty_d = _to_finite_decimal(payload.requested_qty or payload.filled_qty)
+        req_qty_d = _to_finite_decimal(payload.requested_qty)
         if req_qty_d is not None and req_qty_d > 0:
             lines.append(f"요청수량: {format_quantity_display(req_qty_d, base_asset=base_asset)}")
-        _, _, reason_str = classify_error_code(payload.error_message or "거래소 주문 거절", has_order_context=True)
+
+        filled_d = _to_finite_decimal(payload.filled_qty)
+        has_partial_fill = filled_d is not None and filled_d > 0
+        if has_partial_fill:
+            lines.append(f"체결수량: {format_quantity_display(filled_d, base_asset=base_asset)}")
+            rem_d = _to_finite_decimal(payload.remaining_qty)
+            if rem_d is not None and rem_d > 0:
+                lines.append(f"미체결수량: {format_quantity_display(rem_d, base_asset=base_asset)}")
+
+        _, is_ambig, reason_str = classify_error_code(payload.error_message or "거래소 주문 거절", has_order_context=True)
         lines.append(f"사유: {reason_str}")
-        lines.append("상태: 주문이 체결되지 않았습니다")
+
+        if has_partial_fill:
+            lines.append("상태: 부분 체결 완료 후 잔여 주문 실패")
+            lines.append("조치: 실제 체결 수량 확인 및 잔여 주문 확인 필요")
+        elif not is_ambig:
+            lines.append("상태: 주문이 체결되지 않았습니다")
+        else:
+            lines.append("상태: 실제 체결 여부 확인 중 (미확정)")
+            lines.append("조치: 거래소 체결 내역 확인 필요 (중복 재주문 주의)")
+
         lines.append("")
         lines.append(f"🕒 {kst_str}")
 
@@ -1139,7 +1165,8 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
         lines.append("상태: 실제 체결 여부 확인 중 (미확정)")
         lines.append("조치: 거래소 체결 내역 확인 필요 (중복 재주문 주의)")
         if is_manual_review and payload.signal_id:
-            lines.append(f"신호 ID: {sanitize_discord_text(payload.signal_id, max_len=64)}")
+            safe_sig_ref = hashlib.sha256(str(payload.signal_id).encode("utf-8")).hexdigest()[:8]
+            lines.append(f"운영 참조: {safe_sig_ref}")
         lines.append("")
         lines.append("⚠️ 미확정 주문 — 거래소 실제 체결 여부를 반드시 확인하세요")
         lines.append(f"🕒 {kst_str}")
@@ -1265,6 +1292,12 @@ def build_error_embed(
         if amt is not None:
             lines.append(f"요청수량: {format_quantity_display(amt, base_asset=base_asset)}")
 
+        filled_val = getattr(order_info, "filled_qty", None) or getattr(order_info, "filled", None)
+        filled_d = _to_finite_decimal(filled_val)
+        has_partial_fill = filled_d is not None and filled_d > 0
+        if has_partial_fill:
+            lines.append(f"체결수량: {format_quantity_display(filled_d, base_asset=base_asset)}")
+
         if is_ambiguous:
             title = f"⚪ {exchange} · {display_symbol} · {side} 주문 결과 확인 필요"
             color = COLOR_ORDER_AMBIGUOUS
@@ -1275,7 +1308,11 @@ def build_error_embed(
             title = f"⚠️ {exchange} · {display_symbol} · {side} 주문 실패"
             color = COLOR_ORDER_FAILED
             lines.append(f"사유: {safe_reason}")
-            lines.append("상태: 주문이 체결되지 않았습니다")
+            if has_partial_fill:
+                lines.append("상태: 부분 체결 완료 후 잔여 주문 실패")
+                lines.append("조치: 실제 체결 수량 확인 및 잔여 주문 확인 필요")
+            else:
+                lines.append("상태: 주문이 체결되지 않았습니다")
 
         lines.append("")
         lines.append(f"🕒 {kst_str}")

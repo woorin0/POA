@@ -1,3 +1,4 @@
+import hashlib
 import json
 import tempfile
 import time
@@ -412,7 +413,9 @@ class RequeueSafetyTests(unittest.TestCase):
         self.assertTrue(len(logged_warnings) >= 1)
         log_text = " ".join(logged_warnings)
         self.assertIn("AUDIT_ALERT_REQUEUE", log_text)
-        self.assertIn("event_id=u_audit", log_text)
+        expected_ref = hashlib.sha256("u_audit".encode("utf-8")).hexdigest()[:16]
+        self.assertIn(f"event_ref={expected_ref}", log_text)
+        self.assertNotIn("event_id=u_audit", log_text)
         self.assertNotIn("SECRET_CANARY_TOKEN_DO_NOT_LEAK", log_text)
         self.assertNotIn("https://discord.com", log_text)
         self.assertNotIn("test-only", log_text)

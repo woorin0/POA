@@ -29,7 +29,7 @@ def test_rollback():
     if not manifest_path.exists():
         # Verify normalize_rel_path standalone when external revision backup folder is not present
         assert normalize_rel_path("exchange\\binance.py") == Path("exchange/binance.py")
-        return
+        pytest.skip("Rollback baseline files not present (pnl_revision_baseline/manifest.json missing)")
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
     with tempfile.TemporaryDirectory(prefix="poa-rollback-") as directory:
@@ -61,4 +61,7 @@ def test_rollback():
 
 
 if __name__ == "__main__":
-    test_rollback()
+    try:
+        test_rollback()
+    except pytest.skip.Exception as e:
+        print(f"SKIP: {e}", flush=True)

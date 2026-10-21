@@ -1,4 +1,5 @@
 """Comprehensive pytest & unittest suite for POA Discord Embed v2 (Mobile Unified Design)."""
+import hashlib
 import json
 import math
 import os
@@ -263,6 +264,9 @@ class DiscordEmbedV2Tests(unittest.TestCase):
             net_pnl="+19674.67 KRW",
             roi_pct="2.68",
             verification_status=VerificationStatus.VERIFIED,
+            fill_verification_status=VerificationStatus.VERIFIED,
+            pnl_verification_status=VerificationStatus.VERIFIED,
+            roi_verification_status=VerificationStatus.VERIFIED,
             event_timestamp=1760958129.0,
             fill_timestamp=1760958129.0,
         )
@@ -299,6 +303,9 @@ class DiscordEmbedV2Tests(unittest.TestCase):
             net_pnl="-10429.77 KRW",
             roi_pct="-1.42",
             verification_status=VerificationStatus.VERIFIED,
+            fill_verification_status=VerificationStatus.VERIFIED,
+            pnl_verification_status=VerificationStatus.VERIFIED,
+            roi_verification_status=VerificationStatus.VERIFIED,
             event_timestamp=1760958129.0,
         )
         embed = build_verified_embed(payload).data
@@ -326,6 +333,9 @@ class DiscordEmbedV2Tests(unittest.TestCase):
             net_pnl="0 KRW",
             roi_pct="0.00",
             verification_status=VerificationStatus.VERIFIED,
+            fill_verification_status=VerificationStatus.VERIFIED,
+            pnl_verification_status=VerificationStatus.VERIFIED,
+            roi_verification_status=VerificationStatus.VERIFIED,
             event_timestamp=1760958129.0,
         )
         embed = build_verified_embed(payload).data
@@ -355,6 +365,9 @@ class DiscordEmbedV2Tests(unittest.TestCase):
             roi_pct=None,  # Margin unverified
             leverage=10,
             verification_status=VerificationStatus.VERIFIED,
+            fill_verification_status=VerificationStatus.VERIFIED,
+            pnl_verification_status=VerificationStatus.VERIFIED,
+            roi_verification_status=VerificationStatus.UNVERIFIED,
             event_timestamp=1760958129.0,
         )
         embed = build_verified_embed(payload).data
@@ -446,7 +459,9 @@ class DiscordEmbedV2Tests(unittest.TestCase):
         self.assertIn("사유: 주문 ID 누락 (missing_order_id)", desc)
         self.assertIn("상태: 실제 체결 여부 확인 중 (미확정)", desc)
         self.assertIn("조치: 거래소 체결 내역 확인 필요", desc)
-        self.assertIn("신호 ID: sig-timeout-99", desc)
+        expected_sig_ref = hashlib.sha256("sig-timeout-99".encode("utf-8")).hexdigest()[:8]
+        self.assertIn(f"운영 참조: {expected_sig_ref}", desc)
+        self.assertNotIn("sig-timeout-99", desc)
         # Never claim order was rejected/failed when order_id is missing
         self.assertNotIn("주문이 체결되지 않았습니다", desc)
 
@@ -526,6 +541,9 @@ class DiscordEmbedV2Tests(unittest.TestCase):
             filled_qty="0.00012345",
             exit_price="100,000,000",
             verification_status=VerificationStatus.VERIFIED,
+            fill_verification_status=VerificationStatus.VERIFIED,
+            pnl_verification_status=VerificationStatus.VERIFIED,
+            roi_verification_status=VerificationStatus.UNVERIFIED,
             event_timestamp=1760958129.0,
         )
         desc_def = build_verified_embed(p_default).data["description"]
@@ -703,6 +721,9 @@ class DiscordEmbedV2Tests(unittest.TestCase):
                 net_pnl=f"{net_val:+f} KRW",
                 roi_pct=roi_val,
                 verification_status=VerificationStatus.VERIFIED,
+                fill_verification_status=VerificationStatus.VERIFIED,
+                pnl_verification_status=VerificationStatus.VERIFIED,
+                roi_verification_status=VerificationStatus.VERIFIED,
                 event_timestamp=1760958129.0,
             )
             embed = build_verified_embed(p).data
@@ -989,6 +1010,9 @@ class DiscordEmbedV2Tests(unittest.TestCase):
             net_pnl="19.55 USDT",
             roi_pct="9.78",
             verification_status=VerificationStatus.VERIFIED,
+            fill_verification_status=VerificationStatus.VERIFIED,
+            pnl_verification_status=VerificationStatus.VERIFIED,
+            roi_verification_status=VerificationStatus.UNVERIFIED,
             event_timestamp=1760958129.0,
         )
         e_multi = build_verified_embed(p_multi).data
