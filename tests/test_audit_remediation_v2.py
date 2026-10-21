@@ -299,3 +299,196 @@ def test_rollback_skips_when_manifest_missing(tmp_path):
     with patch("tests.test_rollback.backup", tmp_path / "nonexistent"):
         with pytest.raises(pytest.skip.Exception, match="Rollback baseline files not present"):
             test_rollback()
+
+
+# ---------------------------------------------------------------------------
+# P1: Unconfirmed Order Rejection and Missing Error Classification
+# ---------------------------------------------------------------------------
+
+def test_failed_no_error_message_no_filled_qty_stays_ambiguous():
+    """FAILED status with error_message=None and filled_qty=None must not claim unexecuted."""
+    p = make_payload(
+        fill_status=FillStatus.FAILED,
+        error_message=None,
+        filled_qty=None,
+        requested_qty="1.0",
+        verification_status=VerificationStatus.UNVERIFIED,
+    )
+    embed = de.build_mobile_verified_embed(p).data
+    assert embed["title"].startswith("⚪")
+    assert embed["color"] == de.COLOR_ORDER_AMBIGUOUS
+    assert "주문 결과 확인 필요" in embed["title"]
+    desc = embed["description"]
+    assert "사유: 주문 처리 결과 미확정 (거래소 확인 필요)" in desc
+    assert "상태: 실제 체결 여부 확인 중 (미확정)" in desc
+    assert "주문이 체결되지 않았습니다" not in desc
+    assert "거래소 주문 거절" not in desc
+
+
+def test_failed_no_error_message_with_zero_filled_qty_stays_ambiguous():
+    """FAILED status with error_message=None and filled_qty='0' must not claim unexecuted."""
+    p = make_payload(
+        fill_status=FillStatus.FAILED,
+        error_message=None,
+        filled_qty="0",
+        requested_qty="1.0",
+        verification_status=VerificationStatus.UNVERIFIED,
+    )
+    embed = de.build_mobile_verified_embed(p).data
+    assert embed["title"].startswith("⚪")
+    assert embed["color"] == de.COLOR_ORDER_AMBIGUOUS
+    desc = embed["description"]
+    assert "상태: 실제 체결 여부 확인 중 (미확정)" in desc
+    assert "주문이 체결되지 않았습니다" not in desc
+
+
+def test_failed_generic_error_with_zero_filled_qty_stays_ambiguous():
+    """FAILED status with generic unclassified error and filled_qty='0' stays ambiguous."""
+    p = make_payload(
+        fill_status=FillStatus.FAILED,
+        error_message="RuntimeError: disk error occurred during order submission",
+        filled_qty="0",
+        requested_qty="1.0",
+        verification_status=VerificationStatus.UNVERIFIED,
+    )
+    embed = de.build_mobile_verified_embed(p).data
+    assert embed["title"].startswith("⚪")
+    assert embed["color"] == de.COLOR_ORDER_AMBIGUOUS
+    desc = embed["description"]
+    assert "상태: 실제 체결 여부 확인 중 (미확정)" in desc
+    assert "주문이 체결되지 않았습니다" not in desc
+
+
+def test_failed_timeout_with_partial_fill_preserves_filled_qty():
+    """FAILED status with timeout and filled_qty='0.25' must preserve positive fill quantity."""
+    p = make_payload(
+        fill_status=FillStatus.FAILED,
+        error_message="RequestTimeout: request to binance timed out after 10000ms",
+        filled_qty="0.25",
+        remaining_qty="0.75",
+        requested_qty="1.0",
+        verification_status=VerificationStatus.UNVERIFIED,
+    )
+    embed = de.build_mobile_verified_embed(p).data
+    assert embed["title"].startswith("⚪")
+    assert embed["color"] == de.COLOR_ORDER_AMBIGUOUS
+    desc = embed["description"]
+    assert "체결수량: 0.25 BTC" in desc
+    assert "미체결수량: 0.75 BTC" in desc
+    assert "상태: 일부 체결 확인됨 (잔여 주문 상태 미확정)" in desc
+    assert "주문이 체결되지 않았습니다" not in desc
+
+
+def test_failed_explicit_rejection_with_verified_zero_fill():
+    """FAILED status with explicit rejection AND verified zero fill confirms unexecuted order."""
+    p = make_payload(
+        fill_status=FillStatus.FAILED,
+        error_message="INSUFFICIENT_BALANCE",
+        filled_qty="0",
+        requested_qty="1.0",
+        verification_status=VerificationStatus.VERIFIED,
+        fill_verification_status=VerificationStatus.VERIFIED,
+    )
+    embed = de.build_mobile_verified_embed(p).data
+    assert embed["title"].startswith("⚠️")
+    assert embed["color"] == de.COLOR_ORDER_FAILED
+    desc = embed["description"]
+    assert "사유: 주문 가능 금액/잔고 부족 (INSUFFICIENT_BALANCE)" in desc
+    assert "상태: 주문이 체결되지 않았습니다" in desc
+
+
+def test_failed_explicit_rejection_with_partial_fill():
+    """FAILED status with explicit rejection AND partial fill preserves fill and states remaining failure."""
+    p = make_payload(
+        fill_status=FillStatus.FAILED,
+        error_message="INSUFFICIENT_BALANCE",
+        filled_qty="0.4",
+        remaining_qty="0.6",
+        requested_qty="1.0",
+        verification_status=VerificationStatus.VERIFIED,
+        fill_verification_status=VerificationStatus.VERIFIED,
+    )
+    embed = de.build_mobile_verified_embed(p).data
+    assert embed["title"].startswith("⚠️")
+    assert embed["color"] == de.COLOR_ORDER_FAILED
+    desc = embed["description"]
+    assert "체결수량: 0.4 BTC" in desc
+    assert "미체결수량: 0.6 BTC" in desc
+    assert "상태: 부분 체결 완료 후 잔여 주문 실패" in desc
+    assert "조치: 실제 체결 수량 확인 및 잔여 주문 확인 필요" in desc
+    assert "주문이 체결되지 않았습니다" not in desc
+
+
+def test_legacy_payload_missing_rejection_evidence_stays_ambiguous():
+    """Legacy payload missing explicit rejection evidence must not fabricate rejection reason."""
+    p = make_payload(
+        fill_status=FillStatus.FAILED,
+        error_message=None,
+        filled_qty=None,
+        fill_verification_status=None,
+        verification_status=VerificationStatus.UNVERIFIED,
+    )
+    embed = de.build_mobile_verified_embed(p).data
+    assert embed["title"].startswith("⚪")
+    assert embed["color"] == de.COLOR_ORDER_AMBIGUOUS
+    desc = embed["description"]
+    assert "거래소 주문 거절" not in desc
+    assert "주문이 체결되지 않았습니다" not in desc
+    assert "상태: 실제 체결 여부 확인 중 (미확정)" in desc
+
+
+def test_embed_title_description_color_alignment():
+    """Confirms alignment among title icon, color, and description status across all branches."""
+    # Branch 1: Confirmed FAILED
+    p_fail = make_payload(
+        fill_status=FillStatus.FAILED,
+        error_message="INSUFFICIENT_BALANCE",
+        filled_qty="0",
+        verification_status=VerificationStatus.VERIFIED,
+        fill_verification_status=VerificationStatus.VERIFIED,
+    )
+    e_fail = de.build_mobile_verified_embed(p_fail).data
+    assert e_fail["title"].startswith("⚠️")
+    assert e_fail["color"] == de.COLOR_ORDER_FAILED
+    assert "상태: 주문이 체결되지 않았습니다" in e_fail["description"]
+
+    # Branch 2: Ambiguous unverified
+    p_amb = make_payload(
+        fill_status=FillStatus.FAILED,
+        error_message=None,
+        filled_qty=None,
+        verification_status=VerificationStatus.UNVERIFIED,
+    )
+    e_amb = de.build_mobile_verified_embed(p_amb).data
+    assert e_amb["title"].startswith("⚪")
+    assert e_amb["color"] == de.COLOR_ORDER_AMBIGUOUS
+    assert "상태: 실제 체결 여부 확인 중 (미확정)" in e_amb["description"]
+
+
+def test_build_error_embed_unverified_order_info_and_none_error():
+    """build_error_embed with unverified order_info or None error stays ambiguous and safe."""
+    order_unverified = NS(
+        exchange="BINANCE",
+        base="BTC",
+        quote="USDT",
+        amount=1.0,
+        filled_qty=0,
+        verification_status=VerificationStatus.UNVERIFIED,
+        is_futures=False,
+        is_buy=True,
+    )
+    # Explicit rejection error, but order is explicitly UNVERIFIED
+    e_unverified = de.build_error_embed("INSUFFICIENT_BALANCE", order_info=order_unverified).data
+    assert e_unverified["title"].startswith("⚪")
+    assert e_unverified["color"] == de.COLOR_ORDER_AMBIGUOUS
+    assert "상태: 실제 체결 여부 확인 중 (미확정)" in e_unverified["description"]
+    assert "주문이 체결되지 않았습니다" not in e_unverified["description"]
+
+    # Missing error (None) with order_info
+    e_none = de.build_error_embed(None, order_info=order_unverified).data
+    assert e_none["title"].startswith("⚪")
+    assert e_none["color"] == de.COLOR_ORDER_AMBIGUOUS
+    assert "사유: 주문 처리 결과 미확정" in e_none["description"]
+    assert "UNKNOWN_ORDER_RESULT" in e_none["description"]
+    assert "주문이 체결되지 않았습니다" not in e_none["description"]
+

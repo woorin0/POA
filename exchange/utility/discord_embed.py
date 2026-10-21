@@ -922,6 +922,37 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
         or "MANUAL_REVIEW" in str(payload.error_message or "")
     )
     status = payload.fill_status
+    err_text = payload.error_message
+    has_err_text = bool(err_text is not None and str(err_text).strip() != "")
+    _, is_err_ambig, err_reason = classify_error_code(err_text, has_order_context=True)
+
+    filled_d = _to_finite_decimal(payload.filled_qty)
+    has_partial_fill = filled_d is not None and filled_d > 0
+
+    fill_v_status = getattr(payload, "fill_verification_status", None) or getattr(payload, "verification_status", None)
+    fill_is_verified = (
+        fill_v_status == VerificationStatus.VERIFIED
+        or str(getattr(fill_v_status, "value", fill_v_status)).upper() == "VERIFIED"
+    )
+    fill_is_failed_verified = (
+        fill_v_status == VerificationStatus.FAILED
+        or str(getattr(fill_v_status, "value", fill_v_status)).upper() == "FAILED"
+    )
+    fill_is_unverified = (
+        fill_v_status is None
+        or fill_v_status == VerificationStatus.UNVERIFIED
+        or str(getattr(fill_v_status, "value", fill_v_status)).upper() == "UNVERIFIED"
+    )
+
+    has_explicit_rejection = has_err_text and not is_err_ambig
+    is_verified_zero_fill = (
+        not has_partial_fill
+        and not fill_is_unverified
+        and (
+            (fill_is_verified and filled_d == Decimal("0"))
+            or fill_is_failed_verified
+        )
+    )
 
     # Determine category & color (Section 3.3)
     if is_manual_review or payload.event_type == "unverified" or status in (FillStatus.UNVERIFIED, FillStatus.PENDING):
@@ -934,13 +965,15 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
         color = COLOR_ORDER_AMBIGUOUS
         category = "CANCELED"
     elif status == FillStatus.FAILED:
-        # Even if status == FAILED, check if error_message is actually ambiguous
-        if payload.error_message and classify_error_ambiguity(payload.error_message):
-            color = COLOR_ORDER_AMBIGUOUS
-            category = "AMBIGUOUS"
-        else:
+        if has_explicit_rejection and has_partial_fill:
             color = COLOR_ORDER_FAILED
             category = "FAILED"
+        elif has_explicit_rejection and is_verified_zero_fill:
+            color = COLOR_ORDER_FAILED
+            category = "FAILED"
+        else:
+            color = COLOR_ORDER_AMBIGUOUS
+            category = "AMBIGUOUS"
     elif status == FillStatus.FILLED:
         if is_sell_or_close_side(payload.side):
             color = COLOR_SELL_COMPLETED
@@ -1076,21 +1109,18 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
         if req_qty_d is not None and req_qty_d > 0:
             lines.append(f"요청수량: {format_quantity_display(req_qty_d, base_asset=base_asset)}")
 
-        filled_d = _to_finite_decimal(payload.filled_qty)
-        has_partial_fill = filled_d is not None and filled_d > 0
         if has_partial_fill:
             lines.append(f"체결수량: {format_quantity_display(filled_d, base_asset=base_asset)}")
             rem_d = _to_finite_decimal(payload.remaining_qty)
             if rem_d is not None and rem_d > 0:
                 lines.append(f"미체결수량: {format_quantity_display(rem_d, base_asset=base_asset)}")
 
-        _, is_ambig, reason_str = classify_error_code(payload.error_message or "거래소 주문 거절", has_order_context=True)
-        lines.append(f"사유: {reason_str}")
+        lines.append(f"사유: {err_reason}")
 
         if has_partial_fill:
             lines.append("상태: 부분 체결 완료 후 잔여 주문 실패")
             lines.append("조치: 실제 체결 수량 확인 및 잔여 주문 확인 필요")
-        elif not is_ambig:
+        elif is_verified_zero_fill:
             lines.append("상태: 주문이 체결되지 않았습니다")
         else:
             lines.append("상태: 실제 체결 여부 확인 중 (미확정)")
@@ -1148,6 +1178,16 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
         if strategy_name:
             lines.append(f"전략: {strategy_name}")
 
+        req_qty_d = _to_finite_decimal(payload.requested_qty)
+        if req_qty_d is not None and req_qty_d > 0:
+            lines.append(f"요청수량: {format_quantity_display(req_qty_d, base_asset=base_asset)}")
+
+        if has_partial_fill:
+            lines.append(f"체결수량: {format_quantity_display(filled_d, base_asset=base_asset)}")
+            rem_d = _to_finite_decimal(payload.remaining_qty)
+            if rem_d is not None and rem_d > 0:
+                lines.append(f"미체결수량: {format_quantity_display(rem_d, base_asset=base_asset)}")
+
         if is_manual_review:
             err_raw = str(payload.error_message or "")
             if "missing_order_id" in err_raw:
@@ -1158,12 +1198,19 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
                 _, _, reason_text = classify_error_code(err_raw, has_order_context=True)
         elif status == FillStatus.PENDING:
             reason_text = "거래소 체결 내역 확인 대기 중"
+        elif has_err_text:
+            reason_text = err_reason
         else:
-            reason_text = "체결 조회 지연 또는 응답 타임아웃"
+            reason_text = "주문 처리 결과 미확정 (거래소 확인 필요)"
 
         lines.append(f"사유: {reason_text}")
-        lines.append("상태: 실제 체결 여부 확인 중 (미확정)")
-        lines.append("조치: 거래소 체결 내역 확인 필요 (중복 재주문 주의)")
+        if has_partial_fill:
+            lines.append("상태: 일부 체결 확인됨 (잔여 주문 상태 미확정)")
+            lines.append("조치: 거래소 체결 내역 확인 필요 (중복 재주문 금지)")
+        else:
+            lines.append("상태: 실제 체결 여부 확인 중 (미확정)")
+            lines.append("조치: 거래소 체결 내역 확인 필요 (중복 재주문 주의)")
+
         if is_manual_review and payload.signal_id:
             safe_sig_ref = hashlib.sha256(str(payload.signal_id).encode("utf-8")).hexdigest()[:8]
             lines.append(f"운영 참조: {safe_sig_ref}")
@@ -1253,7 +1300,9 @@ def build_error_embed(
       as a confirmed exchange rejection (#F59E0B, ⚠️).
     """
     has_order = order_info is not None
-    _, is_ambiguous, safe_reason = classify_error_code(error, has_order_context=has_order)
+    err_text = error
+    has_err_text = bool(err_text is not None and str(err_text).strip() != "")
+    _, is_ambiguous, safe_reason = classify_error_code(err_text, has_order_context=has_order)
     kst_str = format_kst_full(timestamp if timestamp is not None else datetime.now(timezone.utc).timestamp())
 
     if order_info is not None:
@@ -1298,12 +1347,24 @@ def build_error_embed(
         if has_partial_fill:
             lines.append(f"체결수량: {format_quantity_display(filled_d, base_asset=base_asset)}")
 
-        if is_ambiguous:
+        v_status = getattr(order_info, "fill_verification_status", None) or getattr(order_info, "verification_status", None)
+        is_unverified = (
+            v_status is not None
+            and (v_status == VerificationStatus.UNVERIFIED or str(getattr(v_status, "value", v_status)).upper() == "UNVERIFIED")
+        )
+
+        has_explicit_rejection = has_err_text and not is_ambiguous
+
+        if not has_explicit_rejection or is_unverified:
             title = f"⚪ {exchange} · {display_symbol} · {side} 주문 결과 확인 필요"
             color = COLOR_ORDER_AMBIGUOUS
             lines.append(f"사유: {safe_reason}")
-            lines.append("상태: 실제 체결 여부 확인 중 (미확정)")
-            lines.append("조치: 거래소 체결 내역 확인 필요 (중복 재주문 금지)")
+            if has_partial_fill:
+                lines.append("상태: 일부 체결 확인됨 (잔여 주문 상태 미확정)")
+                lines.append("조치: 거래소 체결 내역 확인 필요 (중복 재주문 금지)")
+            else:
+                lines.append("상태: 실제 체결 여부 확인 중 (미확정)")
+                lines.append("조치: 거래소 체결 내역 확인 필요 (중복 재주문 금지)")
         else:
             title = f"⚠️ {exchange} · {display_symbol} · {side} 주문 실패"
             color = COLOR_ORDER_FAILED

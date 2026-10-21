@@ -501,10 +501,13 @@ class VerifiedPnlTests(unittest.TestCase):
         )
         self.assertEqual(build_verified_embed(p4).data["color"], 0x64748B)
 
-        # FAILED -> Orange (0xF59E0B)
+        # FAILED -> Orange (0xF59E0B) (confirmed rejection with verified zero fill)
         p5 = NotificationPayload(
             event_id="e5", exchange="BINANCE", symbol="BTC/USDT", side="매수", order_name="주문",
             exit_reason=ExitReason.UNKNOWN, pnl_result=PnlResult.UNKNOWN, fill_status=FillStatus.FAILED,
+            error_message="INSUFFICIENT_BALANCE", filled_qty="0",
+            verification_status=VerificationStatus.VERIFIED,
+            fill_verification_status=VerificationStatus.VERIFIED,
             event_timestamp=time.time()
         )
         self.assertEqual(build_verified_embed(p5).data["color"], 0xF59E0B)
