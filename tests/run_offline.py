@@ -53,7 +53,7 @@ for tmp in [
     if tmp.exists():
         tmp.unlink()
 
-# 4. Run all 13 regression suites + v2 suite + Codex independent audit counterexamples + rollback test
+# 4. Run all 13 regression suites + v2 suite + Codex audit counterexamples + remediation suite + rollback test
 for suite in [
     "test_safe_retry.py",
     "test_verified_pnl.py",
@@ -70,6 +70,7 @@ for suite in [
     "test_double_close_prevention.py",
     "test_discord_embed_v2.py",
     "test_independent_audit.py",
+    "test_audit_remediation_v2.py",
     "test_rollback.py",
 ]:
     subprocess.run([sys.executable, "-m", "pytest", str(ROOT / "tests" / suite), "-q", "--tb=short"], check=True, cwd=ROOT)
