@@ -150,6 +150,12 @@ def make_payload(key, fill, info, pnl, entry_price, settings):
         strategy_id=str(getattr(info, "strategy_id", None)) if getattr(info, "strategy_id", None) is not None else None,
         pnl_currency=getattr(fill, "pnl_currency", None) or getattr(pnl, "pnl_currency", None),
         notional_amount=notional,
+        accounting_basis=getattr(fill, "accounting_basis", None) or getattr(pnl, "accounting_basis", None),
+        pnl_includes_entry_fee=getattr(fill, "pnl_includes_entry_fee", None) if getattr(fill, "pnl_includes_entry_fee", None) is not None else getattr(pnl, "pnl_includes_entry_fee", None),
+        pnl_includes_exit_fee=getattr(fill, "pnl_includes_exit_fee", None) if getattr(fill, "pnl_includes_exit_fee", None) is not None else getattr(pnl, "pnl_includes_exit_fee", None),
+        pnl_includes_funding=getattr(fill, "pnl_includes_funding", None) if getattr(fill, "pnl_includes_funding", None) is not None else getattr(pnl, "pnl_includes_funding", None),
+        cost_basis=format_decimal(getattr(pnl, "cost_basis", None)) if getattr(pnl, "cost_basis", None) is not None else None,
+        cost_basis_currency=getattr(fill, "pnl_currency", None) or getattr(pnl, "pnl_currency", None),
     )
 
 

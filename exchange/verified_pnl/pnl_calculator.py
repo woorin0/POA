@@ -13,12 +13,12 @@ class PnlCalculator:
         if fill.verification_status != VerificationStatus.VERIFIED:
             return PnlCalculationResult(source="UNVERIFIED_FILL")
         ccy = fill.pnl_currency or "USDT"
-        gross = fill.realized_pnl if fill.accounting_basis == "gross" else None
+        gross = fill.realized_pnl if fill.accounting_basis == "gross" else (fill.realized_pnl if fill.accounting_basis == "net" else None)
         close = fill.average_fill_price
         price_return = None
         if entry_price is not None and entry_price > 0 and close is not None and fill.filled_quantity > 0:
             delta = close - entry_price if getattr(order_info, "is_sell", False) else entry_price - close
-            if gross is None and fill.accounting_basis != "net": gross = delta * fill.filled_quantity
+            if gross is None: gross = delta * fill.filled_quantity
             price_return = delta / entry_price * 100
         exit_fee = fill.fees.get(ccy) if set(fill.fees) <= {ccy} else None
         net = None
@@ -48,4 +48,9 @@ class PnlCalculator:
             price_return_pct=price_return, net_roi_pct=roi, is_roi_estimated=False, pnl_currency=ccy,
             verification_status=VerificationStatus.VERIFIED if net is not None else VerificationStatus.UNVERIFIED,
             source="EXCHANGE_ACCOUNTING" if fill.realized_pnl is not None else "VERIFIED_COST_BASIS",
-            notes=[] if net is not None else ["수수료·펀딩·체결 귀속 미확정"])
+            notes=[] if net is not None else ["수수료·펀딩·체결 귀속 미확정"],
+            cost_basis=allocated_margin,
+            accounting_basis=fill.accounting_basis,
+            pnl_includes_entry_fee=fill.pnl_includes_entry_fee,
+            pnl_includes_exit_fee=fill.pnl_includes_exit_fee,
+            pnl_includes_funding=fill.pnl_includes_funding)

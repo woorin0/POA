@@ -108,6 +108,11 @@ class PnlCalculationResult(BaseModel):
     verification_status: VerificationStatus = VerificationStatus.UNVERIFIED
     source: str = "UNVERIFIED"
     notes: List[str] = []
+    cost_basis: Optional[Decimal] = None
+    accounting_basis: Optional[str] = None
+    pnl_includes_entry_fee: Optional[bool] = None
+    pnl_includes_exit_fee: Optional[bool] = None
+    pnl_includes_funding: Optional[bool] = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -155,6 +160,12 @@ class NotificationPayload(BaseModel):
     strategy_id: Optional[str] = None
     pnl_currency: Optional[str] = None
     notional_amount: Optional[str] = None
+    accounting_basis: Optional[str] = None
+    pnl_includes_entry_fee: Optional[bool] = None
+    pnl_includes_exit_fee: Optional[bool] = None
+    pnl_includes_funding: Optional[bool] = None
+    cost_basis: Optional[str] = None
+    cost_basis_currency: Optional[str] = None
 
     class Config:
         arbitrary_types_allowed = True

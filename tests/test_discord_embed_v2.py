@@ -708,6 +708,12 @@ class DiscordEmbedV2Tests(unittest.TestCase):
         ]
         for reason, net_val, roi_val, expected_banner, expected_reason_line in matrix:
             res_enum = PnlResult.PROFIT if net_val > 0 else (PnlResult.LOSS if net_val < 0 else PnlResult.BREAKEVEN)
+            if net_val == D("-100000"):
+                entry_p = "100,500"
+                exit_p = "500"
+            else:
+                entry_p = "200,000"
+                exit_p = f"{int(Decimal('200000') + net_val):,}"
             p = NotificationPayload(
                 event_id=f"mat-{reason.value}-{net_val}",
                 exchange="UPBIT",
@@ -718,8 +724,11 @@ class DiscordEmbedV2Tests(unittest.TestCase):
                 pnl_result=res_enum,
                 fill_status=FillStatus.FILLED,
                 filled_qty="1",
-                entry_price="200,000",
-                exit_price="205,000",
+                entry_price=entry_p,
+                exit_price=exit_p,
+                entry_fee_allocated="0 KRW",
+                exit_fee="0 KRW",
+                gross_pnl=f"{net_val:+f} KRW",
                 net_pnl=f"{net_val:+f} KRW",
                 roi_pct=roi_val,
                 verification_status=VerificationStatus.VERIFIED,
