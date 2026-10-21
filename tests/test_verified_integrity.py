@@ -188,7 +188,7 @@ class Integrity(unittest.TestCase):
         with patch('requests.post',return_value=Mock(status_code=500)):flush_outbox(self.settings)
         # P2-5: HTTP 500 is held as UNKNOWN by default to prevent duplicate sends when post-delivery response fails
         self.assertEqual(self.status(),'UNKNOWN')
-        self.assertEqual(self.store.requeue_unknown('e'),1)
+        self.assertEqual(self.store.requeue_unknown('e', confirm_duplicate_risk=True),1)
         self.assertEqual(self.status(),'PENDING')
 
     def test_invalid_url_no_request(self):
@@ -261,6 +261,190 @@ class Integrity(unittest.TestCase):
         from contextlib import closing
         with closing(sqlite3.connect(backup)) as c:
             self.assertEqual(c.execute('SELECT status FROM verified_outbox').fetchone()[0],'PENDING')
+
+
+
+class RequeueSafetyTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.db_path = str(Path(self.tmp.name) / "alerts.db")
+        self.store = NotificationOutboxStore(self.db_path)
+        self.settings = s.Settings(
+            _env_file=None,
+            PASSWORD="test-only",
+            VERIFIED_DISCORD_ALERTS=True,
+            DISCORD_OUTBOX_ENABLED=True,
+            DISCORD_RETRY_ENABLED=True,
+            VERIFIED_NOTIFICATIONS_DB_PATH=self.db_path,
+            DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/99999/SECRET_CANARY_TOKEN_DO_NOT_LEAK",
+        )
+
+    def _insert_outbox_row(self, event_id: str, status: str, payload_str: Optional[str] = None):
+        if payload_str is None:
+            payload = NotificationPayload(
+                event_id=event_id,
+                exchange="BINANCE",
+                symbol="BTC/USDT",
+                side="매도",
+                order_name="주문",
+                exit_reason=ExitReason.TP,
+                pnl_result=PnlResult.UNKNOWN,
+                fill_status=FillStatus.PENDING,
+                event_timestamp=time.time(),
+            )
+            payload_str = payload.json()
+        now = time.time()
+        with self.store._connect() as con:
+            con.execute(
+                """
+                INSERT OR REPLACE INTO verified_outbox (
+                    event_id, exchange, symbol, order_id, client_order_id,
+                    event_type, version, payload, status, attempts,
+                    max_attempts, next_retry_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 5, 0, ?, ?)
+                """,
+                (event_id, "BINANCE", "BTC/USDT", "ord_" + event_id, "cid_" + event_id,
+                 "ORDER_ALERT", 1, payload_str, status, now, now),
+            )
+
+    def _get_status(self, event_id: str) -> Optional[str]:
+        with self.store._connect() as con:
+            row = con.execute("SELECT status FROM verified_outbox WHERE event_id=?", (event_id,)).fetchone()
+            return row[0] if row else None
+
+    def test_requeue_no_event_id_bulk_blocked_by_default(self):
+        self._insert_outbox_row("u1", OutboxStatus.UNKNOWN.value)
+        with self.assertRaises(ValueError) as ctx:
+            self.store.requeue_unknown(confirm_duplicate_risk=True)
+        self.assertIn("Bulk requeue blocked by default", str(ctx.exception))
+        self.assertEqual(self._get_status("u1"), OutboxStatus.UNKNOWN.value)
+
+    def test_requeue_without_explicit_risk_acknowledgment_blocked(self):
+        self._insert_outbox_row("u1", OutboxStatus.UNKNOWN.value)
+        with self.assertRaises(ValueError) as ctx1:
+            self.store.requeue_unknown("u1")
+        self.assertIn("operator must explicitly confirm duplicate alert risk", str(ctx1.exception))
+
+        with self.assertRaises(ValueError) as ctx2:
+            self.store.requeue_unknown("u1", confirm_duplicate_risk=False)
+        self.assertIn("operator must explicitly confirm duplicate alert risk", str(ctx2.exception))
+        self.assertEqual(self._get_status("u1"), OutboxStatus.UNKNOWN.value)
+
+    def test_requeue_specific_unknown_event_success(self):
+        self._insert_outbox_row("u1", OutboxStatus.UNKNOWN.value)
+        count = self.store.requeue_unknown("u1", confirm_duplicate_risk=True)
+        self.assertEqual(count, 1)
+        self.assertEqual(self._get_status("u1"), OutboxStatus.PENDING.value)
+
+    def test_requeue_specific_held_event_success(self):
+        self._insert_outbox_row("h1", OutboxStatus.HELD.value)
+        count = self.store.requeue_unknown("h1", confirm_duplicate_risk=True)
+        self.assertEqual(count, 1)
+        self.assertEqual(self._get_status("h1"), OutboxStatus.PENDING.value)
+
+    def test_requeue_sent_event_blocked(self):
+        self._insert_outbox_row("s1", OutboxStatus.SENT.value)
+        count = self.store.requeue_unknown("s1", confirm_duplicate_risk=True)
+        self.assertEqual(count, 0)
+        self.assertEqual(self._get_status("s1"), OutboxStatus.SENT.value)
+
+    def test_requeue_nonexistent_event_returns_zero(self):
+        count = self.store.requeue_unknown("nonexistent_event", confirm_duplicate_risk=True)
+        self.assertEqual(count, 0)
+
+    def test_requeue_preserves_other_unknown_events(self):
+        self._insert_outbox_row("u1", OutboxStatus.UNKNOWN.value)
+        self._insert_outbox_row("u2", OutboxStatus.UNKNOWN.value)
+        count = self.store.requeue_unknown("u1", confirm_duplicate_risk=True)
+        self.assertEqual(count, 1)
+        self.assertEqual(self._get_status("u1"), OutboxStatus.PENDING.value)
+        self.assertEqual(self._get_status("u2"), OutboxStatus.UNKNOWN.value)
+
+    def test_bulk_requeue_explicit_approval_and_scope(self):
+        self._insert_outbox_row("u1", OutboxStatus.UNKNOWN.value)
+        self._insert_outbox_row("u2", OutboxStatus.UNKNOWN.value)
+        self._insert_outbox_row("h1", OutboxStatus.HELD.value)
+        self._insert_outbox_row("s1", OutboxStatus.SENT.value)
+        self._insert_outbox_row("p1", OutboxStatus.PENDING.value)
+
+        # Bulk requeue without confirm_duplicate_risk is rejected
+        with self.assertRaises(ValueError):
+            self.store.requeue_unknown(allow_bulk=True, confirm_duplicate_risk=False)
+
+        # Bulk requeue with both flags transitions only UNKNOWN and HELD
+        count = self.store.requeue_unknown(allow_bulk=True, confirm_duplicate_risk=True)
+        self.assertEqual(count, 3)
+        self.assertEqual(self._get_status("u1"), OutboxStatus.PENDING.value)
+        self.assertEqual(self._get_status("u2"), OutboxStatus.PENDING.value)
+        self.assertEqual(self._get_status("h1"), OutboxStatus.PENDING.value)
+        self.assertEqual(self._get_status("s1"), OutboxStatus.SENT.value)
+        self.assertEqual(self._get_status("p1"), OutboxStatus.PENDING.value)
+
+    def test_concurrent_requeue_state_consistency(self):
+        import threading
+        self._insert_outbox_row("u_concurrent", OutboxStatus.UNKNOWN.value)
+        results = []
+        def worker():
+            try:
+                c = self.store.requeue_unknown("u_concurrent", confirm_duplicate_risk=True)
+                results.append(c)
+            except Exception as ex:
+                results.append(ex)
+
+        threads = [threading.Thread(target=worker) for _ in range(5)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # Exactly one thread should transition the row (1), others should transition 0
+        total_transitions = sum(r for r in results if isinstance(r, int))
+        self.assertEqual(total_transitions, 1)
+        self.assertEqual(self._get_status("u_concurrent"), OutboxStatus.PENDING.value)
+
+    def test_audit_log_contains_no_secrets(self):
+        self._insert_outbox_row("u_audit", OutboxStatus.UNKNOWN.value)
+        logged_warnings = []
+        with patch("exchange.verified_pnl.outbox.logger.warning", side_effect=lambda msg: logged_warnings.append(str(msg))):
+            self.store.requeue_unknown("u_audit", confirm_duplicate_risk=True)
+
+        self.assertTrue(len(logged_warnings) >= 1)
+        log_text = " ".join(logged_warnings)
+        self.assertIn("AUDIT_ALERT_REQUEUE", log_text)
+        self.assertIn("event_id=u_audit", log_text)
+        self.assertNotIn("SECRET_CANARY_TOKEN_DO_NOT_LEAK", log_text)
+        self.assertNotIn("https://discord.com", log_text)
+        self.assertNotIn("test-only", log_text)
+
+    def test_backward_compatibility_with_legacy_payload(self):
+        # Legacy payload lacking v2 specific fields (e.g. no fill_verification_status)
+        legacy_raw_json = json.dumps({
+            "event_id": "legacy_evt_1",
+            "exchange": "BINANCE",
+            "symbol": "BTC/USDT",
+            "side": "매도",
+            "order_name": "주문",
+            "exit_reason": "TP",
+            "pnl_result": "PROFIT",
+            "fill_status": "FILLED",
+            "event_timestamp": time.time(),
+        })
+        self._insert_outbox_row("legacy_evt_1", OutboxStatus.UNKNOWN.value, payload_str=legacy_raw_json)
+        self.assertEqual(self._get_status("legacy_evt_1"), OutboxStatus.UNKNOWN.value)
+
+        # Requeue succeeds
+        count = self.store.requeue_unknown("legacy_evt_1", confirm_duplicate_risk=True)
+        self.assertEqual(count, 1)
+        self.assertEqual(self._get_status("legacy_evt_1"), OutboxStatus.PENDING.value)
+
+        # Flush succeeds with mocked sender
+        mock_resp = Mock(status_code=200)
+        mock_resp.json.return_value = {"id": "legacy_sent_msg_1"}
+        with patch("requests.post", return_value=mock_resp):
+            flush_outbox(self.settings)
+
+        self.assertEqual(self._get_status("legacy_evt_1"), OutboxStatus.SENT.value)
 
 
 if __name__=='__main__':unittest.main()

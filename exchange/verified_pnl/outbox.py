@@ -226,19 +226,74 @@ class NotificationOutboxStore:
             con.execute("UPDATE verified_outbox SET status=?,last_error='delivery_unknown',updated_at=? WHERE event_id=?",
                         (OutboxStatus.UNKNOWN.value, time.time(), event_id))
 
-    def requeue_unknown(self, event_id: Optional[str] = None) -> int:
-        """Operator recovery helper: transitions UNKNOWN/HELD items back to PENDING for manual resend."""
+    def requeue_unknown(
+        self,
+        event_id: Optional[str] = None,
+        *,
+        confirm_duplicate_risk: bool = False,
+        allow_bulk: bool = False,
+    ) -> int:
+        """Operator recovery helper: transitions UNKNOWN/HELD items back to PENDING for manual resend.
+
+        WARNING:
+            Items placed in UNKNOWN or HELD status typically arose from HTTP 5xx responses,
+            network timeouts, or unconfirmed delivery during previous send attempts.
+            Discord or an intermediary proxy may have already accepted and posted the message.
+            Manually requeueing alerts back to PENDING carries a real risk of posting duplicate
+            messages to the Discord channel.
+            Operators MUST inspect the Discord channel/audit logs before invoking this method
+            to verify that the alert was NOT posted. Complete prevention of duplicate delivery
+            cannot be guaranteed once a 5xx/timeout has occurred; remaining risk is accepted by
+            explicit confirmation.
+
+        Args:
+            event_id: Specific outbox event ID to requeue. If None, allow_bulk must be True.
+            confirm_duplicate_risk: Explicit operator acknowledgment of duplicate notification risk.
+                Must be set to True to execute the requeue.
+            allow_bulk: Must be True to requeue all UNKNOWN/HELD items when event_id is None.
+                Defaults to False to prevent accidental bulk reprocessing.
+
+        Returns:
+            Number of rows transitioned from UNKNOWN/HELD to PENDING.
+
+        Raises:
+            ValueError: If confirm_duplicate_risk is False, or if event_id is None without allow_bulk=True.
+        """
+        if not confirm_duplicate_risk:
+            raise ValueError(
+                "Manual requeue rejected: operator must explicitly confirm duplicate alert risk "
+                "(confirm_duplicate_risk=True)."
+            )
+
+        if not event_id and not allow_bulk:
+            raise ValueError(
+                "Bulk requeue blocked by default: specify a specific event_id, or explicitly set "
+                "allow_bulk=True if bulk requeue is intended."
+            )
+
         now = time.time()
         with self._connect() as con:
             if event_id:
-                return con.execute(
-                    "UPDATE verified_outbox SET status=?, next_retry_at=?, updated_at=? WHERE event_id=? AND status IN (?, ?)",
+                count = con.execute(
+                    "UPDATE verified_outbox SET status=?, next_retry_at=?, updated_at=? "
+                    "WHERE event_id=? AND status IN (?, ?)",
                     (OutboxStatus.PENDING.value, now, now, event_id, OutboxStatus.UNKNOWN.value, OutboxStatus.HELD.value),
                 ).rowcount
-            return con.execute(
-                "UPDATE verified_outbox SET status=?, next_retry_at=?, updated_at=? WHERE status IN (?, ?)",
+                logger.warning(
+                    f"AUDIT_ALERT_REQUEUE: operator requeued outbox item event_id={event_id} (rows_updated={count}). "
+                    "Duplicate Discord notification risk acknowledged."
+                )
+                return count
+            count = con.execute(
+                "UPDATE verified_outbox SET status=?, next_retry_at=?, updated_at=? "
+                "WHERE status IN (?, ?)",
                 (OutboxStatus.PENDING.value, now, now, OutboxStatus.UNKNOWN.value, OutboxStatus.HELD.value),
             ).rowcount
+            logger.warning(
+                f"AUDIT_ALERT_REQUEUE: operator bulk-requeued outbox items (rows_updated={count}). "
+                "Duplicate Discord notification risk acknowledged."
+            )
+            return count
 
     def recover(self):
         with self._connect() as con:
