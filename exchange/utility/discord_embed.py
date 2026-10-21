@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 try:
     from dhooks import Embed
-    if not hasattr(Embed, "data"):
+    if hasattr(Embed, "to_dict") and not hasattr(Embed, "data"):
         try:
             Embed.data = property(lambda self: self.to_dict())
         except Exception:
@@ -50,11 +50,63 @@ EXIT_REASON_KOREAN: Dict[str, str] = {
     ExitReason.UNKNOWN.value: "청산 사유 미확인",
 }
 
+# 3. Allowlist-based Error Classification & Safe Korean Descriptions (P1-1, P1-2)
+ERROR_CODE_DESCRIPTIONS: Dict[str, str] = {
+    # Confirmed Rejections (is_ambiguous = False, COLOR_ORDER_FAILED)
+    "INSUFFICIENT_BALANCE": "주문 가능 금액/잔고 부족 (INSUFFICIENT_BALANCE)",
+    "MIN_NOTIONAL": "최소 주문금액 또는 수량 미달 (MIN_NOTIONAL)",
+    "INVALID_ORDER_PARAMS": "거래소 주문 파라미터 또는 설정 거절 (INVALID_ORDER_PARAMS)",
+    "AUTH_PERMISSION_REJECTED": "거래소 인증 또는 권한 거절 (AUTH_PERMISSION_REJECTED)",
+    # Ambiguous / Unconfirmed Outcomes (is_ambiguous = True, COLOR_ORDER_AMBIGUOUS)
+    "REQUEST_TIMEOUT": "거래소 응답 타임아웃 — 체결 여부 확인 필요 (REQUEST_TIMEOUT)",
+    "NETWORK_UNAVAILABLE": "거래소 네트워크 연결 불안정 — 체결 여부 확인 필요 (NETWORK_UNAVAILABLE)",
+    "MISSING_ORDER_ID": "주문 ID 누락 (missing_order_id)",
+    "LONG_TERM_RECOVERY_DISABLED": "장기 복구 비활성화 (수동 검토 전환)",
+    "UNKNOWN_ORDER_RESULT": "주문 처리 결과 미확정 — 거래소 체결 내역 확인 필요 (UNKNOWN_ORDER_RESULT)",
+    "REQUEST_PROCESSING_FAILED": "요청 처리 중 오류가 발생했습니다 (REQUEST_PROCESSING_FAILED)",
+}
+
+CONFIRMED_REJECTION_CODES = frozenset({
+    "INSUFFICIENT_BALANCE",
+    "MIN_NOTIONAL",
+    "INVALID_ORDER_PARAMS",
+    "AUTH_PERMISSION_REJECTED",
+})
+
 _SECRET_PATTERNS = [
     re.compile(r"https?://(?:ptb\.|canary\.)?discord(?:app)?\.com/api/webhooks/[^\s\]\)\"']+", re.IGNORECASE),
     re.compile(r"https?://[^\s\]\)\"']+", re.IGNORECASE),
-    re.compile(r"(?i)(password|secret|token|api[_-]?key|passphrase)\s*[:=]\s*[^\s,;\"'\)\}]+"),
+    re.compile(r"(?i)authorization\s*[:=]\s*(?:bearer|basic)?\s*[^\s,;\"'\)\}]+"),
+    re.compile(r"(?i)bearer\s+[^\s,;\"'\)\}]+"),
+    re.compile(r"(?i)\"(?:apikey|api_key|secret|password|passphrase|access_token|refresh_token|token|account_number|webhook)\"\s*:\s*\"[^\"]*\""),
+    re.compile(r"(?i)(?:api%5Fkey|api_key|apikey|secret|token|password|passphrase|access_token|refresh_token|account_number)\s*(?:%3D|[:=])\s*[^\s&;\"'\)\}]+"),
+    re.compile(r"(?i)(password|secret|token|api[_-]?key|passphrase|account[_-]?number|access[_-]?token)\s*[:=]\s*[^\s,;\"'\)\}]+"),
 ]
+
+
+def _contains_sensitive_marker(text: Optional[Any]) -> bool:
+    if not text:
+        return False
+    s = str(text)
+    if any(p.search(s) for p in _SECRET_PATTERNS):
+        return True
+    lower = s.lower()
+    sensitive_tokens = (
+        "authorization:",
+        "bearer ",
+        "apikey",
+        "api_key",
+        "api%5fkey",
+        "access_token",
+        "refresh_token",
+        "account_number",
+        "secret",
+        "passphrase",
+        "discord.com/api/webhooks",
+        "discordapp.com/api/webhooks",
+        "response_body=",
+    )
+    return any(tok in lower for tok in sensitive_tokens)
 
 
 def sanitize_discord_text(text: Optional[Any], max_len: Optional[int] = None) -> str:
@@ -65,7 +117,8 @@ def sanitize_discord_text(text: Optional[Any], max_len: Optional[int] = None) ->
     # Remove secrets and URLs
     s = _SECRET_PATTERNS[0].sub("[WEBHOOK_REDACTED]", s)
     s = _SECRET_PATTERNS[1].sub("[URL_REDACTED]", s)
-    s = _SECRET_PATTERNS[2].sub(r"\1=[REDACTED]", s)
+    for pat in _SECRET_PATTERNS[2:]:
+        s = pat.sub("[REDACTED]", s)
     # Neutralize Discord mass mentions & user/role mentions
     s = s.replace("@everyone", "@\u200beveryone").replace("@here", "@\u200bhere")
     s = re.sub(r"<@&?\d+>", "[mention]", s)
@@ -80,35 +133,266 @@ def sanitize_discord_text(text: Optional[Any], max_len: Optional[int] = None) ->
     return s
 
 
-def _to_finite_decimal(val: Optional[Any]) -> Optional[Decimal]:
-    """Parses numeric value or string (with optional currency/commas) into a finite Decimal."""
+def _normalize_error_probe(error: Optional[Any]) -> str:
+    """Normalizes error input, including vertical single-char joined strings, for safe classification."""
+    if error is None:
+        return ""
+    raw = str(error).strip()
+    if not raw:
+        return ""
+    lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+    if len(lines) > 3 and all(len(ln) == 1 for ln in lines):
+        raw = "".join(lines)
+    return raw
+
+
+def classify_error_code(error: Optional[Any], has_order_context: bool = True) -> Tuple[str, bool, str]:
+    """
+    Classifies an error into an allowlisted (code, is_ambiguous, safe_korean_reason).
+    Conservative default: any unknown, generic, or unverified error is treated as AMBIGUOUS (is_ambiguous=True)
+    so it is NEVER falsely reported as a confirmed order rejection.
+    Raw exception strings are NEVER returned.
+    """
+    type_name = type(error).__name__.lower() if error is not None else ""
+    probe = _normalize_error_probe(error)
+    lower = probe.lower()
+
+    # 1. Explicit Ambiguous / Timeout / Network / Unconfirmed states (checked first!)
+    if not probe or probe.upper() == "ORDER_PROCESSING_FAILED" or "order_processing_failed" in lower:
+        return (
+            "UNKNOWN_ORDER_RESULT",
+            True,
+            ERROR_CODE_DESCRIPTIONS["UNKNOWN_ORDER_RESULT"],
+        )
+
+    if "missing_order_id" in lower or "주문 id 누락" in lower:
+        return (
+            "MISSING_ORDER_ID",
+            True,
+            ERROR_CODE_DESCRIPTIONS["MISSING_ORDER_ID"],
+        )
+
+    if "long_term_recovery_disabled" in lower or "장기 복구 비활성화" in lower:
+        return (
+            "LONG_TERM_RECOVERY_DISABLED",
+            True,
+            ERROR_CODE_DESCRIPTIONS["LONG_TERM_RECOVERY_DISABLED"],
+        )
+
+    timeout_markers = (
+        "timeout",
+        "timed out",
+        "requesttimeout",
+        "타임아웃",
+        "응답 지연",
+    )
+    if any(k in type_name for k in ("timeout", "requesttimeout")) or any(k in lower for k in timeout_markers):
+        return (
+            "REQUEST_TIMEOUT",
+            True,
+            ERROR_CODE_DESCRIPTIONS["REQUEST_TIMEOUT"],
+        )
+
+    network_markers = (
+        "networkerror",
+        "network",
+        "connection",
+        "disconnected",
+        "reset by peer",
+        "eof",
+        "502",
+        "503",
+        "504",
+        "gateway",
+        "service unavailable",
+        "delivery_unknown",
+        "네트워크",
+    )
+    if any(k in type_name for k in ("networkerror", "exchangeerror", "ddosprotection", "exchangenotavailable")) or any(
+        k in lower for k in network_markers
+    ):
+        return (
+            "NETWORK_UNAVAILABLE",
+            True,
+            ERROR_CODE_DESCRIPTIONS["NETWORK_UNAVAILABLE"],
+        )
+
+    # 2. If sensitive markers exist in the raw error, never trust substring matches for rejection details
+    # and never echo any part of the raw text.
+    if _contains_sensitive_marker(probe):
+        if has_order_context:
+            return (
+                "UNKNOWN_ORDER_RESULT",
+                True,
+                ERROR_CODE_DESCRIPTIONS["UNKNOWN_ORDER_RESULT"],
+            )
+        return (
+            "REQUEST_PROCESSING_FAILED",
+            False,
+            ERROR_CODE_DESCRIPTIONS["REQUEST_PROCESSING_FAILED"],
+        )
+
+    # 3. Explicit Confirmed Rejection categories (only when positive evidence of exchange rejection exists)
+    insufficient_markers = (
+        "insufficient balance",
+        "insufficient funds",
+        "insufficient margin",
+        "account has insufficient balance",
+        "not enough balance",
+        "주문 가능 금액",
+        "잔고 부족",
+        "증거금 부족",
+    )
+    if "insufficientfunds" in type_name or any(k in lower for k in insufficient_markers):
+        if "주문 가능 금액(krw) 부족" in lower:
+            return (
+                "INSUFFICIENT_BALANCE",
+                False,
+                "주문 가능 금액(KRW) 부족 (INSUFFICIENT_BALANCE)",
+            )
+        return (
+            "INSUFFICIENT_BALANCE",
+            False,
+            ERROR_CODE_DESCRIPTIONS["INSUFFICIENT_BALANCE"],
+        )
+
+    min_notional_markers = (
+        "min notional",
+        "min_notional",
+        "minimum amount",
+        "min cost",
+        "최소 주문",
+        "lot size",
+    )
+    if any(k in lower for k in min_notional_markers):
+        return (
+            "MIN_NOTIONAL",
+            False,
+            ERROR_CODE_DESCRIPTIONS["MIN_NOTIONAL"],
+        )
+
+    invalid_param_markers = (
+        "invalid order",
+        "invalidorder",
+        "invalid parameter",
+        "fatal config error",
+        "거래소 주문 거절",
+        "주문 파라미터 거절",
+        "badrequest",
+    )
+    if "invalidorder" in type_name or "badrequest" in type_name or any(k in lower for k in invalid_param_markers):
+        return (
+            "INVALID_ORDER_PARAMS",
+            False,
+            ERROR_CODE_DESCRIPTIONS["INVALID_ORDER_PARAMS"],
+        )
+
+    if any(k in type_name for k in ("authenticationerror", "permissiondenied")) or any(
+        k in lower for k in ("permission denied", "권한 거절", "invalid api-key")
+    ):
+        return (
+            "AUTH_PERMISSION_REJECTED",
+            False,
+            ERROR_CODE_DESCRIPTIONS["AUTH_PERMISSION_REJECTED"],
+        )
+
+    # 4. Conservative Default:
+    # For order context: any unclassified error (RuntimeError, TypeError, unknown exception, etc.)
+    # MUST be treated as AMBIGUOUS (True) because order submission outcome cannot be ruled out.
+    if has_order_context:
+        return (
+            "UNKNOWN_ORDER_RESULT",
+            True,
+            ERROR_CODE_DESCRIPTIONS["UNKNOWN_ORDER_RESULT"],
+        )
+
+    return (
+        "REQUEST_PROCESSING_FAILED",
+        False,
+        ERROR_CODE_DESCRIPTIONS["REQUEST_PROCESSING_FAILED"],
+    )
+
+
+def classify_error_ambiguity(error_text: Optional[Any]) -> bool:
+    """
+    Returns True unless the error is positively identified as an explicit confirmed rejection.
+    Conservative default (None, ORDER_PROCESSING_FAILED, unknown exception, timeout, network) is True.
+    """
+    _, is_ambiguous, _ = classify_error_code(error_text, has_order_context=True)
+    return is_ambiguous
+
+
+_CURRENCY_TOKEN_RE = re.compile(
+    r"^\s*([+-]?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?)\s*([A-Za-z가-힣%]+)?\s*$"
+)
+
+
+def parse_amount_and_currency(
+    val: Optional[Any],
+    default_currency: Optional[str] = None,
+) -> Tuple[Optional[Decimal], Optional[str]]:
+    """
+    Parses a numeric value and its explicit currency/unit token without blindly stripping incompatible currencies.
+    Examples:
+      '0.1 BTC' -> (Decimal('0.1'), 'BTC')
+      '367.56 KRW' -> (Decimal('367.56'), 'KRW')
+      '367.56원' -> (Decimal('367.56'), 'KRW')
+      '100' -> (Decimal('100'), default_currency)
+    """
+    norm_default = str(default_currency).strip().upper() if default_currency else None
     if val is None or isinstance(val, bool):
-        return None
+        return None, None
     if isinstance(val, Decimal):
-        return val if val.is_finite() else None
+        return (val if val.is_finite() else None), norm_default
     if isinstance(val, (int, float)):
         if isinstance(val, float) and not math.isfinite(val):
-            return None
+            return None, None
         try:
             d = Decimal(str(val))
-            return d if d.is_finite() else None
+            return (d if d.is_finite() else None), norm_default
         except Exception:
-            return None
+            return None, None
     if isinstance(val, str):
         cleaned = val.strip()
         if not cleaned or cleaned in ("-", "미확정", "미확인", "None", "null"):
-            return None
-        # Strip trailing currency or unit tokens like " KRW", " USDT", "원", "%"
-        cleaned = re.sub(r"\s*(KRW|USDT|USDC|BTC|ETH|SOL|XRP|원|%)\s*$", "", cleaned, flags=re.IGNORECASE)
-        cleaned = cleaned.replace(",", "").strip()
-        if not cleaned:
-            return None
+            return None, None
+        m = _CURRENCY_TOKEN_RE.match(cleaned)
+        if not m:
+            return None, None
+        num_str, unit_raw = m.group(1), m.group(2)
+        num_clean = num_str.replace(",", "").strip()
         try:
-            d = Decimal(cleaned)
-            return d if d.is_finite() else None
+            d = Decimal(num_clean)
+            if not d.is_finite():
+                return None, None
         except (InvalidOperation, ValueError):
+            return None, None
+
+        if unit_raw:
+            u = unit_raw.strip()
+            if u == "원":
+                ccy = "KRW"
+            else:
+                ccy = u.upper()
+        else:
+            ccy = norm_default
+        return d, ccy
+    return None, None
+
+
+def _to_finite_decimal(val: Optional[Any], expected_currency: Optional[str] = None) -> Optional[Decimal]:
+    """
+    Parses numeric value or string into a finite Decimal.
+    If expected_currency is given, rejects values explicitly tagged with a different currency.
+    """
+    d, ccy = parse_amount_and_currency(val, default_currency=expected_currency)
+    if d is None:
+        return None
+    if expected_currency is not None and ccy is not None:
+        exp_norm = expected_currency.strip().upper()
+        if ccy != "%" and ccy != exp_norm:
             return None
-    return None
+    return d
 
 
 def detect_currency(symbol: Optional[str], pnl_currency: Optional[str] = None, exchange: Optional[str] = None) -> str:
@@ -368,34 +652,82 @@ def enforce_embed_bounds(embed: Embed) -> Embed:
     return embed
 
 
-def _compute_total_fee(payload: NotificationPayload, currency: str) -> Tuple[Optional[Decimal], Optional[str]]:
-    """Computes total fee in settlement currency if unambiguous, else returns fee_breakdown."""
-    entry_fee_d = _to_finite_decimal(payload.entry_fee_allocated)
-    exit_fee_d = _to_finite_decimal(payload.exit_fee)
+def _compute_total_fee_with_consistency(
+    payload: NotificationPayload,
+    currency: str,
+) -> Tuple[Optional[Decimal], Optional[str], bool]:
+    """
+    Computes total fee in settlement currency ONLY when all fee components share the exact settlement currency.
+    Returns (total_fee_decimal, display_string, is_fee_consistent_with_settlement).
+    Never sums across different currencies (e.g., BTC + USDT or KRW + BNB), and never estimates missing fees as 0.
+    """
+    ccy = (currency or "USDT").upper()
 
-    # For sell/close: if both entry_fee_allocated and exit_fee exist, sum them
-    if is_sell_or_close_side(payload.side):
-        if entry_fee_d is not None and exit_fee_d is not None:
-            total = entry_fee_d + exit_fee_d
-            return total, format_price_display(total, currency=currency, is_fee=True)
-        if exit_fee_d is not None and entry_fee_d is None:
-            return exit_fee_d, format_price_display(exit_fee_d, currency=currency, is_fee=True)
-
-    # Check fee_breakdown (e.g., "367.56 KRW" or "0.05 USDT")
+    # 1. Inspect fee_breakdown first if provided (e.g. "0.001 BNB, 0.2 USDT" or "367.56 KRW")
+    breakdown_has_foreign_ccy = False
+    breakdown_single_d: Optional[Decimal] = None
+    breakdown_single_ccy: Optional[str] = None
     if payload.fee_breakdown:
         parts = [p.strip() for p in str(payload.fee_breakdown).split(",") if p.strip()]
-        if len(parts) == 1:
-            d = _to_finite_decimal(parts[0])
-            if d is not None:
-                # Extract currency from part if present
-                tokens = parts[0].split()
-                fee_ccy = tokens[-1].upper() if len(tokens) > 1 else currency
-                return d, format_price_display(d, currency=fee_ccy, is_fee=True)
-        return None, sanitize_discord_text(payload.fee_breakdown, max_len=120)
+        if len(parts) > 1:
+            breakdown_has_foreign_ccy = True
+        elif len(parts) == 1:
+            d_part, c_part = parse_amount_and_currency(parts[0], default_currency=ccy)
+            if d_part is None or (c_part and c_part != ccy):
+                breakdown_has_foreign_ccy = True
+                breakdown_single_d = d_part
+                breakdown_single_ccy = c_part
+            else:
+                breakdown_single_d = d_part
+                breakdown_single_ccy = c_part or ccy
 
-    if exit_fee_d is not None:
-        return exit_fee_d, format_price_display(exit_fee_d, currency=currency, is_fee=True)
-    return None, None
+    # 2. Inspect entry_fee_allocated and exit_fee with strict currency parsing
+    entry_d, entry_ccy = parse_amount_and_currency(payload.entry_fee_allocated, default_currency=ccy)
+    exit_d, exit_ccy = parse_amount_and_currency(payload.exit_fee, default_currency=ccy)
+
+    raw_entry_present = bool(payload.entry_fee_allocated and str(payload.entry_fee_allocated).strip() not in ("", "-", "None", "null"))
+    raw_exit_present = bool(payload.exit_fee and str(payload.exit_fee).strip() not in ("", "-", "None", "null"))
+
+    if (raw_entry_present and entry_d is None) or (raw_exit_present and exit_d is None):
+        return None, "미확정 (수수료 형식 확인 필요)", False
+
+    entry_mismatch = entry_d is not None and entry_ccy is not None and entry_ccy != ccy
+    exit_mismatch = exit_d is not None and exit_ccy is not None and exit_ccy != ccy
+
+    if entry_mismatch or exit_mismatch:
+        fee_parts: List[str] = []
+        if entry_d is not None and entry_ccy:
+            fee_parts.append(f"진입 {format_price_display(entry_d, currency=entry_ccy, is_fee=True)}")
+        if exit_d is not None and exit_ccy:
+            fee_parts.append(f"청산 {format_price_display(exit_d, currency=exit_ccy, is_fee=True)}")
+        joined = ", ".join(fee_parts) if fee_parts else "미확정"
+        return None, f"{joined} (통화 불일치 — 합산 미확정)", False
+
+    if breakdown_has_foreign_ccy:
+        if breakdown_single_d is not None and breakdown_single_ccy:
+            return None, f"{format_price_display(breakdown_single_d, currency=breakdown_single_ccy, is_fee=True)} (정산통화 외 수수료)", False
+        return None, sanitize_discord_text(payload.fee_breakdown, max_len=120), False
+
+    if is_sell_or_close_side(payload.side):
+        if entry_d is not None and exit_d is not None:
+            total = entry_d + exit_d
+            return total, format_price_display(total, currency=ccy, is_fee=True), True
+        if exit_d is not None and entry_d is None:
+            return exit_d, format_price_display(exit_d, currency=ccy, is_fee=True), True
+
+    if breakdown_single_d is not None:
+        return breakdown_single_d, format_price_display(breakdown_single_d, currency=ccy, is_fee=True), True
+
+    if exit_d is not None:
+        return exit_d, format_price_display(exit_d, currency=ccy, is_fee=True), True
+
+    return None, None, True
+
+
+def _compute_total_fee(payload: NotificationPayload, currency: str) -> Tuple[Optional[Decimal], Optional[str]]:
+    """Backward-compatible wrapper returning (total_fee_decimal, display_string)."""
+    total_d, fee_str, _ = _compute_total_fee_with_consistency(payload, currency)
+    return total_d, fee_str
 
 
 def _compute_notional_display(
@@ -405,21 +737,168 @@ def _compute_notional_display(
     explicit_notional: Optional[Any] = None,
 ) -> Optional[str]:
     if explicit_notional is not None:
-        d_exp = _to_finite_decimal(explicit_notional)
+        d_exp = _to_finite_decimal(explicit_notional, expected_currency=currency)
         if d_exp is not None and d_exp > 0:
             return format_price_display(d_exp, currency=currency)
-    p = _to_finite_decimal(price_val)
+    p = _to_finite_decimal(price_val, expected_currency=currency)
     q = _to_finite_decimal(qty_val)
     if p is not None and q is not None and p > 0 and q > 0:
         return format_price_display(p * q, currency=currency)
     return None
 
 
+def _evaluate_verification_states(
+    payload: NotificationPayload,
+    currency: str,
+    fee_consistent: bool,
+) -> Tuple[bool, bool, bool, Optional[Decimal], Optional[Decimal]]:
+    """
+    Independently evaluates (fill_verified, pnl_verified, roi_verified, net_pnl_d, roi_d) (P1-3).
+    - Fill verification NEVER automatically verifies Net PnL or ROI.
+    - Legacy payloads with 'PnL: UNVERIFIED' or '추정' in roi_label are strictly downgraded.
+    - Multi-currency fee mismatch or non-positive entry/exit/quantity invalidates confirmed PnL/ROI.
+    """
+    fill_status_obj = getattr(payload, "fill_verification_status", None) or payload.verification_status
+    fill_verified = (fill_status_obj == VerificationStatus.VERIFIED)
+
+    net_pnl_d, net_pnl_ccy = parse_amount_and_currency(payload.net_pnl, default_currency=currency)
+    roi_d = _to_finite_decimal(payload.roi_pct)
+    entry_d = _to_finite_decimal(payload.entry_price, expected_currency=currency)
+    exit_d = _to_finite_decimal(payload.exit_price, expected_currency=currency)
+    filled_d = _to_finite_decimal(payload.filled_qty)
+
+    v_src = str(getattr(payload, "verification_source", "") or "").upper()
+    src_pnl_unverified = any(
+        marker in v_src for marker in ("PNL: UNVERIFIED", "PNL: ESTIMATED", "PNL: FAILED", "수동 검토")
+    )
+
+    explicit_pnl_status = getattr(payload, "pnl_verification_status", None)
+    if explicit_pnl_status is not None:
+        pnl_status_ok = (explicit_pnl_status == VerificationStatus.VERIFIED)
+    else:
+        pnl_status_ok = (payload.verification_status == VerificationStatus.VERIFIED)
+
+    pnl_ccy_ok = (net_pnl_ccy is None or net_pnl_ccy.upper() == currency.upper())
+    prices_and_qty_ok = (
+        entry_d is not None and entry_d > 0
+        and exit_d is not None and exit_d > 0
+        and filled_d is not None and filled_d > 0
+    )
+
+    pnl_verified = bool(
+        fill_verified
+        and pnl_status_ok
+        and not src_pnl_unverified
+        and fee_consistent
+        and net_pnl_d is not None
+        and pnl_ccy_ok
+        and prices_and_qty_ok
+    )
+
+    roi_label_str = str(getattr(payload, "roi_label", "") or "")
+    is_roi_estimated = (
+        bool(getattr(payload, "is_roi_estimated", False))
+        or ("추정" in roi_label_str)
+        or ("ESTIMATED" in roi_label_str.upper())
+        or ("PNL: ESTIMATED" in v_src)
+    )
+
+    explicit_roi_status = getattr(payload, "roi_verification_status", None)
+    if explicit_roi_status is not None:
+        roi_status_ok = (explicit_roi_status == VerificationStatus.VERIFIED)
+    else:
+        roi_status_ok = True
+
+    roi_verified = bool(
+        pnl_verified
+        and roi_status_ok
+        and not is_roi_estimated
+        and roi_d is not None
+    )
+
+    return fill_verified, pnl_verified, roi_verified, net_pnl_d, roi_d
+
+
+def build_notification_details(payload: NotificationPayload) -> List[Dict[str, Any]]:
+    """
+    Returns structured diagnostic details for internal inspection/operator tools (P2-2).
+    Never exposes unverified PnL or estimated ROI as confirmed values, and is NOT attached
+    to the mobile Discord wire Embed.fields.
+    """
+    exchange = sanitize_discord_text(payload.exchange or "UNKNOWN", max_len=24).upper()
+    display_symbol = normalize_display_symbol(payload.symbol)
+    currency = detect_currency(display_symbol, getattr(payload, "pnl_currency", None), exchange)
+    _, _, fee_consistent = _compute_total_fee_with_consistency(payload, currency=currency)
+    fill_verified, pnl_verified, roi_verified, net_pnl_d, roi_d = _evaluate_verification_states(
+        payload, currency, fee_consistent
+    )
+
+    is_manual_review = (
+        payload.event_type == "manual_review"
+        or "MANUAL_REVIEW" in str(payload.error_message or "")
+    )
+
+    details: List[Dict[str, Any]] = [
+        {"name": "거래소", "value": exchange, "inline": True},
+        {"name": "심볼", "value": sanitize_discord_text(payload.symbol, max_len=40), "inline": True},
+        {"name": "체결 상태", "value": payload.fill_status.value, "inline": True},
+        {"name": "체결 검증", "value": "VERIFIED" if fill_verified else "UNVERIFIED", "inline": True},
+    ]
+
+    if payload.leverage is not None:
+        details.append({"name": "레버리지 (주문 설정)", "value": str(payload.leverage), "inline": True})
+
+    if is_sell_or_close_side(payload.side) or payload.exit_reason != ExitReason.UNKNOWN or payload.pnl_result != PnlResult.UNKNOWN:
+        if payload.exit_reason != ExitReason.UNKNOWN:
+            details.append({"name": "청산 원인", "value": payload.exit_reason.value, "inline": True})
+        pnl_res_val = payload.pnl_result.value if pnl_verified else PnlResult.UNKNOWN.value
+        details.append({"name": "손익 결과", "value": pnl_res_val, "inline": True})
+
+    if pnl_verified and net_pnl_d is not None:
+        details.append({"name": "순실현손익", "value": sanitize_discord_text(payload.net_pnl, max_len=64), "inline": True})
+    else:
+        details.append({"name": "순실현손익", "value": "미확정", "inline": True})
+
+    if payload.exit_price is None:
+        details.append({"name": "평균 체결가격", "value": "미확인 / 확인 중", "inline": True})
+    else:
+        details.append({"name": "실제 평균 체결가", "value": sanitize_discord_text(payload.exit_price, max_len=64), "inline": True})
+
+    if payload.entry_price:
+        details.append({"name": "평균 진입가", "value": sanitize_discord_text(payload.entry_price, max_len=64), "inline": True})
+
+    if payload.filled_qty:
+        details.append({"name": "실제 체결 수량", "value": sanitize_discord_text(payload.filled_qty, max_len=64), "inline": True})
+    if payload.remaining_qty and payload.remaining_qty != "0":
+        details.append({"name": "미체결 수량", "value": sanitize_discord_text(payload.remaining_qty, max_len=64), "inline": True})
+
+    if roi_verified and roi_d is not None:
+        roi_fmt = format_roi_display(roi_d) or "미확정"
+        details.append({"name": "ROI", "value": roi_fmt, "inline": True})
+    elif is_sell_or_close_side(payload.side):
+        details.append({"name": payload.roi_label or "ROI", "value": "미확정", "inline": True})
+
+    if getattr(payload, "signal_id", None):
+        details.append({"name": "신호 ID", "value": sanitize_discord_text(payload.signal_id, max_len=64), "inline": True})
+
+    if is_manual_review:
+        details.append({"name": "수동 확인 필요 여부", "value": "필요 (운영자 확인 요망)", "inline": False})
+
+    if payload.order_id:
+        details.append({"name": "주문 ID", "value": sanitize_discord_text(payload.order_id, max_len=64), "inline": True})
+
+    if payload.error_message:
+        _, _, safe_err = classify_error_code(payload.error_message, has_order_context=True)
+        details.append({"name": "오류 상세", "value": safe_err, "inline": False})
+
+    return details
+
+
 def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
     """
     Builds the POA v2 unified mobile-friendly Discord Embed from a NotificationPayload.
-    Also populates backward-compatible Embed fields so both mobile scan (title/description)
-    and structured field inspection work seamlessly.
+    Does NOT populate redundant Embed.fields on the Discord wire payload (P2-2) and strictly
+    separates fill verification from Net PnL and ROI verification (P1-3, P2-3).
     """
     exchange = sanitize_discord_text(payload.exchange or "UNKNOWN", max_len=24).upper()
     display_symbol = normalize_display_symbol(payload.symbol)
@@ -447,8 +926,13 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
         color = COLOR_ORDER_AMBIGUOUS
         category = "CANCELED"
     elif status == FillStatus.FAILED:
-        color = COLOR_ORDER_FAILED
-        category = "FAILED"
+        # Even if status == FAILED, check if error_message is actually ambiguous
+        if payload.error_message and classify_error_ambiguity(payload.error_message):
+            color = COLOR_ORDER_AMBIGUOUS
+            category = "AMBIGUOUS"
+        else:
+            color = COLOR_ORDER_FAILED
+            category = "FAILED"
     elif status == FillStatus.FILLED:
         if is_sell_or_close_side(payload.side):
             color = COLOR_SELL_COMPLETED
@@ -478,7 +962,8 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
             currency=currency,
             explicit_notional=getattr(payload, "notional_amount", None),
         )
-        _, fee_str = _compute_total_fee(payload, currency=currency)
+        _, fee_str, fee_consistent = _compute_total_fee_with_consistency(payload, currency=currency)
+        fill_verified, _, _, _, _ = _evaluate_verification_states(payload, currency, fee_consistent)
 
         lines.append(f"체결가: {price_str}")
         lines.append(f"체결수량: {qty_str}")
@@ -487,7 +972,7 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
         if fee_str:
             lines.append(f"수수료: {fee_str}")
         lines.append("")
-        if payload.verification_status == VerificationStatus.VERIFIED:
+        if fill_verified:
             lines.append("✅ 실체결 검증 완료")
         else:
             lines.append("ℹ️ 체결 내역 확인")
@@ -501,16 +986,13 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
         if payload.leverage is not None and int(payload.leverage) > 1:
             lines.append(f"레버리지: {payload.leverage}x")
 
-        net_pnl_d = _to_finite_decimal(payload.net_pnl)
-        roi_d = _to_finite_decimal(payload.roi_pct)
-        pnl_verified = (
-            payload.verification_status == VerificationStatus.VERIFIED
-            and net_pnl_d is not None
+        _, fee_str, fee_consistent = _compute_total_fee_with_consistency(payload, currency=currency)
+        _, pnl_verified, roi_verified, net_pnl_d, roi_d = _evaluate_verification_states(
+            payload, currency, fee_consistent
         )
-        roi_verified = pnl_verified and roi_d is not None
 
         # Top PnL Banner (Cases A, B, C in Section 5.2)
-        if pnl_verified and roi_verified:
+        if pnl_verified and roi_verified and net_pnl_d is not None and roi_d is not None:
             # Case A: Both Net PnL & ROI verified
             pnl_str = format_price_display(net_pnl_d, currency=currency, signed=True)
             roi_str = format_roi_display(roi_d)
@@ -520,7 +1002,7 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
                 lines.append(f"📉 확정손익: {pnl_str} ({roi_str})")
             else:
                 lines.append(f"➖ 확정손익: {pnl_str} ({roi_str})")
-        elif pnl_verified and not roi_verified:
+        elif pnl_verified and not roi_verified and net_pnl_d is not None:
             # Case B: Net PnL verified, ROI unverified
             pnl_str = format_price_display(net_pnl_d, currency=currency, signed=True)
             if net_pnl_d > 0:
@@ -536,14 +1018,14 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
             lines.append("수익률: 미확정")
 
         lines.append("")
-        entry_d = _to_finite_decimal(payload.entry_price)
-        if entry_d is not None:
+        entry_d = _to_finite_decimal(payload.entry_price, expected_currency=currency)
+        if entry_d is not None and entry_d > 0:
             lines.append(f"매수가: {format_price_display(entry_d, currency=currency)}")
         else:
             lines.append("매수가: 미확정")
 
-        exit_d = _to_finite_decimal(payload.exit_price)
-        if exit_d is not None:
+        exit_d = _to_finite_decimal(payload.exit_price, expected_currency=currency)
+        if exit_d is not None and exit_d > 0:
             lines.append(f"매도가: {format_price_display(exit_d, currency=currency)}")
         else:
             lines.append("매도가: 미확정")
@@ -559,11 +1041,10 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
         if notional_str:
             lines.append(f"매도금액: {notional_str}")
 
-        _, fee_str = _compute_total_fee(payload, currency=currency)
         if fee_str:
             lines.append(f"총수수료: {fee_str}")
 
-        funding_d = _to_finite_decimal(payload.funding_pnl)
+        funding_d = _to_finite_decimal(payload.funding_pnl, expected_currency=currency)
         if funding_d is not None and funding_d != 0:
             lines.append(f"펀딩비: {format_price_display(funding_d, currency=currency, signed=True, is_fee=True)}")
 
@@ -586,11 +1067,9 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
         req_qty_d = _to_finite_decimal(payload.requested_qty or payload.filled_qty)
         if req_qty_d is not None and req_qty_d > 0:
             lines.append(f"요청수량: {format_quantity_display(req_qty_d, base_asset=base_asset)}")
-        reason_str = sanitize_discord_text(payload.error_message or "거래소 주문 거절", max_len=240)
+        _, _, reason_str = classify_error_code(payload.error_message or "거래소 주문 거절", has_order_context=True)
         lines.append(f"사유: {reason_str}")
         lines.append("상태: 주문이 체결되지 않았습니다")
-        if payload.signal_id:
-            lines.append(f"신호 ID: {sanitize_discord_text(payload.signal_id, max_len=64)}")
         lines.append("")
         lines.append(f"🕒 {kst_str}")
 
@@ -650,7 +1129,7 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
             elif "long_term_recovery_disabled" in err_raw:
                 reason_text = "장기 복구 비활성화 (수동 검토 전환)"
             else:
-                reason_text = sanitize_discord_text(err_raw or "거래소 주문 조회 불가", max_len=160)
+                _, _, reason_text = classify_error_code(err_raw, has_order_context=True)
         elif status == FillStatus.PENDING:
             reason_text = "거래소 체결 내역 확인 대기 중"
         else:
@@ -659,10 +1138,8 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
         lines.append(f"사유: {reason_text}")
         lines.append("상태: 실제 체결 여부 확인 중 (미확정)")
         lines.append("조치: 거래소 체결 내역 확인 필요 (중복 재주문 주의)")
-        if payload.signal_id:
+        if is_manual_review and payload.signal_id:
             lines.append(f"신호 ID: {sanitize_discord_text(payload.signal_id, max_len=64)}")
-        if payload.order_id:
-            lines.append(f"주문 ID: {sanitize_discord_text(payload.order_id, max_len=64)}")
         lines.append("")
         lines.append("⚠️ 미확정 주문 — 거래소 실제 체결 여부를 반드시 확인하세요")
         lines.append(f"🕒 {kst_str}")
@@ -673,56 +1150,6 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
         description=description[:4096],
         color=color,
     )
-
-    # Populate structured fields for detailed inspection & backward compatibility with existing tests
-    embed.add_field(name="거래소", value=exchange, inline=True)
-    embed.add_field(name="심볼", value=sanitize_discord_text(payload.symbol, max_len=40), inline=True)
-    embed.add_field(name="체결 상태", value=payload.fill_status.value, inline=True)
-
-    if payload.leverage is not None:
-        embed.add_field(name="레버리지 (주문 설정)", value=str(payload.leverage), inline=True)
-
-    if is_sell_or_close_side(payload.side) or payload.exit_reason != ExitReason.UNKNOWN or payload.pnl_result != PnlResult.UNKNOWN:
-        if payload.exit_reason != ExitReason.UNKNOWN:
-            embed.add_field(name="청산 원인", value=payload.exit_reason.value, inline=True)
-        embed.add_field(name="손익 결과", value=payload.pnl_result.value, inline=True)
-
-    if payload.net_pnl is None:
-        embed.add_field(name="순실현손익", value="미확정", inline=True)
-    else:
-        embed.add_field(name="순실현손익", value=sanitize_discord_text(payload.net_pnl, max_len=64), inline=True)
-
-    if payload.exit_price is None:
-        embed.add_field(name="평균 체결가격", value="미확인 / 확인 중", inline=True)
-    else:
-        embed.add_field(name="실제 평균 체결가", value=sanitize_discord_text(payload.exit_price, max_len=64), inline=True)
-
-    if payload.entry_price:
-        embed.add_field(name="평균 진입가", value=sanitize_discord_text(payload.entry_price, max_len=64), inline=True)
-
-    if payload.filled_qty:
-        embed.add_field(name="실제 체결 수량", value=sanitize_discord_text(payload.filled_qty, max_len=64), inline=True)
-    if payload.remaining_qty and payload.remaining_qty != "0":
-        embed.add_field(name="미체결 수량", value=sanitize_discord_text(payload.remaining_qty, max_len=64), inline=True)
-
-    if payload.roi_pct is not None:
-        roi_fmt = format_roi_display(payload.roi_pct) or f"{payload.roi_pct}%"
-        embed.add_field(name=payload.roi_label or "ROI", value=roi_fmt, inline=True)
-    elif is_sell_or_close_side(payload.side):
-        embed.add_field(name=payload.roi_label or "ROI", value="미확정", inline=True)
-
-    if getattr(payload, "signal_id", None):
-        embed.add_field(name="신호 ID", value=sanitize_discord_text(payload.signal_id, max_len=64), inline=True)
-
-    if is_manual_review:
-        embed.add_field(name="수동 확인 필요 여부", value="필요 (운영자 확인 요망)", inline=False)
-
-    if payload.order_id:
-        embed.add_field(name="주문 ID", value=sanitize_discord_text(payload.order_id, max_len=64), inline=True)
-
-    if payload.error_message:
-        embed.add_field(name="오류 상세", value=sanitize_discord_text(payload.error_message, max_len=500), inline=False)
-
     return enforce_embed_bounds(embed)
 
 
@@ -743,7 +1170,8 @@ def build_legacy_order_embed(
     Builds a mobile-friendly Discord Embed for the legacy (unverified) path in LogMaker.py.
     Follows Section 4.2 & 8.2:
     - Never presents unverified legacy order response as '실체결 검증 완료' or '확정손익'.
-    - Uses Gray (#64748B) and labels order as '접수 (미검증 경로)'.
+    - Uses Gray (#64748B) and labels order as '접수 (미검증)'.
+    - Avoids duplicate Embed.fields (P2-2).
     """
     exchange = sanitize_discord_text(exchange_name or "UNKNOWN", max_len=24).upper()
     display_symbol = normalize_display_symbol(symbol)
@@ -781,52 +1209,8 @@ def build_legacy_order_embed(
         description=description[:4096],
         color=COLOR_ORDER_AMBIGUOUS,
     )
-    embed.add_field(name="거래소", value=exchange, inline=True)
-    embed.add_field(name="심볼", value=display_symbol, inline=True)
-    embed.add_field(name="거래유형", value=side_clean, inline=True)
-    if amount_value:
-        embed.add_field(name=amount_label, value=sanitize_discord_text(amount_value, max_len=64), inline=True)
-    if leverage is not None:
-        embed.add_field(name="레버리지", value=f"{leverage}배", inline=True)
-    embed.add_field(name="검증 상태", value="UNVERIFIED (미검증 접수)", inline=False)
-
     content = f"[{exchange}] {display_symbol} {side_clean} 접수 (미검증)"
     return content, enforce_embed_bounds(embed)
-
-
-def classify_error_ambiguity(error_text: Optional[str]) -> bool:
-    """
-    Returns True if the error indicates an ambiguous / timeout / network state
-    where order execution on the exchange cannot be ruled out (Section 6).
-    Returns False if it is a confirmed rejection (insufficient balance, min notional, invalid params, etc.).
-    """
-    if not error_text:
-        return False
-    lower = str(error_text).lower()
-    ambiguous_keywords = (
-        "timeout",
-        "timed out",
-        "requesttimeout",
-        "networkerror",
-        "connection",
-        "disconnected",
-        "reset by peer",
-        "eof",
-        "502",
-        "503",
-        "504",
-        "gateway",
-        "service unavailable",
-        "delivery_unknown",
-        "missing_order_id",
-        "manual_review",
-        "unverified",
-        "응답 지연",
-        "타임아웃",
-        "네트워크",
-        "미확정",
-    )
-    return any(k in lower for k in ambiguous_keywords)
 
 
 def build_error_embed(
@@ -836,17 +1220,13 @@ def build_error_embed(
     timestamp: Optional[float] = None,
 ) -> Embed:
     """
-    Builds mobile-friendly error or ambiguous-order Embed (Section 6).
-    - Confirmed failure/rejection -> Orange (#F59E0B), ⚠️
-    - Timeout / network error / ambiguous -> Gray (#64748B), ⚪
+    Builds mobile-friendly error or ambiguous-order Embed (Section 6, P1-1, P1-2, P2-2).
+    - Uses allowlisted error codes and safe Korean descriptions ONLY; never echoes raw exceptions or secrets.
+    - Conservative default for order_info: Ambiguous / Unconfirmed (#64748B, ⚪) unless positively classified
+      as a confirmed exchange rejection (#F59E0B, ⚠️).
     """
-    raw_err = str(error or "알 수 없는 오류")
-    # Extract last meaningful line if it's a multi-line traceback
-    err_lines = [ln.strip() for ln in raw_err.splitlines() if ln.strip()]
-    concise_err = err_lines[-1] if err_lines else raw_err
-    concise_err = sanitize_discord_text(concise_err, max_len=240)
-
-    is_ambiguous = classify_error_ambiguity(raw_err)
+    has_order = order_info is not None
+    _, is_ambiguous, safe_reason = classify_error_code(error, has_order_context=has_order)
     kst_str = format_kst_full(timestamp if timestamp is not None else datetime.now(timezone.utc).timestamp())
 
     if order_info is not None:
@@ -871,6 +1251,12 @@ def build_error_embed(
                 side = "매수"
             elif getattr(order_info, "is_sell", False):
                 side = "매도"
+            elif getattr(order_info, "side", None):
+                s_raw = str(getattr(order_info, "side", "")).lower()
+                if "buy" in s_raw or "매수" in s_raw:
+                    side = "매수"
+                elif "sell" in s_raw or "매도" in s_raw:
+                    side = "매도"
 
         lines: List[str] = []
         if strategy_name:
@@ -882,34 +1268,30 @@ def build_error_embed(
         if is_ambiguous:
             title = f"⚪ {exchange} · {display_symbol} · {side} 주문 결과 확인 필요"
             color = COLOR_ORDER_AMBIGUOUS
-            lines.append(f"사유: {concise_err}")
+            lines.append(f"사유: {safe_reason}")
             lines.append("상태: 실제 체결 여부 확인 중 (미확정)")
             lines.append("조치: 거래소 체결 내역 확인 필요 (중복 재주문 금지)")
         else:
             title = f"⚠️ {exchange} · {display_symbol} · {side} 주문 실패"
             color = COLOR_ORDER_FAILED
-            lines.append(f"사유: {concise_err}")
+            lines.append(f"사유: {safe_reason}")
             lines.append("상태: 주문이 체결되지 않았습니다")
 
         lines.append("")
         lines.append(f"🕒 {kst_str}")
         embed = Embed(title=title[:256], description="\n".join(lines)[:4096], color=color)
-        embed.add_field(name="거래소", value=exchange, inline=True)
-        embed.add_field(name="심볼", value=display_symbol, inline=True)
-        embed.add_field(name="오류 상세", value=concise_err, inline=False)
         return enforce_embed_bounds(embed)
 
-    # Generic error without order_info
+    # Generic system/webhook error without order_info
     header_name = sanitize_discord_text(name or "시스템", max_len=40)
     if is_ambiguous:
         title = f"⚪ {header_name} · 응답 확인 필요"
         color = COLOR_ORDER_AMBIGUOUS
-        desc = f"사유: {concise_err}\n상태: 응답 지연 또는 네트워크 확인 필요\n\n🕒 {kst_str}"
+        desc = f"사유: {safe_reason}\n상태: 응답 지연 또는 네트워크 확인 필요\n\n🕒 {kst_str}"
     else:
         title = f"⚠️ {header_name} · 오류 발생"
         color = COLOR_ORDER_FAILED
-        desc = f"사유: {concise_err}\n\n🕒 {kst_str}"
+        desc = f"사유: {safe_reason}\n\n🕒 {kst_str}"
 
     embed = Embed(title=title[:256], description=desc[:4096], color=color)
-    embed.add_field(name="오류 상세", value=concise_err, inline=False)
     return enforce_embed_bounds(embed)

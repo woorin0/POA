@@ -1,0 +1,979 @@
+[
+  {
+    "ex": "BINANCE",
+    "limit_calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "limit",
+          "buy",
+          0.123,
+          null,
+          {}
+        ]
+      ]
+    ],
+    "side": "buy"
+  },
+  {
+    "discord": "\uc77c\uc2dc\nfixed-time\n\n\uac70\ub798\uc18c\nBINANCE\n\n\uc2ec\ubcfc\nBTC/USDT\n\n\uac70\ub798\uc720\ud615\n\ub9e4\uc218\n\n0.123",
+    "embed": {
+      "color": 255,
+      "description": "\uccb4\uacb0: BINANCE BTC/USDT \ub9e4\uc218 0.123",
+      "fields": [
+        {
+          "inline": false,
+          "name": "\uc77c\uc2dc",
+          "value": "fixed-time"
+        },
+        {
+          "inline": false,
+          "name": "\uac70\ub798\uc18c",
+          "value": "BINANCE"
+        },
+        {
+          "inline": false,
+          "name": "\uc2ec\ubcfc",
+          "value": "BTC/USDT"
+        },
+        {
+          "inline": false,
+          "name": "\uac70\ub798\uc720\ud615",
+          "value": "\ub9e4\uc218"
+        },
+        {
+          "inline": false,
+          "name": "\uc218\ub7c9",
+          "value": "0.123"
+        },
+        {
+          "inline": false,
+          "name": "\uccb4\uacb0\uac00",
+          "value": "100"
+        }
+      ],
+      "title": "\uc8fc\ubb38"
+    }
+  },
+  {
+    "ex": "BINANCE",
+    "limit_calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "limit",
+          "sell",
+          0.123,
+          null,
+          {}
+        ]
+      ]
+    ],
+    "side": "sell"
+  },
+  {
+    "discord": "\uc77c\uc2dc\nfixed-time\n\n\uac70\ub798\uc18c\nBINANCE\n\n\uc2ec\ubcfc\nBTC/USDT\n\n\uac70\ub798\uc720\ud615\n\ub9e4\ub3c4\n\n0.123",
+    "embed": {
+      "color": 255,
+      "description": "\uccb4\uacb0: BINANCE BTC/USDT \ub9e4\ub3c4 0.123",
+      "fields": [
+        {
+          "inline": false,
+          "name": "\uc77c\uc2dc",
+          "value": "fixed-time"
+        },
+        {
+          "inline": false,
+          "name": "\uac70\ub798\uc18c",
+          "value": "BINANCE"
+        },
+        {
+          "inline": false,
+          "name": "\uc2ec\ubcfc",
+          "value": "BTC/USDT"
+        },
+        {
+          "inline": false,
+          "name": "\uac70\ub798\uc720\ud615",
+          "value": "\ub9e4\ub3c4"
+        },
+        {
+          "inline": false,
+          "name": "\uc218\ub7c9",
+          "value": "0.123"
+        },
+        {
+          "inline": false,
+          "name": "\uccb4\uacb0\uac00",
+          "value": "100"
+        }
+      ],
+      "title": "\uc8fc\ubb38"
+    }
+  },
+  {
+    "ex": "BINANCE",
+    "limit_calls": [
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "limit",
+          "buy",
+          0.123,
+          null,
+          {}
+        ]
+      ]
+    ],
+    "side": "entry/buy"
+  },
+  {
+    "discord": "\uc77c\uc2dc\nfixed-time\n\n\uac70\ub798\uc18c\nBINANCE\n\n\uc2ec\ubcfc\nBTC/USDT.P\n\n\uac70\ub798\uc720\ud615\n\ub871 \uc9c4\uc785\n\n0.123",
+    "embed": {
+      "color": 255,
+      "description": "\uccb4\uacb0: BINANCE BTC/USDT.P \ub871 \uc9c4\uc785 0.123",
+      "fields": [
+        {
+          "inline": false,
+          "name": "\uc77c\uc2dc",
+          "value": "fixed-time"
+        },
+        {
+          "inline": false,
+          "name": "\uac70\ub798\uc18c",
+          "value": "BINANCE"
+        },
+        {
+          "inline": false,
+          "name": "\uc2ec\ubcfc",
+          "value": "BTC/USDT.P"
+        },
+        {
+          "inline": false,
+          "name": "\uac70\ub798\uc720\ud615",
+          "value": "\ub871 \uc9c4\uc785"
+        },
+        {
+          "inline": false,
+          "name": "\uc218\ub7c9",
+          "value": "0.123"
+        },
+        {
+          "inline": false,
+          "name": "\uccb4\uacb0\uac00",
+          "value": "100"
+        }
+      ],
+      "title": "\uc8fc\ubb38"
+    }
+  },
+  {
+    "ex": "BINANCE",
+    "limit_calls": [
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "limit",
+          "sell",
+          0.123,
+          null,
+          {
+            "reduceOnly": true
+          }
+        ]
+      ]
+    ],
+    "side": "close/sell"
+  },
+  {
+    "discord": "\uc77c\uc2dc\nfixed-time\n\n\uac70\ub798\uc18c\nBINANCE\n\n\uc2ec\ubcfc\nBTC/USDT.P\n\n\uac70\ub798\uc720\ud615\n\ub871 \uc885\ub8cc (\uc775\uc808 \ud83d\udfe2) [\uc775\uc808] (+22.22%)\n\n0.123",
+    "embed": {
+      "color": 65280,
+      "description": "\uccb4\uacb0: BINANCE BTC/USDT.P \ub871 \uc885\ub8cc (\uc775\uc808 \ud83d\udfe2) 0.123",
+      "fields": [
+        {
+          "inline": false,
+          "name": "\uc77c\uc2dc",
+          "value": "fixed-time"
+        },
+        {
+          "inline": false,
+          "name": "\uac70\ub798\uc18c",
+          "value": "BINANCE"
+        },
+        {
+          "inline": false,
+          "name": "\uc2ec\ubcfc",
+          "value": "BTC/USDT.P"
+        },
+        {
+          "inline": false,
+          "name": "\uac70\ub798\uc720\ud615",
+          "value": "\ub871 \uc885\ub8cc (\uc775\uc808 \ud83d\udfe2)"
+        },
+        {
+          "inline": false,
+          "name": "\uc218\ub7c9",
+          "value": "0.123"
+        },
+        {
+          "inline": false,
+          "name": "\uc9c4\uc785\uac00",
+          "value": "90"
+        },
+        {
+          "inline": false,
+          "name": "\uccb4\uacb0\uac00",
+          "value": "100"
+        },
+        {
+          "inline": false,
+          "name": "\uc190\uc775 \uc5ec\ubd80",
+          "value": "\uc775\uc808 (+22.22%)"
+        }
+      ],
+      "title": "\uc775\uc808 \uc54c\ub9bc"
+    }
+  },
+  {
+    "calls": [],
+    "error": "[\uc218\ub7c9 \uc624\ub958]\namount\uc640 percent \uc911 \uc801\uc5b4\ub3c4 \ud558\ub098\ub294 \uc785\ub825\ud574\uc57c \ud569\ub2c8\ub2e4!",
+    "ex": "BINANCE",
+    "result": null,
+    "sizing": {}
+  },
+  {
+    "calls": [],
+    "error": "[\uc218\ub7c9 \uc624\ub958]\namount\uc640 percent\ub294 \ub3d9\uc2dc\uc5d0 \uc785\ub825\ud560 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4!",
+    "ex": "BINANCE",
+    "result": null,
+    "sizing": {
+      "amount": 1,
+      "percent": 10
+    }
+  },
+  {
+    "calls": [],
+    "error": "[\uc218\ub7c9 \uc624\ub958]\n\ucd5c\uc18c \uac70\ub798 \uc218\ub7c9\uc744 \ub9cc\uc871\ud558\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4!",
+    "ex": "BINANCE",
+    "result": null,
+    "sizing": {
+      "amount": 0
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "buy",
+          0.04,
+          null,
+          {}
+        ]
+      ]
+    ],
+    "error": null,
+    "ex": "BINANCE",
+    "result": {
+      "amount": 0.04,
+      "average": 100,
+      "filled": 0.04,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.04
+      },
+      "price": 100,
+      "status": "closed"
+    },
+    "sizing": {
+      "percent": 0.1
+    }
+  },
+  {
+    "ex": "BYBIT",
+    "limit_calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "limit",
+          "buy",
+          0.123,
+          100.0,
+          {}
+        ]
+      ]
+    ],
+    "side": "buy"
+  },
+  {
+    "discord": "\uc77c\uc2dc\nfixed-time\n\n\uac70\ub798\uc18c\nBYBIT\n\n\uc2ec\ubcfc\nBTC/USDT\n\n\uac70\ub798\uc720\ud615\n\ub9e4\uc218\n\n0.123",
+    "embed": {
+      "color": 255,
+      "description": "\uccb4\uacb0: BYBIT BTC/USDT \ub9e4\uc218 0.123",
+      "fields": [
+        {
+          "inline": false,
+          "name": "\uc77c\uc2dc",
+          "value": "fixed-time"
+        },
+        {
+          "inline": false,
+          "name": "\uac70\ub798\uc18c",
+          "value": "BYBIT"
+        },
+        {
+          "inline": false,
+          "name": "\uc2ec\ubcfc",
+          "value": "BTC/USDT"
+        },
+        {
+          "inline": false,
+          "name": "\uac70\ub798\uc720\ud615",
+          "value": "\ub9e4\uc218"
+        },
+        {
+          "inline": false,
+          "name": "\ube44\uc6a9",
+          "value": "0.123"
+        },
+        {
+          "inline": false,
+          "name": "\uccb4\uacb0\uac00",
+          "value": "100"
+        }
+      ],
+      "title": "\uc8fc\ubb38"
+    }
+  },
+  {
+    "ex": "BYBIT",
+    "limit_calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "limit",
+          "sell",
+          0.123,
+          100.0,
+          {}
+        ]
+      ]
+    ],
+    "side": "sell"
+  },
+  {
+    "discord": "\uc77c\uc2dc\nfixed-time\n\n\uac70\ub798\uc18c\nBYBIT\n\n\uc2ec\ubcfc\nBTC/USDT\n\n\uac70\ub798\uc720\ud615\n\ub9e4\ub3c4\n\n0.123",
+    "embed": {
+      "color": 255,
+      "description": "\uccb4\uacb0: BYBIT BTC/USDT \ub9e4\ub3c4 0.123",
+      "fields": [
+        {
+          "inline": false,
+          "name": "\uc77c\uc2dc",
+          "value": "fixed-time"
+        },
+        {
+          "inline": false,
+          "name": "\uac70\ub798\uc18c",
+          "value": "BYBIT"
+        },
+        {
+          "inline": false,
+          "name": "\uc2ec\ubcfc",
+          "value": "BTC/USDT"
+        },
+        {
+          "inline": false,
+          "name": "\uac70\ub798\uc720\ud615",
+          "value": "\ub9e4\ub3c4"
+        },
+        {
+          "inline": false,
+          "name": "\uc218\ub7c9",
+          "value": "0.123"
+        },
+        {
+          "inline": false,
+          "name": "\uccb4\uacb0\uac00",
+          "value": "100"
+        }
+      ],
+      "title": "\uc8fc\ubb38"
+    }
+  },
+  {
+    "ex": "BYBIT",
+    "limit_calls": [
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "limit",
+          "buy",
+          0.123,
+          null,
+          {
+            "position_idx": 0
+          }
+        ]
+      ]
+    ],
+    "side": "entry/buy"
+  },
+  {
+    "discord": "\uc77c\uc2dc\nfixed-time\n\n\uac70\ub798\uc18c\nBYBIT\n\n\uc2ec\ubcfc\nBTC/USDT.P\n\n\uac70\ub798\uc720\ud615\n\ub871 \uc9c4\uc785\n\n0.123",
+    "embed": {
+      "color": 255,
+      "description": "\uccb4\uacb0: BYBIT BTC/USDT.P \ub871 \uc9c4\uc785 0.123",
+      "fields": [
+        {
+          "inline": false,
+          "name": "\uc77c\uc2dc",
+          "value": "fixed-time"
+        },
+        {
+          "inline": false,
+          "name": "\uac70\ub798\uc18c",
+          "value": "BYBIT"
+        },
+        {
+          "inline": false,
+          "name": "\uc2ec\ubcfc",
+          "value": "BTC/USDT.P"
+        },
+        {
+          "inline": false,
+          "name": "\uac70\ub798\uc720\ud615",
+          "value": "\ub871 \uc9c4\uc785"
+        },
+        {
+          "inline": false,
+          "name": "\uc218\ub7c9",
+          "value": "0.123"
+        },
+        {
+          "inline": false,
+          "name": "\uccb4\uacb0\uac00",
+          "value": "100"
+        }
+      ],
+      "title": "\uc8fc\ubb38"
+    }
+  },
+  {
+    "ex": "BYBIT",
+    "limit_calls": [
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "limit",
+          "sell",
+          0.123,
+          null,
+          {
+            "position_idx": 0,
+            "reduceOnly": true
+          }
+        ]
+      ]
+    ],
+    "side": "close/sell"
+  },
+  {
+    "discord": "\uc77c\uc2dc\nfixed-time\n\n\uac70\ub798\uc18c\nBYBIT\n\n\uc2ec\ubcfc\nBTC/USDT.P\n\n\uac70\ub798\uc720\ud615\n\ub871 \uc885\ub8cc (\uc775\uc808 \ud83d\udfe2) [\uc775\uc808] (+22.22%)\n\n0.123",
+    "embed": {
+      "color": 65280,
+      "description": "\uccb4\uacb0: BYBIT BTC/USDT.P \ub871 \uc885\ub8cc (\uc775\uc808 \ud83d\udfe2) 0.123",
+      "fields": [
+        {
+          "inline": false,
+          "name": "\uc77c\uc2dc",
+          "value": "fixed-time"
+        },
+        {
+          "inline": false,
+          "name": "\uac70\ub798\uc18c",
+          "value": "BYBIT"
+        },
+        {
+          "inline": false,
+          "name": "\uc2ec\ubcfc",
+          "value": "BTC/USDT.P"
+        },
+        {
+          "inline": false,
+          "name": "\uac70\ub798\uc720\ud615",
+          "value": "\ub871 \uc885\ub8cc (\uc775\uc808 \ud83d\udfe2)"
+        },
+        {
+          "inline": false,
+          "name": "\uc218\ub7c9",
+          "value": "0.123"
+        },
+        {
+          "inline": false,
+          "name": "\uc9c4\uc785\uac00",
+          "value": "90"
+        },
+        {
+          "inline": false,
+          "name": "\uccb4\uacb0\uac00",
+          "value": "100"
+        },
+        {
+          "inline": false,
+          "name": "\uc190\uc775 \uc5ec\ubd80",
+          "value": "\uc775\uc808 (+22.22%)"
+        }
+      ],
+      "title": "\uc775\uc808 \uc54c\ub9bc"
+    }
+  },
+  {
+    "calls": [],
+    "error": "[\uc218\ub7c9 \uc624\ub958]\namount\uc640 percent \uc911 \uc801\uc5b4\ub3c4 \ud558\ub098\ub294 \uc785\ub825\ud574\uc57c \ud569\ub2c8\ub2e4!",
+    "ex": "BYBIT",
+    "result": null,
+    "sizing": {}
+  },
+  {
+    "calls": [],
+    "error": "[\uc218\ub7c9 \uc624\ub958]\namount\uc640 percent\ub294 \ub3d9\uc2dc\uc5d0 \uc785\ub825\ud560 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4!",
+    "ex": "BYBIT",
+    "result": null,
+    "sizing": {
+      "amount": 1,
+      "percent": 10
+    }
+  },
+  {
+    "calls": [],
+    "error": "[\uc218\ub7c9 \uc624\ub958]\n\ucd5c\uc18c \uac70\ub798 \uc218\ub7c9\uc744 \ub9cc\uc871\ud558\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4!",
+    "ex": "BYBIT",
+    "result": null,
+    "sizing": {
+      "amount": 0
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "buy",
+          0.04,
+          null,
+          {
+            "position_idx": 0
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "ex": "BYBIT",
+    "result": {
+      "amount": 0.04,
+      "average": 100,
+      "filled": 0.04,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.04
+      },
+      "price": 100,
+      "status": "closed"
+    },
+    "sizing": {
+      "percent": 0.1
+    }
+  },
+  {
+    "ex": "OKX",
+    "limit_calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "limit",
+          "buy",
+          0.1234,
+          100.0,
+          {
+            "tgtCcy": "base_ccy"
+          }
+        ]
+      ]
+    ],
+    "side": "buy"
+  },
+  {
+    "discord": "\uc77c\uc2dc\nfixed-time\n\n\uac70\ub798\uc18c\nOKX\n\n\uc2ec\ubcfc\nBTC/USDT\n\n\uac70\ub798\uc720\ud615\n\ub9e4\uc218\n\n0.1234",
+    "embed": {
+      "color": 255,
+      "description": "\uccb4\uacb0: OKX BTC/USDT \ub9e4\uc218 0.1234",
+      "fields": [
+        {
+          "inline": false,
+          "name": "\uc77c\uc2dc",
+          "value": "fixed-time"
+        },
+        {
+          "inline": false,
+          "name": "\uac70\ub798\uc18c",
+          "value": "OKX"
+        },
+        {
+          "inline": false,
+          "name": "\uc2ec\ubcfc",
+          "value": "BTC/USDT"
+        },
+        {
+          "inline": false,
+          "name": "\uac70\ub798\uc720\ud615",
+          "value": "\ub9e4\uc218"
+        },
+        {
+          "inline": false,
+          "name": "\uc218\ub7c9",
+          "value": "0.1234"
+        },
+        {
+          "inline": false,
+          "name": "\uccb4\uacb0\uac00",
+          "value": "100"
+        }
+      ],
+      "title": "\uc8fc\ubb38"
+    }
+  },
+  {
+    "ex": "OKX",
+    "limit_calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "limit",
+          "sell",
+          0.1232766,
+          100.0,
+          {
+            "tgtCcy": "base_ccy"
+          }
+        ]
+      ]
+    ],
+    "side": "sell"
+  },
+  {
+    "discord": "\uc77c\uc2dc\nfixed-time\n\n\uac70\ub798\uc18c\nOKX\n\n\uc2ec\ubcfc\nBTC/USDT\n\n\uac70\ub798\uc720\ud615\n\ub9e4\ub3c4\n\n0.1232766",
+    "embed": {
+      "color": 255,
+      "description": "\uccb4\uacb0: OKX BTC/USDT \ub9e4\ub3c4 0.1232766",
+      "fields": [
+        {
+          "inline": false,
+          "name": "\uc77c\uc2dc",
+          "value": "fixed-time"
+        },
+        {
+          "inline": false,
+          "name": "\uac70\ub798\uc18c",
+          "value": "OKX"
+        },
+        {
+          "inline": false,
+          "name": "\uc2ec\ubcfc",
+          "value": "BTC/USDT"
+        },
+        {
+          "inline": false,
+          "name": "\uac70\ub798\uc720\ud615",
+          "value": "\ub9e4\ub3c4"
+        },
+        {
+          "inline": false,
+          "name": "\uc218\ub7c9",
+          "value": "0.1232766"
+        },
+        {
+          "inline": false,
+          "name": "\uccb4\uacb0\uac00",
+          "value": "100"
+        }
+      ],
+      "title": "\uc8fc\ubb38"
+    }
+  },
+  {
+    "ex": "OKX",
+    "limit_calls": [
+      [
+        "leverage",
+        [
+          1,
+          "BTC/USDT:USDT"
+        ],
+        {
+          "params": {
+            "mgnMode": "isolated",
+            "posSide": "net"
+          }
+        }
+      ],
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "limit",
+          "buy",
+          123.0,
+          null,
+          {
+            "tdMode": "isolated"
+          }
+        ]
+      ]
+    ],
+    "side": "entry/buy"
+  },
+  {
+    "discord": "\uc77c\uc2dc\nfixed-time\n\n\uac70\ub798\uc18c\nOKX\n\n\uc2ec\ubcfc\nBTC/USDT.P\n\n\uac70\ub798\uc720\ud615\n\ub871 \uc9c4\uc785\n\n123.0",
+    "embed": {
+      "color": 255,
+      "description": "\uccb4\uacb0: OKX BTC/USDT.P \ub871 \uc9c4\uc785 123.0",
+      "fields": [
+        {
+          "inline": false,
+          "name": "\uc77c\uc2dc",
+          "value": "fixed-time"
+        },
+        {
+          "inline": false,
+          "name": "\uac70\ub798\uc18c",
+          "value": "OKX"
+        },
+        {
+          "inline": false,
+          "name": "\uc2ec\ubcfc",
+          "value": "BTC/USDT.P"
+        },
+        {
+          "inline": false,
+          "name": "\uac70\ub798\uc720\ud615",
+          "value": "\ub871 \uc9c4\uc785"
+        },
+        {
+          "inline": false,
+          "name": "\uacc4\uc57d",
+          "value": "123.0"
+        },
+        {
+          "inline": false,
+          "name": "\uccb4\uacb0\uac00",
+          "value": "100"
+        }
+      ],
+      "title": "\uc8fc\ubb38"
+    }
+  },
+  {
+    "ex": "OKX",
+    "limit_calls": [
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "limit",
+          "sell",
+          123.0,
+          null,
+          {
+            "reduceOnly": true,
+            "tdMode": "isolated"
+          }
+        ]
+      ]
+    ],
+    "side": "close/sell"
+  },
+  {
+    "discord": "\uc77c\uc2dc\nfixed-time\n\n\uac70\ub798\uc18c\nOKX\n\n\uc2ec\ubcfc\nBTC/USDT.P\n\n\uac70\ub798\uc720\ud615\n\ub871 \uc885\ub8cc (\uc775\uc808 \ud83d\udfe2) [\uc775\uc808] (+22.22%)\n\n123.0",
+    "embed": {
+      "color": 65280,
+      "description": "\uccb4\uacb0: OKX BTC/USDT.P \ub871 \uc885\ub8cc (\uc775\uc808 \ud83d\udfe2) 123.0",
+      "fields": [
+        {
+          "inline": false,
+          "name": "\uc77c\uc2dc",
+          "value": "fixed-time"
+        },
+        {
+          "inline": false,
+          "name": "\uac70\ub798\uc18c",
+          "value": "OKX"
+        },
+        {
+          "inline": false,
+          "name": "\uc2ec\ubcfc",
+          "value": "BTC/USDT.P"
+        },
+        {
+          "inline": false,
+          "name": "\uac70\ub798\uc720\ud615",
+          "value": "\ub871 \uc885\ub8cc (\uc775\uc808 \ud83d\udfe2)"
+        },
+        {
+          "inline": false,
+          "name": "\uacc4\uc57d",
+          "value": "123.0"
+        },
+        {
+          "inline": false,
+          "name": "\uc9c4\uc785\uac00",
+          "value": "90"
+        },
+        {
+          "inline": false,
+          "name": "\uccb4\uacb0\uac00",
+          "value": "100"
+        },
+        {
+          "inline": false,
+          "name": "\uc190\uc775 \uc5ec\ubd80",
+          "value": "\uc775\uc808 (+22.22%)"
+        }
+      ],
+      "title": "\uc775\uc808 \uc54c\ub9bc"
+    }
+  },
+  {
+    "calls": [],
+    "error": "[\uc218\ub7c9 \uc624\ub958]\namount\uc640 percent \uc911 \uc801\uc5b4\ub3c4 \ud558\ub098\ub294 \uc785\ub825\ud574\uc57c \ud569\ub2c8\ub2e4!",
+    "ex": "OKX",
+    "result": null,
+    "sizing": {}
+  },
+  {
+    "calls": [],
+    "error": "[\uc218\ub7c9 \uc624\ub958]\namount\uc640 percent\ub294 \ub3d9\uc2dc\uc5d0 \uc785\ub825\ud560 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4!",
+    "ex": "OKX",
+    "result": null,
+    "sizing": {
+      "amount": 1,
+      "percent": 10
+    }
+  },
+  {
+    "calls": [],
+    "error": "[\uc218\ub7c9 \uc624\ub958]\n\ucd5c\uc18c \uac70\ub798 \uc218\ub7c9\uc744 \ub9cc\uc871\ud558\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4!",
+    "ex": "OKX",
+    "result": null,
+    "sizing": {
+      "amount": 0
+    }
+  },
+  {
+    "calls": [
+      [
+        "leverage",
+        [
+          1,
+          "BTC/USDT:USDT"
+        ],
+        {
+          "params": {
+            "mgnMode": "isolated",
+            "posSide": "net"
+          }
+        }
+      ],
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "buy",
+          40.0,
+          null,
+          {
+            "tdMode": "isolated"
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "ex": "OKX",
+    "result": {
+      "amount": 40.0,
+      "average": 100,
+      "filled": 40.0,
+      "id": "fake1",
+      "info": {
+        "orderQty": 40.0
+      },
+      "price": 100,
+      "status": "closed"
+    },
+    "sizing": {
+      "percent": 0.1
+    }
+  },
+  {
+    "sltp": [
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "STOP_MARKET",
+          "sell",
+          1,
+          null,
+          {
+            "newClientOrderId": "STOP_MARKET",
+            "stopPrice": 90
+          }
+        ]
+      ],
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "TAKE_PROFIT_MARKET",
+          "sell",
+          1,
+          null,
+          {
+            "newClientOrderId": "TAKE_PROFIT_MARKET",
+            "stopPrice": 110
+          }
+        ]
+      ]
+    ]
+  },
+  {
+    "alert_logs": 0,
+    "body": null,
+    "error_logs": 1,
+    "exception": "TypeError",
+    "status": 200
+  },
+  {
+    "alert_logs": 1,
+    "body": null,
+    "error_logs": 1,
+    "exception": "RuntimeError",
+    "status": 200
+  }
+]

@@ -27,9 +27,17 @@ def _load_module(name, path):
     return obj
 
 def _setup_isolated(root=ROOT):
+    if hasattr(sys, "_poa_isolated_setup"):
+        return sys._poa_isolated_setup
     for name in list(sys.modules):
         if name == "exchange" or name.startswith("exchange."):
             del sys.modules[name]
+    try:
+        from pydantic import class_validators
+        if hasattr(class_validators, "_FUNCS"):
+            class_validators._FUNCS.clear()
+    except Exception:
+        pass
     pkg = types.ModuleType("exchange")
     pkg.__path__ = [str(root / "exchange")]
     sys.modules["exchange"] = pkg
@@ -77,6 +85,7 @@ def _setup_isolated(root=ROOT):
     pkg.db = db_mod.db
     pkg.settings = settings
     pkg.log_message = util.log_message
+    sys._poa_isolated_setup = (schema, pre, util)
     return schema, pre, util
 
 schema, legacy, util = _setup_isolated(ROOT)
@@ -891,7 +900,8 @@ class DiscordEmbedV2Tests(unittest.TestCase):
         self.assertLessEqual(total_chars, 6000)
 
     def test_E04_order_execution_files_untouched_via_git_diff(self):
-        # Section 11.2: Verify order execution and safety files have ZERO diff against main
+        # Section 11.2 & P2-4: Verify all 26 order execution, safety, and deployment files have ZERO diff against fixed Base SHA
+        base_sha = "69e48fc3989f9d957efb6bdef81ba57516cc5dfb"
         protected_files = [
             "main.py",
             "exchange/binance.py",
@@ -906,9 +916,22 @@ class DiscordEmbedV2Tests(unittest.TestCase):
             "exchange/error.py",
             "exchange/model/schemas.py",
             "requirements.txt",
+            "deployment/deploy_vultr.py",
+            "deployment/fix_alerts.py",
+            "deployment/preflight_vultr.py",
+            "deployment/remote_deploy.sh",
+            "deployment/rollback_vultr.py",
+            "exchange/stock/kis.py",
+            "exchange/stock/order.py",
+            "exchange/stock/schemas.py",
+            "exchange/stock/utility.py",
+            "scripts/notification_db.py",
+            "scripts/smoke_upbit.py",
+            "scripts/verify_vultr_runtime.py",
+            "tools/safe_order_admin.py",
         ]
         proc = subprocess.run(
-            ["git", "diff", "main", "--"] + protected_files,
+            ["git", "diff", base_sha, "--"] + protected_files,
             cwd=ROOT,
             capture_output=True,
             text=True,
@@ -1034,6 +1057,67 @@ class DiscordEmbedV2Tests(unittest.TestCase):
         with store._connect_read() as con:
             alerts = con.execute("SELECT count(*) FROM verified_outbox WHERE event_type='manual_review'").fetchone()[0]
             self.assertEqual(alerts, 1, "Repeated signal_id without order_id must enqueue only 1 manual_review alert!")
+
+    # =========================================================================
+    # Category F — Codex Audit Remediation Counterexamples (P1-1..P1-3, P2-1..P2-5)
+    # =========================================================================
+    def test_F01_conservative_error_classification_and_allowlist(self):
+        from exchange.utility.discord_embed import build_notification_details, classify_error_code, parse_amount_and_currency
+        info = OrderRequest(exchange="BINANCE", base="BTC", quote="USDT", side="buy", amount=1)
+        for err in [None, "", "ORDER_PROCESSING_FAILED", "\n".join("ORDER_PROCESSING_FAILED"), "unknown exception", RuntimeError("lost")]:
+            self.assertTrue(classify_error_ambiguity(err))
+            e = build_error_embed(err, order_info=info).data
+            self.assertEqual(e["color"], COLOR_ORDER_AMBIGUOUS)
+            self.assertIn("주문 결과 확인 필요", e["title"])
+            self.assertNotIn("주문이 체결되지 않았습니다", e["description"])
+
+        for rej in ["insufficient balance", "min notional", "invalid order parameter", "permission denied"]:
+            self.assertFalse(classify_error_ambiguity(rej))
+            e = build_error_embed(rej, order_info=info).data
+            self.assertEqual(e["color"], COLOR_ORDER_FAILED)
+            self.assertIn("상태: 주문이 체결되지 않았습니다", e["description"])
+
+        # Sensitive marker in error forces safe redaction and never leaks raw text
+        code, is_amb, reason = classify_error_code('{"apiKey": "SECRET_CANARY"} insufficient balance', has_order_context=True)
+        self.assertTrue(is_amb)
+        self.assertNotIn("SECRET_CANARY", reason)
+        code2, is_amb2, reason2 = classify_error_code('Authorization: Bearer SECRET_CANARY', has_order_context=False)
+        self.assertFalse(is_amb2)
+        self.assertNotIn("SECRET_CANARY", reason2)
+
+        # Parse amount and currency edge cases
+        self.assertEqual(parse_amount_and_currency("0.1 BTC", "USDT"), (D("0.1"), "BTC"))
+        self.assertEqual(parse_amount_and_currency("367.56원", "KRW"), (D("367.56"), "KRW"))
+        self.assertEqual(parse_amount_and_currency(True, "USDT"), (None, None))
+        self.assertEqual(parse_amount_and_currency("not a number", "USDT"), (None, None))
+
+        # Details helper verification
+        p = NotificationPayload(
+            event_id="det-1",
+            exchange="BINANCE",
+            symbol="BTC/USDT",
+            side="매도",
+            order_name="전략",
+            exit_reason=ExitReason.TP,
+            pnl_result=PnlResult.PROFIT,
+            fill_status=FillStatus.FILLED,
+            filled_qty="1",
+            remaining_qty="0.5",
+            entry_price="100",
+            exit_price="110",
+            net_pnl="9 USDT",
+            roi_pct="9.0",
+            leverage=3,
+            order_id="oid-1",
+            signal_id="sig-1",
+            error_message="missing_order_id",
+            verification_status=VerificationStatus.UNVERIFIED,
+            event_timestamp=1760958129.0,
+        )
+        details = {d["name"]: d["value"] for d in build_notification_details(p)}
+        self.assertEqual(details["순실현손익"], "미확정")
+        self.assertEqual(details["ROI"], "미확정")
+        self.assertEqual(details["손익 결과"], "UNKNOWN")
 
 
 if __name__ == "__main__":

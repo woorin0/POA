@@ -44,6 +44,8 @@ class OutboxStatus(str, Enum):
     SENDING = "SENDING"
     SENT = "SENT"
     FAILED = "FAILED"
+    UNKNOWN = "UNKNOWN"
+    HELD = "HELD"
 
 
 class VerifiedTrade(BaseModel):
@@ -139,6 +141,10 @@ class NotificationPayload(BaseModel):
     roi_pct: Optional[str] = None
     roi_label: str = "ROI"
     verification_status: VerificationStatus = VerificationStatus.UNVERIFIED
+    fill_verification_status: Optional[VerificationStatus] = None
+    pnl_verification_status: Optional[VerificationStatus] = None
+    roi_verification_status: Optional[VerificationStatus] = None
+    is_roi_estimated: bool = False
     verification_source: str = "거래소 실제 체결 내역"
     event_timestamp: float  # UTC timestamp
     fill_timestamp: Optional[float] = None  # UTC timestamp

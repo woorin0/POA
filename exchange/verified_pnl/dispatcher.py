@@ -96,24 +96,61 @@ def make_payload(key, fill, info, pnl, entry_price, settings):
     notional = None
     if fill.average_fill_price is not None and fill.filled_quantity > 0:
         notional = format_decimal(fill.average_fill_price * fill.filled_quantity)
-    return NotificationPayload(event_id=key,exchange=fill.exchange,symbol=fill.symbol,
-        side=get_side_display(info),order_name=info.order_name or "주문",exit_reason=reason,
-        pnl_result=classify_pnl_result(pnl),fill_status=fill.status,order_id=fill.order_id,
-        client_order_id=fill.client_order_id,requested_qty=format_decimal(fill.requested_quantity),
-        filled_qty=format_decimal(fill.filled_quantity),remaining_qty=format_decimal(fill.remaining_quantity),
+
+    is_est_roi = bool(getattr(pnl, "is_roi_estimated", False))
+    pnl_ver_status = (
+        VerificationStatus.VERIFIED
+        if (pnl.verification_status == VerificationStatus.VERIFIED and pnl.net_realized_pnl is not None)
+        else VerificationStatus.UNVERIFIED
+    )
+    if pnl_ver_status == VerificationStatus.VERIFIED and pnl.net_roi_pct is not None and not is_est_roi:
+        roi_ver_status = VerificationStatus.VERIFIED
+    elif is_est_roi:
+        roi_ver_status = VerificationStatus.ESTIMATED
+    else:
+        roi_ver_status = VerificationStatus.UNVERIFIED
+
+    roi_label = "추정 ROI (레버리지 기반)" if is_est_roi else "ROI"
+
+    return NotificationPayload(
+        event_id=key,
+        exchange=fill.exchange,
+        symbol=fill.symbol,
+        side=get_side_display(info),
+        order_name=info.order_name or "주문",
+        exit_reason=reason,
+        pnl_result=classify_pnl_result(pnl),
+        fill_status=fill.status,
+        order_id=fill.order_id,
+        client_order_id=fill.client_order_id,
+        requested_qty=format_decimal(fill.requested_quantity),
+        filled_qty=format_decimal(fill.filled_quantity),
+        remaining_qty=format_decimal(fill.remaining_quantity),
         entry_price=format_decimal(entry_price) if entry_price is not None else None,
         exit_price=format_decimal(fill.average_fill_price) if fill.average_fill_price is not None else None,
-        gross_pnl=money(pnl.gross_realized_pnl),entry_fee_allocated=money(pnl.entry_fee_allocated),
-        exit_fee=money(pnl.exit_fee),funding_pnl=money(pnl.funding_pnl_allocated),net_pnl=money(pnl.net_realized_pnl),
+        gross_pnl=money(pnl.gross_realized_pnl),
+        entry_fee_allocated=money(pnl.entry_fee_allocated),
+        exit_fee=money(pnl.exit_fee),
+        funding_pnl=money(pnl.funding_pnl_allocated),
+        net_pnl=money(pnl.net_realized_pnl),
         price_return_pct=str(pnl.price_return_pct) if pnl.price_return_pct is not None else None,
         roi_pct=str(pnl.net_roi_pct) if pnl.net_roi_pct is not None else None,
-        verification_status=fill.verification_status,verification_source=fill.source+" / PnL: "+pnl.verification_status.value,
-        event_timestamp=time.time(),fill_timestamp=fill.fill_timestamp,leverage=info.leverage,
-        fee_breakdown=", ".join(f"{v} {k}" for k,v in fill.fees.items()) or None,
+        roi_label=roi_label,
+        verification_status=fill.verification_status,
+        fill_verification_status=fill.verification_status,
+        pnl_verification_status=pnl_ver_status,
+        roi_verification_status=roi_ver_status,
+        is_roi_estimated=is_est_roi,
+        verification_source=fill.source + " / PnL: " + pnl.verification_status.value,
+        event_timestamp=time.time(),
+        fill_timestamp=fill.fill_timestamp,
+        leverage=info.leverage,
+        fee_breakdown=", ".join(f"{v} {k}" for k, v in fill.fees.items()) or None,
         signal_id=str(getattr(info, "signal_id", None)) if getattr(info, "signal_id", None) is not None else None,
         strategy_id=str(getattr(info, "strategy_id", None)) if getattr(info, "strategy_id", None) is not None else None,
         pnl_currency=getattr(fill, "pnl_currency", None) or getattr(pnl, "pnl_currency", None),
-        notional_amount=notional)
+        notional_amount=notional,
+    )
 
 
 def make_manual_review_payload(key, data, reason, settings):
@@ -124,18 +161,29 @@ def make_manual_review_payload(key, data, reason, settings):
     symbol = getattr(info, "unified_symbol", None) or f"{getattr(info, 'base', '')}/{getattr(info, 'quote', '')}"
     strategy_id = getattr(info, "strategy_id", None) or getattr(info, "order_name", None) or "default"
     account = data.get("account") if isinstance(data, dict) and data.get("account") else "default"
-    if signal_id:
+
+    res = data.get("result") if (isinstance(data, dict) and isinstance(data.get("result"), dict)) else {}
+    order_id = res.get("id") or res.get("uuid")
+    raw_client_order_id = res.get("clientOrderId") or res.get("identifier")
+
+    # P2-1 Fix: Preserve distinct manual review alerts when distinct order_id or clientOrderId exists,
+    # even if signal_id is shared across multiple orders. Only fall back to signal_id deduplication
+    # when both order_id and clientOrderId are absent.
+    if order_id is not None and str(order_id).strip():
+        event_id = identity(exchange_name, account, strategy_id, symbol, f"ord:{order_id}", "manual_review")
+    elif raw_client_order_id is not None and str(raw_client_order_id).strip():
+        event_id = identity(exchange_name, account, strategy_id, symbol, f"cid:{raw_client_order_id}", "manual_review")
+    elif signal_id:
         event_id = identity(exchange_name, account, strategy_id, symbol, str(signal_id), "manual_review")
     else:
         event_id = f"{key}:manual_review"
+
     reason_desc = "주문 ID 누락 (missing_order_id)" if reason == "missing_order_id" else f"장기 복구 비활성화 ({reason})"
     err_msg = (
         f"수동 확인 필요 (MANUAL_REVIEW 보류) | 사유: {reason_desc} | "
         f"신호 ID: {signal_id or '없음'} | 거래소: {exchange_name} | 종목: {symbol} | 상태: 미확정(UNVERIFIED)"
     )
-    res = data.get("result") if (isinstance(data, dict) and isinstance(data.get("result"), dict)) else {}
-    order_id = res.get("id") or res.get("uuid")
-    client_order_id = res.get("clientOrderId") or res.get("identifier") or (str(signal_id) if signal_id else None)
+    client_order_id = raw_client_order_id or (str(signal_id) if signal_id else None)
     return NotificationPayload(
         event_type="manual_review",
         event_id=event_id,
@@ -151,6 +199,9 @@ def make_manual_review_payload(key, data, reason, settings):
         signal_id=str(signal_id) if signal_id else None,
         strategy_id=str(getattr(info, "strategy_id", None)) if getattr(info, "strategy_id", None) is not None else None,
         verification_status=VerificationStatus.UNVERIFIED,
+        fill_verification_status=VerificationStatus.UNVERIFIED,
+        pnl_verification_status=VerificationStatus.UNVERIFIED,
+        roi_verification_status=VerificationStatus.UNVERIFIED,
         verification_source="수동 검토 보류 (거래소 주문 조회 불가)",
         event_timestamp=time.time(),
         error_message=err_msg,
@@ -355,16 +406,17 @@ def verification_tick(settings, client_factory):
 def flush_outbox(settings):
     store=NotificationOutboxStore(settings.VERIFIED_NOTIFICATIONS_DB_PATH)
     store.recover()
+    retry_on_5xx = bool(getattr(settings, "DISCORD_RETRY_ON_5XX", False))
     for item in store.get_pending(limit=20):
         key=item["event_id"]
         if not store.claim(key): continue
-        sender=DiscordSender(settings.DISCORD_WEBHOOK_URL)
+        sender=DiscordSender(settings.DISCORD_WEBHOOK_URL, retry_on_5xx=retry_on_5xx)
         try:
             success,error,delay=sender.send_payload(NotificationPayload(**item["payload"]))
             if success:
                 store.mark_sent(key,sender.message_id)
                 logger.info("verified_alerts: discord_sent")
-            elif error=="delivery_unknown":
+            elif error=="delivery_unknown" or str(error or "").startswith("delivery_unknown"):
                 store.hold_unknown(key); warning("discord_delivery_unknown")
             else:
                 permanent=delay is None or not settings.DISCORD_RETRY_ENABLED

@@ -13,7 +13,7 @@ from typing import Optional, Dict, Any, List
 import requests
 try:
     from dhooks import Embed
-    if not hasattr(Embed, "data"):
+    if hasattr(Embed, "to_dict") and not hasattr(Embed, "data"):
         try:
             Embed.data = property(lambda self: self.to_dict())
         except Exception:
@@ -223,8 +223,22 @@ class NotificationOutboxStore:
 
     def hold_unknown(self, event_id):
         with self._connect() as con:
-            con.execute("UPDATE verified_outbox SET status='UNKNOWN',last_error='delivery_unknown',updated_at=? WHERE event_id=?",
-                        (time.time(),event_id))
+            con.execute("UPDATE verified_outbox SET status=?,last_error='delivery_unknown',updated_at=? WHERE event_id=?",
+                        (OutboxStatus.UNKNOWN.value, time.time(), event_id))
+
+    def requeue_unknown(self, event_id: Optional[str] = None) -> int:
+        """Operator recovery helper: transitions UNKNOWN/HELD items back to PENDING for manual resend."""
+        now = time.time()
+        with self._connect() as con:
+            if event_id:
+                return con.execute(
+                    "UPDATE verified_outbox SET status=?, next_retry_at=?, updated_at=? WHERE event_id=? AND status IN (?, ?)",
+                    (OutboxStatus.PENDING.value, now, now, event_id, OutboxStatus.UNKNOWN.value, OutboxStatus.HELD.value),
+                ).rowcount
+            return con.execute(
+                "UPDATE verified_outbox SET status=?, next_retry_at=?, updated_at=? WHERE status IN (?, ?)",
+                (OutboxStatus.PENDING.value, now, now, OutboxStatus.UNKNOWN.value, OutboxStatus.HELD.value),
+            ).rowcount
 
     def recover(self):
         with self._connect() as con:
@@ -284,10 +298,11 @@ def build_verified_embed(payload: NotificationPayload) -> Embed:
 
 
 class DiscordSender:
-    """Dispatches notifications to Discord with exponential backoff and rate-limit handling."""
+    """Dispatches notifications to Discord with safe delivery-unknown holding on 5xx/timeouts (P2-5)."""
 
-    def __init__(self, webhook_url: Optional[str] = None):
+    def __init__(self, webhook_url: Optional[str] = None, retry_on_5xx: bool = False):
         self.webhook_url = (webhook_url or "").replace("discordapp", "discord")
+        self.retry_on_5xx = retry_on_5xx
         self.message_id = None
 
     def send_payload(self, payload: NotificationPayload) -> tuple[bool, Optional[str], Optional[float]]:
@@ -330,10 +345,13 @@ class DiscordSender:
                 # Client permanent error (e.g. 401 unauthorized, 404 not found)
                 return False, f"permanent_http_{resp.status_code}", None
 
-            # 5xx Server error
-            return False, f"Discord server error HTTP {resp.status_code}", 5.0
+            # 5xx Server error: Discord or an intermediary may have already accepted and posted the message.
+            # Default to holding as delivery_unknown to prevent duplicate messages unless retry_on_5xx is explicitly enabled.
+            if self.retry_on_5xx:
+                return False, f"Discord server error HTTP {resp.status_code}", 5.0
+            return False, "delivery_unknown", None
 
         except requests.exceptions.Timeout:
             return False, "delivery_unknown", None
-        except requests.exceptions.RequestException as e:
+        except requests.exceptions.RequestException:
             return False, "delivery_unknown", None
