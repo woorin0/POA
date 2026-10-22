@@ -1123,7 +1123,9 @@ class DiscordEmbedV2Tests(unittest.TestCase):
             self.assertFalse(classify_error_ambiguity(rej))
             e = build_error_embed(rej, order_info=info).data
             self.assertEqual(e["color"], COLOR_ORDER_FAILED)
-            self.assertIn("상태: 주문이 체결되지 않았습니다", e["description"])
+            self.assertNotIn("주문이 체결되지 않았습니다", e["description"])
+            self.assertIn("상태: 주문 접수 거절", e["description"])
+
 
         # Sensitive marker in error forces safe redaction and never leaks raw text
         code, is_amb, reason = classify_error_code('{"apiKey": "SECRET_CANARY"} insufficient balance', has_order_context=True)

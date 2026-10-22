@@ -176,21 +176,24 @@ class NotificationOutboxStore:
                     if existing:
                         st_val, old_p_json = existing[0], existing[1]
                         old_p = json.loads(old_p_json)
-                        old_pnl_verified = (old_p.get("pnl_verification_status") == "VERIFIED" or str(old_p.get("verification_status")).upper() == "VERIFIED")
-                        new_pnl_verified = (payload.pnl_verification_status == VerificationStatus.VERIFIED or str(payload.verification_status).upper() == "VERIFIED")
-                        old_has_pnl = bool(old_p.get("net_pnl"))
-                        new_has_pnl = bool(payload.net_pnl)
+                        old_net = old_p.get("net_pnl")
+                        new_net = payload.net_pnl
+                        old_pnl_st = str(old_p.get("pnl_verification_status") or "").upper()
+                        new_pnl_st = str(getattr(payload.pnl_verification_status, "value", payload.pnl_verification_status) or "").upper()
+                        is_financial_change = (old_net != new_net or old_pnl_st != new_pnl_st or old_p.get("cost_basis") != payload.cost_basis)
 
-                        if (not old_pnl_verified or not old_has_pnl) and (new_pnl_verified and new_has_pnl):
+                        if is_financial_change:
+                            next_st = OutboxStatus.PENDING.value if st_val == OutboxStatus.PENDING.value else st_val
                             con.execute(
                                 """
                                 UPDATE verified_outbox SET payload=?, status=?, updated_at=?, version=version+1
                                 WHERE event_id=?
                                 """,
-                                (payload.json(), OutboxStatus.PENDING.value, now, payload.event_id)
+                                (payload.json(), next_st, now, payload.event_id)
                             )
                             logger.info("verified_alerts: corrected_verified_alert_updated")
                             return True
+
                     logger.info("verified_alerts: duplicate_event_blocked")
                     return False
             return True
@@ -324,6 +327,7 @@ class NotificationOutboxStore:
             # Bounded network timeout is 5s; never retry an abandoned send.
             con.execute("UPDATE verified_outbox SET status='UNKNOWN',last_error='abandoned_send' WHERE status='SENDING' AND updated_at<?", (time.time()-30,))
             con.execute("UPDATE verified_jobs SET state='PENDING' WHERE state='VERIFYING' AND due<?", (time.time(),))
+            con.execute("UPDATE verified_jobs SET state='PENDING', due=0 WHERE state='DONE' AND (json_extract(data, '$.accounting_verified') IS NULL OR json_extract(data, '$.accounting_verified') = 0)")
 
     def mark_sent(self, event_id: str, message_id: Optional[str] = None):
         now = time.time()

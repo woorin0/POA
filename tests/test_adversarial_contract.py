@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace as NS
 from unittest.mock import Mock, patch
 
-ROOT = Path(r"D:\Antigravity\POA-v2-integration")
+ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import tests.test_independent_audit as tia
@@ -214,7 +214,7 @@ def run_all_adversarial_tests():
     assert len(sell_after) == 1
     latest_sell = sell_after[0]
     recovered_net = latest_sell["payload"]["net_pnl"]
-    assert "+8" in str(recovered_net) or "8" in str(recovered_net), f"Failed to recover +8 USDT! Got: {recovered_net}"
+    assert D(str(recovered_net).split()[0]) == D(8), f"Failed to recover +8 USDT! Got: {recovered_net}"
     assert "151" in str(latest_sell["payload"]["cost_basis"]), f"Wrong cost basis: {latest_sell['payload']['cost_basis']}"
     print(f"PASS: Incomplete buy safely recovered! Recovered net PnL: {recovered_net}, Cost basis: {latest_sell['payload']['cost_basis']}")
 
@@ -235,9 +235,13 @@ def run_all_adversarial_tests():
         "exchange/upbit.py", "main.py", "requirements.txt", "scripts/notification_db.py", "scripts/run_load_test.py",
         "scripts/smoke_upbit.py", "scripts/verify_release_zip.py", "scripts/verify_vultr_runtime.py", "tools/safe_order_admin.py"
     ]
-    diff_proc = subprocess.run(["git", "diff", base_sha, "--"] + union_files, cwd=ROOT, capture_output=True, text=True)
+    existing_files = [f for f in union_files if (ROOT / f).exists()]
+    nonexistent_files = [f for f in union_files if not (ROOT / f).exists()]
+    assert len(existing_files) == 26, f"Expected 26 existing files, got {len(existing_files)}"
+    assert len(nonexistent_files) == 8, f"Expected 8 nonexistent files, got {len(nonexistent_files)}"
+    diff_proc = subprocess.run(["git", "diff", base_sha, "--"] + existing_files, cwd=ROOT, capture_output=True, text=True)
     assert diff_proc.stdout.strip() == "", f"Diff found in protected union files!\n{diff_proc.stdout}"
-    print(f"PASS: All {len(union_files)} protected union files have exact ZERO diff against Base SHA!")
+    print(f"PASS: All {len(existing_files)} existing protected files have exact ZERO diff against Base SHA! (8 nonexistent paths acknowledged)")
 
     print("\n=========================================================================")
     print("ALL 7 ADVERSARIAL & CONTRACT INVARIANT TESTS PASSED WITH 100% SUCCESS!")

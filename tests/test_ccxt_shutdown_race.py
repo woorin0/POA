@@ -122,6 +122,7 @@ class CCXTSafeShutdownRaceTests(unittest.TestCase):
         lock = pool.get_client_lock("BINANCE", True)
 
         query_done = threading.Event()
+        query_started = threading.Event()
         client_closed_during_query = False
 
         def mock_close():
@@ -139,6 +140,7 @@ class CCXTSafeShutdownRaceTests(unittest.TestCase):
         ))
 
         def slow_fetch(*a, **kw):
+            query_started.set()
             time.sleep(0.2)
             query_done.set()
             return {"id": "oid_drain_to", "status": "closed", "filled": 1.0}
@@ -158,7 +160,7 @@ class CCXTSafeShutdownRaceTests(unittest.TestCase):
         recon_thread.start()
 
         # Let query start
-        time.sleep(0.04)
+        self.assertTrue(query_started.wait(timeout=2.0))
 
         # Shutdown initiated, drain timeout is very short (0.02s) so drain returns False
         begin_shutdown()

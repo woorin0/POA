@@ -98,7 +98,10 @@ class FillVerifier:
                     try: trade_ts = datetime.fromisoformat(str(raw_ts)).timestamp()
                     except Exception: pass
             trades.append(VerifiedTrade(id=tid, price=px, amount=amount, fee=cost,
-                fee_currency=currency, timestamp=trade_ts))
+                fee_currency=currency, timestamp=trade_ts,
+                order=str(t.get("order") or t.get("uuid") or oid),
+                order_id=str(t.get("order") or t.get("uuid") or oid),
+                source=str(t.get("source") or "EXCHANGE_REST_QUERY")))
             raw = t.get("info") or {}
             value = to_decimal(raw.get("realizedPnl")) if exchange_name == "BINANCE" else (
                 to_decimal(raw.get("fillPnl")) if exchange_name == "OKX" else None)
@@ -119,6 +122,11 @@ class FillVerifier:
             if t_ord and oid and str(t_ord) != str(oid):
                 valid_trades = False
                 completeness_reason = "wrong_order"
+                break
+            t_src = raw_t.get("source")
+            if t_src and t_src not in {"EXCHANGE_REST_QUERY", "ORDER_RESULT", "UPBIT_ORDER_QUERY"}:
+                valid_trades = False
+                completeness_reason = "trade_source_unknown"
                 break
             t_px = to_decimal(raw_t.get("price"))
             t_amt = to_decimal(raw_t.get("amount"))
@@ -169,7 +177,7 @@ class FillVerifier:
             if total_funds is not None and total_funds > 0:
                 average = total_funds / quantity
         if average is not None and average <= 0: average = None
-        if not coverage:
+        if not coverage and not fees:
             fees = {}
             fee = data.get("fee") or {}
             cost = to_decimal(fee.get("cost")) if isinstance(fee, dict) else None
@@ -210,7 +218,7 @@ class FillVerifier:
             position_side=pos_side,
             market_type="linear" if futures else "spot", requested_quantity=requested,
             filled_quantity=quantity, remaining_quantity=remaining, average_fill_price=average,
-            contract_size=factor, trades=trades, trades_complete=coverage,
+            contract_size=factor, trades=trades, trades_complete=coverage, raw_data=data,
             trades_completeness_reason=None if coverage is True else (completeness_reason or ("partial_trades" if trades else None)),
             fees=fees, fees_complete=bool(complete_fees),
             realized_pnl=gross, pnl_currency="USDT" if futures else settlement,

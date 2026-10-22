@@ -56,6 +56,9 @@ class VerifiedTrade(BaseModel):
     fee: Optional[Decimal] = None
     fee_currency: Optional[str] = None
     timestamp: Optional[float] = None  # seconds or ms
+    order: Optional[str] = None
+    order_id: Optional[str] = None
+    source: Optional[str] = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -70,6 +73,7 @@ class VerifiedFill(BaseModel):
     pnl_includes_exit_fee: bool = False
     pnl_includes_funding: bool = False
     verified_order_type: Optional[str] = None
+    raw_data: Optional[Dict[str, Any]] = None
     exchange: str
     symbol: str
     order_id: Optional[str] = None

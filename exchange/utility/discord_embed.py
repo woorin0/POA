@@ -155,7 +155,7 @@ def classify_error_code(error: Optional[Any], has_order_context: bool = True) ->
     Raw exception strings are NEVER returned.
     """
     type_name = type(error).__name__.lower() if error is not None else ""
-    is_raw_exception = isinstance(error, Exception) and type_name in ("runtimeerror", "exception", "error")
+    is_raw_exception = isinstance(error, Exception) and type_name in ("runtimeerror", "exception", "error", "valueerror", "typeerror", "keyerror", "assertionerror")
     probe = _normalize_error_probe(error)
     lower = probe.lower()
 
@@ -998,7 +998,7 @@ def _evaluate_verification_states(
                     roi_denominator_ok = False
 
         # Legacy r3 fixture compatibility only
-        is_legacy_r3 = (getattr(payload, "event_id", "") == "r3" and not has_accounting_contract)
+        is_legacy_r3 = False
 
         if not is_legacy_r3:
             if cost_basis_d is not None and cost_basis_d > Decimal("0") and roi_denominator_ok:
@@ -1616,6 +1616,9 @@ def build_error_embed(
             and has_partial_fill
         )
 
+        err_str = str(err_text).lower() if err_text is not None else ""
+        has_exchange_evidence = any(ex in err_str for ex in ("binance", "upbit", "okx", "bybit", "bitget", "ccxt", "exchange")) or getattr(order_info, "verification_status", None) == VerificationStatus.VERIFIED
+
         has_explicit_rejection = has_err_text and not is_ambiguous
         if err_text is not None and str(err_text).strip() == "INSUFFICIENT_BALANCE" and not is_verified_zero_fill and not has_verified_partial_fill:
             has_explicit_rejection = False
@@ -1635,11 +1638,16 @@ def build_error_embed(
                 lines.append(f"사유: {safe_reason}")
                 lines.append("상태: 실제 체결 여부 확인 필요 (미확정)")
                 lines.append("조치: 거래소 체결 내역 확인 필요 (중복 재주문 금지)")
-            elif is_verified_zero_fill or (not has_v_attr and not has_qty_attr):
+            elif is_verified_zero_fill or (has_exchange_evidence and not has_qty_attr):
                 title = f"⚠️ {exchange} · {display_symbol} · {side} 주문 실패"
                 color = COLOR_ORDER_FAILED
                 lines.append(f"사유: {safe_reason}")
                 lines.append("상태: 주문이 체결되지 않았습니다")
+            elif not has_qty_attr:
+                title = f"⚠️ {exchange} · {display_symbol} · {side} 주문 실패"
+                color = COLOR_ORDER_FAILED
+                lines.append(f"사유: {safe_reason}")
+                lines.append("상태: 주문 접수 거절")
             else:
                 title = f"⚪ {exchange} · {display_symbol} · {side} 주문 결과 확인 필요"
                 color = COLOR_ORDER_AMBIGUOUS

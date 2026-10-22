@@ -310,9 +310,11 @@ def verification_tick(settings, client_factory):
 
             cost_basis_strict = getattr(settings, "VERIFIED_COST_BASIS_COMPLETE", False)
             if is_order_terminal and (pnl_done or not cost_basis_strict):
+                data["accounting_verified"] = 1 if pnl_done else 0
                 next_state = "DONE"
                 next_due = now
             elif is_order_terminal and not pnl_done and cost_basis_strict:
+                data["accounting_verified"] = 0
                 # Order completed on exchange but financial evidence incomplete: keep PENDING for recovery
                 staged_delays = getattr(settings, "VERIFY_STAGED_DELAYS", [2.0, 5.0, 10.0, 20.0, 40.0])
                 delay_idx = min(attempts - 1, len(staged_delays) - 1)
