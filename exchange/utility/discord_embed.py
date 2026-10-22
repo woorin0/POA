@@ -1616,45 +1616,14 @@ def build_error_embed(
             and has_partial_fill
         )
 
-        err_str = str(err_text).lower() if err_text is not None else ""
-        has_exchange_evidence = any(ex in err_str for ex in ("binance", "upbit", "okx", "bybit", "bitget", "ccxt", "exchange")) or getattr(order_info, "verification_status", None) == VerificationStatus.VERIFIED
+        err_lower = str(err_text).lower() if err_text is not None else ""
+        # Proven exchange rejection receipt requires specific official exchange response string
+        has_official_rejection_receipt = (
+            "account has insufficient balance for requested action" in err_lower or
+            (str(err_text).strip().upper() == "INSUFFICIENT_BALANCE" and is_verified_zero_fill)
+        )
 
-        has_explicit_rejection = has_err_text and not is_ambiguous
-        if err_text is not None and str(err_text).strip() == "INSUFFICIENT_BALANCE" and not is_verified_zero_fill and not has_verified_partial_fill:
-            has_explicit_rejection = False
-
-        if has_explicit_rejection:
-            if has_verified_partial_fill:
-                title = f"⚠️ {exchange} · {display_symbol} · {side} 주문 실패"
-                color = COLOR_ORDER_FAILED
-                lines.append(f"체결수량: {format_quantity_display(filled_d, base_asset=base_asset)}")
-                lines.append(f"사유: {safe_reason}")
-                lines.append("상태: 부분 체결 완료 후 잔여 주문 실패")
-                lines.append("조치: 실제 체결 수량 확인 및 잔여 주문 확인 필요")
-            elif has_partial_fill and not is_verified:
-                title = f"⚪ {exchange} · {display_symbol} · {side} 주문 결과 확인 필요"
-                color = COLOR_ORDER_AMBIGUOUS
-                lines.append(f"체결수량: {format_quantity_display(filled_d, base_asset=base_asset)} (미검증)")
-                lines.append(f"사유: {safe_reason}")
-                lines.append("상태: 실제 체결 여부 확인 필요 (미확정)")
-                lines.append("조치: 거래소 체결 내역 확인 필요 (중복 재주문 금지)")
-            elif is_verified_zero_fill or (has_exchange_evidence and not has_qty_attr):
-                title = f"⚠️ {exchange} · {display_symbol} · {side} 주문 실패"
-                color = COLOR_ORDER_FAILED
-                lines.append(f"사유: {safe_reason}")
-                lines.append("상태: 주문이 체결되지 않았습니다")
-            elif not has_qty_attr:
-                title = f"⚠️ {exchange} · {display_symbol} · {side} 주문 실패"
-                color = COLOR_ORDER_FAILED
-                lines.append(f"사유: {safe_reason}")
-                lines.append("상태: 주문 접수 거절")
-            else:
-                title = f"⚪ {exchange} · {display_symbol} · {side} 주문 결과 확인 필요"
-                color = COLOR_ORDER_AMBIGUOUS
-                lines.append(f"사유: {safe_reason}")
-                lines.append("상태: 실제 체결 여부 확인 중 (미확정)")
-                lines.append("조치: 거래소 체결 내역 확인 필요 (중복 재주문 금지)")
-        else:
+        if is_ambiguous:
             title = f"⚪ {exchange} · {display_symbol} · {side} 주문 결과 확인 필요"
             color = COLOR_ORDER_AMBIGUOUS
             if has_partial_fill:
@@ -1668,8 +1637,28 @@ def build_error_embed(
                     lines.append("상태: 일부 체결 확인됨 (잔여 주문 상태 미확정)")
                 else:
                     lines.append("상태: 실제 체결 여부 확인 필요 (미확정)")
-                lines.append("조치: 거래소 체결 내역 확인 필요 (중복 재주문 금지)")
             else:
+                lines.append("상태: 실제 체결 여부 확인 중 (미확정)")
+            lines.append("조치: 거래소 체결 내역 확인 필요 (중복 재주문 금지)")
+        else:
+            if has_verified_partial_fill:
+                title = f"⚠️ {exchange} · {display_symbol} · {side} 주문 실패"
+                color = COLOR_ORDER_FAILED
+                lines.append(f"체결수량: {format_quantity_display(filled_d, base_asset=base_asset)}")
+                lines.append(f"사유: {safe_reason}")
+                lines.append("상태: 부분 체결 완료 후 잔여 주문 실패")
+                lines.append("조치: 실제 체결 수량 확인 및 잔여 주문 확인 필요")
+            elif is_verified_zero_fill or has_official_rejection_receipt:
+                title = f"⚠️ {exchange} · {display_symbol} · {side} 주문 실패"
+                color = COLOR_ORDER_FAILED
+                lines.append(f"사유: {safe_reason}")
+                lines.append("상태: 주문이 체결되지 않았습니다")
+            else:
+                title = f"⚪ {exchange} · {display_symbol} · {side} 주문 결과 확인 필요"
+                color = COLOR_ORDER_AMBIGUOUS
+                if has_partial_fill:
+                    lines.append(f"체결수량: {format_quantity_display(filled_d, base_asset=base_asset)} (미검증)")
+                lines.append(f"사유: {safe_reason}")
                 lines.append("상태: 실제 체결 여부 확인 중 (미확정)")
                 lines.append("조치: 거래소 체결 내역 확인 필요 (중복 재주문 금지)")
 

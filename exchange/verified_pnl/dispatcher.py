@@ -369,6 +369,7 @@ def verification_tick(settings, client_factory):
                 con.execute("UPDATE verified_jobs SET state=?,due=?,data=? WHERE id=?",(
                     next_state, next_due, json.dumps(data), key))
         except Exception:
+            import traceback; traceback.print_exc()
             warning("fill_verification_failed")
             now = time.time()
             raw_data = data if data is not None else None

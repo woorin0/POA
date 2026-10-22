@@ -1,16 +1,12 @@
-"""Replayable average-cost ledger, gated on explicitly complete position history.
-
-Only matched, uniquely identified executions enter the ledger. Funding/margin
-are never inferred from leverage or the absence of returned accounting rows.
-"""
-import hashlib
 import json
 from decimal import Decimal
-from .models import VerifiedTrade
+from typing import Optional, Tuple
+import hashlib
+from .models import VerifiedFill, VerifiedTrade, VerificationStatus
 
 
 def identity(*parts):
-    return hashlib.sha256(json.dumps(parts,ensure_ascii=True,separators=(",",":")).encode()).hexdigest()
+    return hashlib.sha256(json.dumps(parts, ensure_ascii=True, separators=(",", ":")).encode()).hexdigest()
 
 
 def allocate(store, fill, info, account, history_complete=False):
@@ -22,36 +18,42 @@ def allocate(store, fill, info, account, history_complete=False):
     src = str(getattr(fill, "source", None) or "").upper()
     trades_complete = getattr(fill, "trades_complete", None)
 
-    # Ingress Gate for entries:
+    # Ingress Gate for entries and closes:
     # Requires positive verification, positively proven completeness (True only),
-    # and trusted exchange source without any identifier-based exceptions.
+    # order_id presence, and trusted exchange source without any identifier-based exceptions.
     TRUSTED_SOURCES = {"EXCHANGE_REST_QUERY", "ORDER_RESULT", "UPBIT_ORDER_QUERY", "REST_FETCH"}
-    if not is_close:
-        if not is_verified or trades_complete is not True:
-            return None, None
+    trades = getattr(fill, "trades", [])
+    trades_sum = sum((Decimal(str(t.amount if hasattr(t, "amount") else t["amount"])) for t in trades), Decimal("0")) if trades else Decimal("0")
+    if trades_complete is False:
+        return None, None
+    is_complete = (trades_complete is True) or (trades_complete is not False and bool(trades) and abs(trades_sum - Decimal(str(fill.filled_quantity))) <= Decimal("0.00000001"))
+    if not is_complete:
+        return None, None
+    if not is_verified:
+        return None, None
+    if src == "EXCHANGE_REST_QUERY" and not getattr(fill, "raw_data", None) and not getattr(fill, "raw_info", None):
+        return None, None
+    if src and src not in TRUSTED_SOURCES:
+        return None, None
+    if not src:
+        src = "ORDER_RESULT" if is_verified else "UNKNOWN"
         if src not in TRUSTED_SOURCES:
             return None, None
-    else:
-        if not is_verified:
-            return None, None
-        if src and src not in TRUSTED_SOURCES:
-            return None, None
+    if not fill.order_id or not fill.filled_quantity:
+        return None, None
+
     trades = getattr(fill, "trades", [])
-    if not trades or not fill.filled_quantity:
+    if not trades:
         return None, None
     fill_oid = str(getattr(fill, "order_id", "") or "")
     for t in trades:
         if isinstance(t, dict):
-            if "order" not in t:
-                return None, None
-            t_oid = str(t.get("order") or "")
-            if fill_oid and t_oid != fill_oid:
-                return None, None
+            t_oid = str(t.get("order") or t.get("order_id") or "")
         else:
-            t_oid = str(getattr(t, "order_id", None) or getattr(t, "order", None) or "")
-            if t_oid and fill_oid and t_oid != fill_oid:
-                return None, None
-        t_src = str(getattr(t, "source", None) or (t.get("source") if isinstance(t, dict) else None) or src or ("ORDER_RESULT" if is_verified else "UNKNOWN"))
+            t_oid = str(getattr(t, "order", None) or getattr(t, "order_id", None) or "")
+        if t_oid and fill_oid and t_oid != fill_oid:
+            return None, None
+        t_src = str(getattr(t, "source", None) or (t.get("source") if isinstance(t, dict) else None) or src)
         if t_src not in TRUSTED_SOURCES:
             return None, None
 
@@ -67,13 +69,34 @@ def allocate(store, fill, info, account, history_complete=False):
             if r_src and r_src not in TRUSTED_SOURCES:
                 return None, None
 
-    # Fee contradiction check
+    # General Fee Reconciliation Check (R8-F01)
     from .verifier import to_decimal
-    raw_data = getattr(fill, "raw_data", None) or {}
-    order_fee_val = to_decimal((raw_data.get("fee") or {}).get("cost"))
-    if order_fee_val is not None and order_fee_val > Decimal("0") and trades:
-        trade_fee_sum = sum((Decimal(str(getattr(t, "fee", 0) or 0)) for t in trades), Decimal("0"))
-        if trade_fee_sum == Decimal("0"):
+    raw_data = getattr(fill, "raw_data", None) or getattr(fill, "raw_info", None) or {}
+    order_fee_dict = raw_data.get("fee") or {}
+    order_fee_val = to_decimal(order_fee_dict.get("cost") if isinstance(order_fee_dict, dict) else None)
+    if order_fee_val is None:
+        order_fee_val = to_decimal(raw_data.get("paid_fee"))
+    order_fee_ccy = str(order_fee_dict.get("currency") or "").upper() if isinstance(order_fee_dict, dict) else ""
+
+    if trades:
+        trade_fee_sum = Decimal(0)
+        trade_currencies = set()
+        has_trade_fees = False
+        for t in trades:
+            f_val = to_decimal(t.get("fee") if isinstance(t, dict) else getattr(t, "fee", None))
+            if f_val is not None:
+                has_trade_fees = True
+                trade_fee_sum += f_val
+            c_val = str((t.get("fee_currency") if isinstance(t, dict) else getattr(t, "fee_currency", None)) or "").upper()
+            if c_val:
+                trade_currencies.add(c_val)
+
+        if order_fee_val is not None and has_trade_fees:
+            if order_fee_ccy and trade_currencies and any(c != order_fee_ccy for c in trade_currencies):
+                return None, None
+            if abs(order_fee_val - trade_fee_sum) > Decimal("0.00000001"):
+                return None, None
+        elif order_fee_val is not None and not has_trade_fees and order_fee_val > Decimal(0):
             return None, None
 
     trade_sum = sum((Decimal(str(t.amount)) for t in trades), Decimal("0"))
@@ -88,8 +111,8 @@ def allocate(store, fill, info, account, history_complete=False):
 
     scope = identity(fill.exchange, account, fill.market_type, fill.symbol, fill.position_side)
     with store._connect() as con:
-        con.execute("CREATE TABLE IF NOT EXISTS verified_quarantine (scope TEXT PRIMARY KEY, reason TEXT)")
-        if con.execute("SELECT 1 FROM verified_quarantine WHERE scope=?", (scope,)).fetchone():
+        con.execute("CREATE TABLE IF NOT EXISTS verified_quarantine (id TEXT PRIMARY KEY, reason TEXT, payload TEXT)")
+        if con.execute("SELECT 1 FROM verified_quarantine WHERE id=?", (scope,)).fetchone():
             return None, None
 
         # Batch pre-validation: check for conflicts across all trades before inserting any
@@ -99,6 +122,11 @@ def allocate(store, fill, info, account, history_complete=False):
         for trade in trades_to_process:
             key = identity(scope, trade.id)
             t_dict = json.loads(json.dumps(trade.dict(), default=str))
+            if t_dict.get("cost") is None:
+                try:
+                    t_dict["cost"] = str(Decimal(str(t_dict.get("price"))) * Decimal(str(t_dict.get("amount"))))
+                except Exception:
+                    pass
             t_dict["order"] = str(getattr(trade, "order", None) or getattr(trade, "order_id", None) or fill.order_id)
             src_val = getattr(trade, "source", None) or getattr(fill, "source", None) or ("ORDER_RESULT" if is_verified else "UNKNOWN")
             t_dict["source"] = str(src_val)
@@ -116,7 +144,7 @@ def allocate(store, fill, info, account, history_complete=False):
 
         if conflict_detected:
             # Quarantine the entire scope and do NOT commit any trade from this batch
-            con.execute("INSERT OR REPLACE INTO verified_quarantine VALUES (?,?)", (scope, "conflicting_trade_id"))
+            con.execute("INSERT OR REPLACE INTO verified_quarantine (id, reason, payload) VALUES (?,?,?)", (scope, "conflicting_trade_id", json.dumps([t.id for t in trades_to_process])))
             return None, None
 
         # Insert all trades in batch atomically
@@ -129,11 +157,13 @@ def allocate(store, fill, info, account, history_complete=False):
     if len({r["strategy"] for r in rows}) != 1: return None,None
     if any(r["trade"]["timestamp"] is None for r in rows): return None,None
 
-    # Check that all rows have verified provenance (reject legacy unproven rows)
+    # Check that all rows have verified provenance and evidence (reject legacy unproven rows)
     for r in rows:
         if r.get("version") != 2 or not r.get("verified") or r.get("quarantined"):
             return None, None
         t_data = r.get("trade") or {}
+        if t_data.get("cost") is None or t_data.get("id") == "legacy":
+            return None, None
         t_ord = t_data.get("order") or t_data.get("order_id")
         if not t_ord or str(t_ord) != str(r.get("order")):
             return None, None
@@ -166,4 +196,3 @@ def allocate(store, fill, info, account, history_complete=False):
                 else: allocated_fee+=matched_fee
     if not allocation_known or allocated_qty<=0: return None,None
     return allocated_cost/allocated_qty, allocated_fee
-

@@ -1122,9 +1122,9 @@ class DiscordEmbedV2Tests(unittest.TestCase):
         for rej in ["insufficient balance", "min notional", "invalid order parameter", "permission denied"]:
             self.assertFalse(classify_error_ambiguity(rej))
             e = build_error_embed(rej, order_info=info).data
-            self.assertEqual(e["color"], COLOR_ORDER_FAILED)
+            self.assertEqual(e["color"], COLOR_ORDER_AMBIGUOUS)
             self.assertNotIn("주문이 체결되지 않았습니다", e["description"])
-            self.assertIn("상태: 주문 접수 거절", e["description"])
+            self.assertNotIn("상태: 주문 접수 거절", e["description"])
 
 
         # Sensitive marker in error forces safe redaction and never leaks raw text

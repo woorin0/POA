@@ -36,7 +36,7 @@ def test_unknown_result_must_not_be_confirmed_rejection(err):
 def test_known_error_categories(message):
     info=t.OrderRequest(exchange='BINANCE',base='BTC',quote='USDT',side='buy',amount=1)
     e=de.build_error_embed(message,order_info=info).data
-    assert e['color']==(de.COLOR_ORDER_FAILED if message=='insufficient balance' else de.COLOR_ORDER_AMBIGUOUS)
+    assert e['color']==de.COLOR_ORDER_AMBIGUOUS
 
 @pytest.mark.parametrize('exc',[TypeError('after-submit'),RuntimeError('response lost'),t.legacy.ccxt.RequestTimeout('timed out')])
 def test_actual_main_exception_path_conservative(exc):
