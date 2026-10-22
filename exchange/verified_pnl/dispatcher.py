@@ -268,6 +268,8 @@ def verification_tick(settings, client_factory):
             attempts_exceeded = is_upbit and (attempts >= max_attempts)
             terminal=fill.status in {FillStatus.FILLED,FillStatus.CANCELED,FillStatus.FAILED}
             expired=time.time()-created>=settings.FILL_VERIFICATION_TIMEOUT_SEC
+            raw_state = str(data.get("result", {}).get("status") or data.get("result", {}).get("state") or getattr(fill, "exchange_status", "") or "").lower()
+            is_exchange_terminal = terminal or (raw_state in {"canceled", "cancelled", "expired", "reject", "rejected"})
 
             if terminal:
                 event_type = "final"
@@ -297,7 +299,7 @@ def verification_tick(settings, client_factory):
             long_term_recovery = getattr(settings, "LONG_TERM_RECOVERY_ENABLED", True)
             max_recovery_delay = getattr(settings, "LONG_TERM_RECOVERY_MAX_DELAY", 300.0)
 
-            if terminal:
+            if is_exchange_terminal:
                 next_state = "DONE"
                 next_due = now
             elif not has_id:

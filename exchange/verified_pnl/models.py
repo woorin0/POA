@@ -83,6 +83,8 @@ class VerifiedFill(BaseModel):
     average_fill_price: Optional[Decimal] = None
     contract_size: Optional[Decimal] = None
     trades: List[VerifiedTrade] = []
+    trades_complete: Optional[bool] = None
+    trades_completeness_reason: Optional[str] = None
     fees: Dict[str, Decimal] = {}  # currency -> total fee
     realized_pnl: Optional[Decimal] = None
     pnl_currency: Optional[str] = None
@@ -90,6 +92,7 @@ class VerifiedFill(BaseModel):
     source: str = "REST_FETCH"
     verification_status: VerificationStatus = VerificationStatus.UNVERIFIED
     raw_info: Optional[Dict[str, Any]] = None
+    exchange_status: Optional[str] = None
 
     class Config:
         arbitrary_types_allowed = True

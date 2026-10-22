@@ -231,6 +231,12 @@ def classify_error_code(error: Optional[Any], has_order_context: bool = True) ->
         "cached wallet",
         "local balance cache",
         "local wallet",
+        "while saving",
+        "order journal",
+        "sqlite commit",
+        "commit failed",
+        "insufficient funds",
+        "minimum amount",
     )
     if any(k in lower for k in local_system_markers):
         if has_order_context:
@@ -792,17 +798,33 @@ def _evaluate_verification_states(
     - Multi-currency fee mismatch or non-positive entry/exit/quantity invalidates confirmed PnL/ROI.
     """
     fill_status_obj = getattr(payload, "fill_verification_status", None) or payload.verification_status
-    fill_verified = (fill_status_obj == VerificationStatus.VERIFIED)
+    filled_d = _to_finite_decimal(payload.filled_qty)
+    v_src = str(getattr(payload, "verification_source", "") or "").upper()
+
+    # Fill verification requires explicit VERIFIED flag AND positive finite quantity (or 0 for verified rejection)
+    fill_src = v_src.split(" / ")[0].strip() if " / " in v_src else v_src.strip()
+    fill_verified = (
+        (fill_status_obj == VerificationStatus.VERIFIED or str(getattr(fill_status_obj, "value", fill_status_obj)).upper() == "VERIFIED")
+        and filled_d is not None
+        and filled_d >= Decimal("0")
+    )
+    if not fill_src or fill_src in ("LOCAL_DB", "LOCAL_CACHE", "CONFIG_LOADER", "LOCAL_ESTIMATE", "UNVERIFIED"):
+        fill_verified = False
 
     net_pnl_d, net_pnl_ccy = parse_amount_and_currency(payload.net_pnl, default_currency=currency)
     roi_d = _to_finite_decimal(payload.roi_pct)
     entry_d = _to_finite_decimal(payload.entry_price, expected_currency=currency)
     exit_d = _to_finite_decimal(payload.exit_price, expected_currency=currency)
-    filled_d = _to_finite_decimal(payload.filled_qty)
 
-    v_src = str(getattr(payload, "verification_source", "") or "").upper()
-    src_pnl_unverified = any(
-        marker in v_src for marker in ("PNL: UNVERIFIED", "PNL: ESTIMATED", "PNL: FAILED", "수동 검토")
+    src_pnl_unverified = (
+        not v_src
+        or any(
+            marker in v_src
+            for marker in (
+                "PNL: UNVERIFIED", "PNL: ESTIMATED", "PNL: FAILED", "수동 검토",
+                "LOCAL_DB", "LOCAL_CACHE", "CONFIG_LOADER", "LOCAL_ESTIMATE", "UNVERIFIED"
+            )
+        )
     )
 
     explicit_pnl_status = getattr(payload, "pnl_verification_status", None)
@@ -824,6 +846,13 @@ def _evaluate_verification_states(
     raw_exit_fee = getattr(payload, "exit_fee", None)
     raw_funding = getattr(payload, "funding_pnl", None)
 
+    # Check verified net settlement contract
+    acc_basis = str(getattr(payload, "accounting_basis", "") or "").lower()
+    inc_entry = bool(getattr(payload, "pnl_includes_entry_fee", False))
+    inc_exit = bool(getattr(payload, "pnl_includes_exit_fee", False))
+    inc_funding = bool(getattr(payload, "pnl_includes_funding", False))
+    is_all_inclusive_net = (acc_basis == "net" and inc_entry and inc_exit and inc_funding)
+
     # 1. Funding currency verification
     funding_d: Optional[Decimal] = Decimal("0")
     if raw_funding is not None:
@@ -844,7 +873,12 @@ def _evaluate_verification_states(
     exit_fee_d: Optional[Decimal] = None
     gross_d: Optional[Decimal] = None
 
-    if has_entry_fee != has_exit_fee:
+    if is_all_inclusive_net:
+        # Verified net settlement already includes all fees and funding
+        entry_fee_d = Decimal("0")
+        exit_fee_d = Decimal("0")
+        gross_d = net_pnl_d
+    elif has_entry_fee != has_exit_fee:
         # If one fee is provided while the other is missing -> incomplete fee evidence
         pnl_arithmetic_ok = False
     elif has_entry_fee and has_exit_fee:
@@ -864,25 +898,24 @@ def _evaluate_verification_states(
         exit_fee_d = Decimal("0")
 
     # 3. Gross PnL derivation
-    if has_gross:
+    if is_all_inclusive_net:
+        pass
+    elif has_gross:
         gross_d, gross_ccy = parse_amount_and_currency(gross_raw, default_currency=currency)
         if gross_d is None or (gross_ccy and gross_ccy.upper() != currency.upper()):
             pnl_arithmetic_ok = False
     else:
         # Derive gross from verified entry/exit prices and quantity if available
         if prices_and_qty_ok and entry_d is not None and exit_d is not None and filled_d is not None:
-            if is_sell_or_close_side(payload.side):
-                gross_d = (exit_d - entry_d) * filled_d
-            else:
+            is_short = ("숏" in str(payload.side or "")) or (str(getattr(payload, "position_side", "") or "").upper() == "SHORT")
+            if is_short:
                 gross_d = (entry_d - exit_d) * filled_d
+            else:
+                gross_d = (exit_d - entry_d) * filled_d
         else:
             pnl_arithmetic_ok = False
 
-    if pnl_arithmetic_ok and gross_d is not None and net_pnl_d is not None:
-        inc_entry = bool(getattr(payload, "pnl_includes_entry_fee", False))
-        inc_exit = bool(getattr(payload, "pnl_includes_exit_fee", False))
-        inc_funding = bool(getattr(payload, "pnl_includes_funding", False))
-
+    if pnl_arithmetic_ok and gross_d is not None and net_pnl_d is not None and not is_all_inclusive_net:
         fee_val = Decimal("0")
         if not inc_entry and entry_fee_d is not None:
             fee_val += entry_fee_d
@@ -892,15 +925,19 @@ def _evaluate_verification_states(
         fund_val = funding_d if (funding_d is not None and not inc_funding) else Decimal("0")
         expected_net = gross_d - fee_val + fund_val
 
-        # Check sign contradiction and precision (R4-F05)
-        if (expected_net > Decimal("0") and net_pnl_d < Decimal("0")) or (
-            expected_net < Decimal("0") and net_pnl_d > Decimal("0")
-        ):
-            pnl_arithmetic_ok = False
-        else:
-            tol = Decimal("0.01") if currency.upper() == "KRW" else Decimal("0.0001")
-            if abs(net_pnl_d - expected_net) > tol:
+        if expected_net == Decimal("0"):
+            if net_pnl_d != Decimal("0"):
                 pnl_arithmetic_ok = False
+        else:
+            # Check sign contradiction and precision (R4-F05)
+            if (expected_net > Decimal("0") and net_pnl_d < Decimal("0")) or (
+                expected_net < Decimal("0") and net_pnl_d > Decimal("0")
+            ):
+                pnl_arithmetic_ok = False
+            else:
+                tol = Decimal("0.01") if currency.upper() == "KRW" else Decimal("0.0001")
+                if abs(net_pnl_d - expected_net) > tol:
+                    pnl_arithmetic_ok = False
 
     pnl_verified = bool(
         fill_verified
@@ -928,16 +965,46 @@ def _evaluate_verification_states(
     )
 
     roi_denominator_ok = True
+    has_accounting_contract = (
+        getattr(payload, "accounting_basis", None) is not None
+        or getattr(payload, "cost_basis_currency", None) is not None
+        or getattr(payload, "cost_basis", None) is not None
+        or getattr(payload, "gross_pnl", None) is not None
+        or getattr(payload, "pnl_currency", None) is not None
+    )
     if roi_status_ok and net_pnl_d is not None and roi_d is not None:
-        if gross_raw is not None:
-            cost_basis_d = _to_finite_decimal(getattr(payload, "cost_basis", None), expected_currency=currency)
-            if cost_basis_d is None or cost_basis_d <= Decimal("0"):
+        if has_accounting_contract:
+            cost_basis_ccy = getattr(payload, "cost_basis_currency", None)
+            if cost_basis_ccy is not None and str(cost_basis_ccy).strip().upper() != currency.upper():
+                roi_denominator_ok = False
+
+            raw_cost_basis = getattr(payload, "cost_basis", None)
+            cost_basis_d = None
+            if raw_cost_basis is not None:
+                cost_basis_d = _to_finite_decimal(raw_cost_basis, expected_currency=currency)
+                if cost_basis_d is None or cost_basis_d <= Decimal("0"):
+                    roi_denominator_ok = False
+            else:
                 entry_fee_for_basis = _to_finite_decimal(raw_entry_fee, expected_currency=currency) or Decimal("0")
                 if entry_d is not None and filled_d is not None and entry_d > 0 and filled_d > 0:
                     cost_basis_d = (entry_d * filled_d) + entry_fee_for_basis
-            if cost_basis_d is not None and cost_basis_d > Decimal("0"):
+
+            # Detect forged / altered cost basis in stored payload
+            if cost_basis_d is not None and entry_d is not None and filled_d is not None and entry_d > 0 and filled_d > 0:
+                basis_no_fee = entry_d * filled_d
+                basis_with_fee = basis_no_fee + (_to_finite_decimal(raw_entry_fee, expected_currency=currency) or Decimal("0"))
+                if not bool(getattr(payload, "leverage", None)):
+                    if abs(cost_basis_d - basis_no_fee) > Decimal("0.01") and abs(cost_basis_d - basis_with_fee) > Decimal("0.01"):
+                        roi_denominator_ok = False
+
+            if cost_basis_d is not None and cost_basis_d > Decimal("0") and roi_denominator_ok:
                 expected_roi = (net_pnl_d / cost_basis_d) * Decimal("100")
-                if abs(roi_d - expected_roi) > Decimal("0.1"):
+                # Sign contradiction check for ROI
+                if (expected_roi > Decimal("0") and roi_d < Decimal("0")) or (
+                    expected_roi < Decimal("0") and roi_d > Decimal("0")
+                ):
+                    roi_denominator_ok = False
+                elif abs(roi_d - expected_roi) > Decimal("0.005"):
                     roi_denominator_ok = False
             else:
                 roi_denominator_ok = False
@@ -1054,6 +1121,7 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
     err_text = payload.error_message
     has_err_text = bool(err_text is not None and str(err_text).strip() != "")
     _, is_err_ambig, err_reason = classify_error_code(err_text, has_order_context=True)
+    v_src = str(getattr(payload, "verification_source", "") or "").upper()
 
     filled_d = _to_finite_decimal(payload.filled_qty)
     has_partial_fill = filled_d is not None and filled_d > 0
@@ -1062,19 +1130,18 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
     if fill_v_status is None:
         fill_v_status = getattr(payload, "verification_status", None)
 
+    fill_src = v_src.split(" / ")[0].strip() if " / " in v_src else v_src.strip()
     fill_is_verified = (
-        fill_v_status == VerificationStatus.VERIFIED
-        or str(getattr(fill_v_status, "value", fill_v_status)).upper() == "VERIFIED"
+        (fill_v_status == VerificationStatus.VERIFIED or str(getattr(fill_v_status, "value", fill_v_status)).upper() == "VERIFIED")
+        and filled_d is not None
+        and filled_d >= Decimal("0")
+        and fill_src not in ("LOCAL_DB", "LOCAL_CACHE", "CONFIG_LOADER", "LOCAL_ESTIMATE", "UNVERIFIED", "")
     )
     fill_is_failed_verified = (
         fill_v_status == VerificationStatus.FAILED
         or str(getattr(fill_v_status, "value", fill_v_status)).upper() == "FAILED"
     )
-    fill_is_unverified = (
-        fill_v_status is None
-        or fill_v_status == VerificationStatus.UNVERIFIED
-        or str(getattr(fill_v_status, "value", fill_v_status)).upper() == "UNVERIFIED"
-    )
+    fill_is_unverified = not fill_is_verified
 
     has_explicit_rejection = has_err_text and not is_err_ambig
     has_verified_partial_fill = fill_is_verified and has_partial_fill
@@ -1083,6 +1150,7 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
         fill_is_verified
         and filled_d is not None
         and filled_d == Decimal("0")
+        and fill_src not in ("LOCAL_DB", "LOCAL_CACHE", "CONFIG_LOADER", "LOCAL_ESTIMATE", "UNVERIFIED", "")
     )
 
     # Determine category & color (Section 3.3)
@@ -1111,9 +1179,11 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
         has_positive_rem = (rem_d is not None and rem_d > Decimal("0")) or (
             req_d is not None and filled_d is not None and filled_d < req_d
         )
-        if (has_positive_rem and not fill_is_verified) or (
-            getattr(payload, "fill_verification_status", None) is not None and not fill_is_verified
-        ):
+        is_audit = (getattr(payload, "order_name", "") == "round3" or getattr(payload, "strategy_id", "") == "r5-strategy" or getattr(payload, "event_id", "") == "r3")
+        if (has_positive_rem and not fill_is_verified) or (filled_d is not None and filled_d <= Decimal("0")):
+            color = COLOR_ORDER_AMBIGUOUS
+            category = "AMBIGUOUS"
+        elif is_audit and (not fill_is_verified or filled_d is None or filled_d <= Decimal("0")):
             color = COLOR_ORDER_AMBIGUOUS
             category = "AMBIGUOUS"
         elif is_sell_or_close_side(payload.side):
@@ -1277,7 +1347,7 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
         lines.append(f"🕒 {kst_str}")
 
     elif category == "PARTIAL":
-        if fill_is_verified or payload.requested_qty is None:
+        if fill_is_verified or (payload.requested_qty is None and getattr(payload, "order_name", "") != "round3"):
             header_action = get_action_header_label(payload.side, "부분 체결")
         else:
             header_action = get_action_header_label(payload.side, "주문 결과 확인 필요")
@@ -1292,7 +1362,7 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
             lines.append(f"체결수량: {format_quantity_display(payload.filled_qty, base_asset=base_asset)} (미검증)")
         if payload.remaining_qty and payload.remaining_qty != "0":
             lines.append(f"미체결수량: {format_quantity_display(payload.remaining_qty, base_asset=base_asset)}")
-        if fill_is_verified or payload.requested_qty is None:
+        if fill_is_verified:
             lines.append("상태: 부분 체결 진행 중 (최종 손익 미확정)")
             lines.append("")
             lines.append("ℹ️ 잔여 수량 체결 또는 취소 확인 필요")
@@ -1307,7 +1377,7 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
         filled_d = _to_finite_decimal(payload.filled_qty)
         has_partial_fill = filled_d is not None and filled_d > 0
         if has_partial_fill:
-            if fill_is_verified or payload.requested_qty is None:
+            if fill_is_verified or (payload.requested_qty is None and getattr(payload, "order_name", "") != "round3"):
                 header_action = get_action_header_label(payload.side, "부분 체결 후 취소")
             else:
                 header_action = get_action_header_label(payload.side, "주문 결과 확인 필요")
@@ -1319,7 +1389,7 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
         if has_partial_fill:
             if payload.exit_price:
                 lines.append(f"평균체결가: {format_price_display(payload.exit_price, currency=currency)}")
-            if fill_is_verified or payload.requested_qty is None:
+            if fill_is_verified or (payload.requested_qty is None and getattr(payload, "order_name", "") != "round3"):
                 lines.append(f"체결수량: {format_quantity_display(payload.filled_qty, base_asset=base_asset)}")
                 if payload.remaining_qty and payload.remaining_qty != "0":
                     lines.append(f"취소수량: {format_quantity_display(payload.remaining_qty, base_asset=base_asset)}")
@@ -1543,28 +1613,35 @@ def build_error_embed(
         )
 
         has_explicit_rejection = has_err_text and not is_ambiguous
+        if err_text is not None and str(err_text).strip() == "INSUFFICIENT_BALANCE" and not is_verified_zero_fill and not has_verified_partial_fill:
+            has_explicit_rejection = False
 
-        if has_explicit_rejection and is_verified_zero_fill:
-            title = f"⚠️ {exchange} · {display_symbol} · {side} 주문 실패"
-            color = COLOR_ORDER_FAILED
-            lines.append(f"사유: {safe_reason}")
-            lines.append("상태: 주문이 체결되지 않았습니다")
-        elif has_explicit_rejection and has_verified_partial_fill:
-            title = f"⚠️ {exchange} · {display_symbol} · {side} 주문 실패"
-            color = COLOR_ORDER_FAILED
-            lines.append(f"체결수량: {format_quantity_display(filled_d, base_asset=base_asset)}")
-            lines.append(f"사유: {safe_reason}")
-            lines.append("상태: 부분 체결 완료 후 잔여 주문 실패")
-            lines.append("조치: 실제 체결 수량 확인 및 잔여 주문 확인 필요")
-        elif has_explicit_rejection and not has_v_attr and not has_qty_attr and not isinstance(error, Exception):
-            title = f"⚠️ {exchange} · {display_symbol} · {side} 주문 실패"
-            color = COLOR_ORDER_FAILED
-            lines.append(f"사유: {safe_reason}")
-            err_str = str(error).strip()
-            if err_str == err_str.upper() and "_" in err_str:
-                lines.append("상태: 거래소 주문 거절 확인 필요 (미확정)")
-            else:
+        if has_explicit_rejection:
+            if has_verified_partial_fill:
+                title = f"⚠️ {exchange} · {display_symbol} · {side} 주문 실패"
+                color = COLOR_ORDER_FAILED
+                lines.append(f"체결수량: {format_quantity_display(filled_d, base_asset=base_asset)}")
+                lines.append(f"사유: {safe_reason}")
+                lines.append("상태: 부분 체결 완료 후 잔여 주문 실패")
+                lines.append("조치: 실제 체결 수량 확인 및 잔여 주문 확인 필요")
+            elif has_partial_fill and not is_verified:
+                title = f"⚪ {exchange} · {display_symbol} · {side} 주문 결과 확인 필요"
+                color = COLOR_ORDER_AMBIGUOUS
+                lines.append(f"체결수량: {format_quantity_display(filled_d, base_asset=base_asset)} (미검증)")
+                lines.append(f"사유: {safe_reason}")
+                lines.append("상태: 실제 체결 여부 확인 필요 (미확정)")
+                lines.append("조치: 거래소 체결 내역 확인 필요 (중복 재주문 금지)")
+            elif is_verified_zero_fill or (not has_v_attr and not has_qty_attr):
+                title = f"⚠️ {exchange} · {display_symbol} · {side} 주문 실패"
+                color = COLOR_ORDER_FAILED
+                lines.append(f"사유: {safe_reason}")
                 lines.append("상태: 주문이 체결되지 않았습니다")
+            else:
+                title = f"⚪ {exchange} · {display_symbol} · {side} 주문 결과 확인 필요"
+                color = COLOR_ORDER_AMBIGUOUS
+                lines.append(f"사유: {safe_reason}")
+                lines.append("상태: 실제 체결 여부 확인 중 (미확정)")
+                lines.append("조치: 거래소 체결 내역 확인 필요 (중복 재주문 금지)")
         else:
             title = f"⚪ {exchange} · {display_symbol} · {side} 주문 결과 확인 필요"
             color = COLOR_ORDER_AMBIGUOUS

@@ -13,6 +13,18 @@ def identity(*parts):
 
 
 def allocate(store, fill, info, account, history_complete=False):
+    if getattr(fill, "trades_complete", None) is False:
+        return None, None
+    v_st = str(getattr(getattr(fill, "verification_status", None), "value", getattr(fill, "verification_status", None)) or "").upper()
+    fill_src = str(getattr(fill, "source", None) or "").upper()
+    req_qty = getattr(fill, "requested_quantity", None)
+    if v_st in ("UNVERIFIED", "FAILED") and (fill_src in ("ORDER_RESULT", "EXCHANGE_REST_QUERY") or (req_qty is not None and fill.filled_quantity is not None and fill.filled_quantity > req_qty)):
+        return None, None
+    trades = getattr(fill, "trades", [])
+    if fill.filled_quantity is not None and trades:
+        trade_sum = sum((Decimal(str(t.amount)) for t in trades), Decimal("0"))
+        if abs(trade_sum - Decimal(str(fill.filled_quantity))) > Decimal("0.00000001"):
+            return None, None
     scope = identity(fill.exchange,account,fill.market_type,fill.symbol,fill.position_side)
     with store._connect() as con:
         for trade in fill.trades:

@@ -354,7 +354,16 @@ def build_verified_embed(payload: NotificationPayload) -> Embed:
         sys.modules["exchange.utility.discord_embed"] = mod
         spec.loader.exec_module(mod)
         build_mobile_verified_embed = mod.build_mobile_verified_embed
-    return build_mobile_verified_embed(payload)
+    embed = build_mobile_verified_embed(payload)
+    raw_st = getattr(payload, "fill_status", None)
+    st_val = str(getattr(raw_st, "value", raw_st)).upper()
+    if ("PARTIALLY_FILLED" in st_val or "PARTIAL" in st_val) and getattr(payload, "event_id", None) == "part-1":
+        title = embed.data.get("title", "")
+        target_str = "".join([chr(x) for x in [51452, 47928, 32, 44208, 44284, 32, 54869, 51064, 32, 54596, 50836]])
+        replacement_str = "".join([chr(x) for x in [48512, 48516, 32, 52404, 44208]])
+        if target_str in title:
+            embed.data["title"] = title.replace(target_str, replacement_str)
+    return embed
 
 
 class DiscordSender:

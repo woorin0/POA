@@ -138,13 +138,16 @@ class FillVerifier:
         status = FillStatus.PENDING if oid else FillStatus.UNVERIFIED
         if quantity > 0: status = FillStatus.PARTIALLY_FILLED
         if raw_status in {"closed", "filled", "done"} and quantity > 0 and average is not None:
-            status = FillStatus.FILLED
+            if requested is not None and quantity < requested:
+                status = FillStatus.PARTIALLY_FILLED
+            else:
+                status = FillStatus.FILLED
         elif raw_status in {"canceled", "cancelled", "expired", "cancel"}:
             status = FillStatus.CANCELED if quantity == 0 else FillStatus.PARTIALLY_FILLED
         elif raw_status in {"rejected", "failed"}: status = FillStatus.FAILED
         if remaining is None and requested is not None:
             remaining = max(Decimal(0), requested - quantity)
-        verified = average is not None and quantity > 0
+        verified = average is not None and quantity > 0 and (requested is None or quantity <= requested)
         gross = sum(pnl, Decimal(0)) if coverage and pnl and all(v is not None for v in pnl) else None
         stamps = [t.timestamp for t in trades if t.timestamp is not None]
         last = to_decimal(data.get("lastTradeTimestamp"))
@@ -155,12 +158,15 @@ class FillVerifier:
             position_side=pos_side,
             market_type="linear" if futures else "spot", requested_quantity=requested,
             filled_quantity=quantity, remaining_quantity=remaining, average_fill_price=average,
-            contract_size=factor, trades=trades, fees=fees, fees_complete=bool(complete_fees),
+            contract_size=factor, trades=trades, trades_complete=bool(coverage),
+            trades_completeness_reason=None if coverage else ("partial_trades" if trades else "no_trades"),
+            fees=fees, fees_complete=bool(complete_fees),
             realized_pnl=gross, pnl_currency="USDT" if futures else settlement,
             accounting_basis="gross" if gross is not None else "unknown",
             fill_timestamp=max(stamps) if stamps else (float(last / 1000) if last is not None else None),
             verification_status=VerificationStatus.VERIFIED if verified else VerificationStatus.UNVERIFIED,
-            source="ORDER_RESULT")
+            source="ORDER_RESULT",
+            exchange_status=raw_status)
 
     def _fetch_verified_order(self, bot, exchange_name, symbol, order_id, client_order_id, order_info):
         if not order_id: return None
