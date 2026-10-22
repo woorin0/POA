@@ -1617,11 +1617,6 @@ def build_error_embed(
         )
 
         err_lower = str(err_text).lower() if err_text is not None else ""
-        # Proven exchange rejection receipt requires specific official exchange response string
-        has_official_rejection_receipt = (
-            "account has insufficient balance for requested action" in err_lower or
-            (str(err_text).strip().upper() == "INSUFFICIENT_BALANCE" and is_verified_zero_fill)
-        )
 
         if is_ambiguous:
             title = f"⚪ {exchange} · {display_symbol} · {side} 주문 결과 확인 필요"
@@ -1648,7 +1643,7 @@ def build_error_embed(
                 lines.append(f"사유: {safe_reason}")
                 lines.append("상태: 부분 체결 완료 후 잔여 주문 실패")
                 lines.append("조치: 실제 체결 수량 확인 및 잔여 주문 확인 필요")
-            elif is_verified_zero_fill or has_official_rejection_receipt:
+            elif is_verified_zero_fill:
                 title = f"⚠️ {exchange} · {display_symbol} · {side} 주문 실패"
                 color = COLOR_ORDER_FAILED
                 lines.append(f"사유: {safe_reason}")

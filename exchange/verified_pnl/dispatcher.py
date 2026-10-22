@@ -279,13 +279,25 @@ def verification_tick(settings, client_factory):
             else:
                 pnl_done = (getattr(fill, "verification_status", None) == VerificationStatus.VERIFIED and (getattr(fill, "trades_complete", None) is True))
 
+            def _dispatch_enqueue(p):
+                try:
+                    with store._connect_read() as c:
+                        m_rev = c.execute("SELECT MAX(revision) FROM verified_revisions WHERE event_id=?", (p.event_id,)).fetchone()
+                        if m_rev and m_rev[0] is not None:
+                            last_p = c.execute("SELECT payload FROM verified_revisions WHERE event_id=? AND revision=?", (p.event_id, m_rev[0])).fetchone()
+                            if last_p and last_p[0] != p.json():
+                                p.event_version = m_rev[0] + 1
+                except Exception:
+                    pass
+                return store.enqueue(p, max_attempts=settings.DISCORD_RETRY_MAX_ATTEMPTS if settings.DISCORD_RETRY_ENABLED else 1)
+
             is_canceled_terminal = raw_state in {"canceled", "cancelled", "expired", "cancel"}
             if terminal or is_canceled_terminal:
                 event_type = "final"
                 event = identity(key, event_type, [], 2)
                 payload = make_payload(event, fill, info, pnl, entry, settings)
                 payload.event_type = event_type
-                store.enqueue(payload, max_attempts=settings.DISCORD_RETRY_MAX_ATTEMPTS if settings.DISCORD_RETRY_ENABLED else 1)
+                _dispatch_enqueue(payload)
                 data["final_alert_sent"] = True
                 if pnl.net_realized_pnl is None: logger.info("verified_alerts: pnl_unconfirmed")
             elif partial_alerts and fill.status == FillStatus.PARTIALLY_FILLED:
@@ -293,13 +305,13 @@ def verification_tick(settings, client_factory):
                 event = identity(key, event_type, sorted(t.id for t in fill.trades), 2)
                 payload = make_payload(event, fill, info, pnl, entry, settings)
                 payload.event_type = event_type
-                store.enqueue(payload, max_attempts=settings.DISCORD_RETRY_MAX_ATTEMPTS if settings.DISCORD_RETRY_ENABLED else 1)
+                _dispatch_enqueue(payload)
             elif (expired or attempts_exceeded) and not data.get("unverified_alert_sent"):
                 event_type = "unverified"
                 event = identity(key, event_type, [], 2)
                 payload = make_payload(event, fill, info, pnl, entry, settings)
                 payload.event_type = event_type
-                store.enqueue(payload, max_attempts=settings.DISCORD_RETRY_MAX_ATTEMPTS if settings.DISCORD_RETRY_ENABLED else 1)
+                _dispatch_enqueue(payload)
                 data["unverified_alert_sent"] = True
                 if pnl.net_realized_pnl is None: logger.info("verified_alerts: pnl_unconfirmed")
 
@@ -368,14 +380,25 @@ def verification_tick(settings, client_factory):
             with store._connect() as con:
                 con.execute("UPDATE verified_jobs SET state=?,due=?,data=? WHERE id=?",(
                     next_state, next_due, json.dumps(data), key))
-        except Exception:
-            import traceback; traceback.print_exc()
+        except Exception as exc:
             warning("fill_verification_failed")
+            logger.warning(f"verified_alerts: fill_verification_failed (stage=verification_tick, job_key={identity(key, 'diag')[:8]}, exc={type(exc).__name__})")
             now = time.time()
             raw_data = data if data is not None else None
             if raw_data is None:
-                try: raw_data = json.loads(encoded)
-                except Exception: pass
+                try:
+                    loaded = json.loads(encoded)
+                    if isinstance(loaded, dict):
+                        raw_data = loaded
+                except Exception:
+                    pass
+            if raw_data is None:
+                logger.warning("verified_alerts: malformed_pending_job_quarantined")
+                with store._connect() as con:
+                    con.execute("CREATE TABLE IF NOT EXISTS verified_quarantine (id TEXT PRIMARY KEY, reason TEXT, payload TEXT)")
+                    con.execute("INSERT OR REPLACE INTO verified_quarantine (id, reason, payload) VALUES (?, ?, ?)", (key, "malformed_json", str(encoded)[:200]))
+                    con.execute("UPDATE verified_jobs SET state='QUARANTINED', due=? WHERE id=?", (now + 86400.0, key))
+                continue
             if now-created>=settings.FILL_VERIFICATION_TIMEOUT_SEC:
                 try:
                     if raw_data and not raw_data.get("unverified_alert_sent"):

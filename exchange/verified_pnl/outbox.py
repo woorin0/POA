@@ -65,6 +65,21 @@ def format_decimal(val: Optional[Any], decimals: int = 4) -> str:
         return str(val)
 
 
+def ensure_quarantine_schema(con: sqlite3.Connection):
+    """Ensures verified_quarantine table has id, reason, payload schema preserving legacy scope."""
+    exists = con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='verified_quarantine'").fetchone()
+    if exists:
+        cols = [c[1] for c in con.execute("PRAGMA table_info(verified_quarantine)").fetchall()]
+        if "id" not in cols:
+            con.execute("ALTER TABLE verified_quarantine RENAME TO _legacy_quarantine")
+            con.execute("CREATE TABLE verified_quarantine (id TEXT PRIMARY KEY, reason TEXT, payload TEXT)")
+            if "scope" in cols and "reason" in cols:
+                con.execute("INSERT OR IGNORE INTO verified_quarantine (id, reason, payload) SELECT scope, reason, scope FROM _legacy_quarantine")
+            con.execute("DROP TABLE _legacy_quarantine")
+    else:
+        con.execute("CREATE TABLE IF NOT EXISTS verified_quarantine (id TEXT PRIMARY KEY, reason TEXT, payload TEXT)")
+
+
 _INITIALIZED_DBS = set()
 
 
@@ -157,191 +172,159 @@ class NotificationOutboxStore:
             con.execute("CREATE INDEX IF NOT EXISTS idx_outbox_status ON verified_outbox(status, next_retry_at)")
             con.execute("CREATE TABLE IF NOT EXISTS verified_jobs (id TEXT PRIMARY KEY, data TEXT NOT NULL, state TEXT NOT NULL, due REAL NOT NULL, created REAL NOT NULL)")
             con.execute("CREATE TABLE IF NOT EXISTS verified_trades (id TEXT PRIMARY KEY, scope TEXT NOT NULL, data TEXT NOT NULL)")
-            con.execute("CREATE TABLE IF NOT EXISTS verified_revisions (id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT, revision INTEGER, state TEXT, payload TEXT, created_at REAL)")
-            con.execute("CREATE TABLE IF NOT EXISTS verified_quarantine (id TEXT PRIMARY KEY, reason TEXT, payload TEXT)")
+            con.execute("CREATE TABLE IF NOT EXISTS verified_revisions (id TEXT PRIMARY KEY, event_id TEXT, revision INTEGER, state TEXT, payload TEXT, created_at REAL)")
+            ensure_quarantine_schema(con)
 
     def enqueue(self, payload: NotificationPayload, max_attempts: int = 5) -> bool:
         """Enqueues a new notification payload. Returns True if inserted/updated, False if duplicate or invalid."""
         now = time.time()
         try:
             with self._connect() as con:
-                con.execute("CREATE TABLE IF NOT EXISTS verified_revisions (id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT, revision INTEGER, state TEXT, payload TEXT, created_at REAL)")
-                con.execute("CREATE TABLE IF NOT EXISTS verified_quarantine (id TEXT PRIMARY KEY, reason TEXT, payload TEXT)")
+                con.execute("CREATE TABLE IF NOT EXISTS verified_revisions (id TEXT PRIMARY KEY, event_id TEXT, revision INTEGER, state TEXT, payload TEXT, created_at REAL)")
+                ensure_quarantine_schema(con)
 
-                # Always record payload into revisions history for immutable audit
-                con.execute(
-                    "INSERT INTO verified_revisions (event_id, revision, state, payload, created_at) VALUES (?, ?, ?, ?, ?)",
-                    (payload.event_id, payload.event_version, OutboxStatus.PENDING.value, payload.json(), now)
-                )
+                root_id = payload.event_id
+                new_ev = payload.event_version
 
-                cur = con.execute(
-                    """
-                    INSERT OR IGNORE INTO verified_outbox (
-                        event_id, exchange, symbol, order_id, client_order_id,
-                        event_type, version, payload, status, attempts,
-                        max_attempts, next_retry_at, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
-                    """,
-                    (
-                        payload.event_id,
-                        payload.exchange,
-                        payload.symbol,
-                        payload.order_id,
-                        payload.client_order_id,
-                        payload.event_type,
-                        payload.event_version,
-                        payload.json(),
-                        OutboxStatus.PENDING.value,
-                        max_attempts,
-                        now,
-                        now,
-                        now,
-                    ),
-                )
-                if cur.rowcount == 0:
-                    existing = con.execute(
-                        "SELECT status, payload, version, discord_message_id FROM verified_outbox WHERE event_id=?",
-                        (payload.event_id,)
-                    ).fetchone()
-                    if existing:
-                        st_val, old_p_json, cur_ver, msg_id = existing
-                        old_p = json.loads(old_p_json)
-                        existing_ev = old_p.get("event_version", 1)
-                        new_ev = payload.event_version
+                # 1. Check existing root record
+                existing_root = con.execute(
+                    "SELECT status, payload, version, discord_message_id FROM verified_outbox WHERE event_id=?",
+                    (root_id,)
+                ).fetchone()
 
-                        old_net = old_p.get("net_pnl")
-                        new_net = payload.net_pnl
-                        old_pnl_st = str(old_p.get("pnl_verification_status") or "").upper()
-                        new_pnl_st = str(getattr(payload.pnl_verification_status, "value", payload.pnl_verification_status) or "").upper()
-                        is_financial_change = (
-                            old_net != new_net or
-                            old_pnl_st != new_pnl_st or
-                            old_p.get("cost_basis") != payload.cost_basis or
-                            old_p.get("roi_pct") != payload.roi_pct or
-                            old_p.get("event_type") != payload.event_type
-                        )
+                # 2. Check revision history
+                max_rev_row = con.execute(
+                    "SELECT MAX(revision) FROM verified_revisions WHERE event_id=?",
+                    (root_id,)
+                ).fetchone()
+                max_rev = max_rev_row[0] if (max_rev_row and max_rev_row[0] is not None) else None
 
-                        # CAS check: stale revision is rejected
-                        if new_ev < existing_ev:
-                            logger.info("verified_alerts: stale_revision_blocked")
-                            return False
+                if existing_root is None:
+                    # Brand new root event
+                    rev_id = f"{root_id}:rev{new_ev}"
+                    con.execute(
+                        "INSERT OR IGNORE INTO verified_revisions (id, event_id, revision, state, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                        (rev_id, root_id, new_ev, OutboxStatus.PENDING.value, payload.json(), now)
+                    )
+                    con.execute(
+                        """
+                        INSERT INTO verified_outbox (
+                            event_id, exchange, symbol, order_id, client_order_id,
+                            event_type, version, payload, status, attempts,
+                            max_attempts, next_retry_at, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+                        """,
+                        (
+                            root_id,
+                            payload.exchange,
+                            payload.symbol,
+                            payload.order_id,
+                            payload.client_order_id,
+                            payload.event_type,
+                            new_ev,
+                            payload.json(),
+                            OutboxStatus.PENDING.value,
+                            max_attempts,
+                            now,
+                            now,
+                            now,
+                        ),
+                    )
+                    return True
 
-                        if new_ev == existing_ev:
-                            if old_p_json == payload.json():
-                                logger.info("verified_alerts: duplicate_event_blocked")
-                                return False
+                # Root already exists
+                st_val, old_p_json, cur_ver, msg_id = existing_root
+                if max_rev is None:
+                    max_rev = cur_ver
 
-                            # 1. Promotion (Unverified -> Verified)
-                            if old_pnl_st != "VERIFIED" and new_pnl_st == "VERIFIED":
-                                next_st = OutboxStatus.PENDING.value if st_val == OutboxStatus.PENDING.value else st_val
-                                con.execute(
-                                    """
-                                    UPDATE verified_outbox
-                                    SET payload=?, status=?, updated_at=?, version=version+1
-                                    WHERE event_id=?
-                                    """,
-                                    (payload.json(), next_st, now, payload.event_id)
-                                )
-                                logger.info("verified_alerts: unverified_promoted_to_verified")
-                                return True
-
-                            # 2. Revocation (Verified -> Unverified)
-                            if old_pnl_st == "VERIFIED" and new_pnl_st != "VERIFIED":
-                                next_st = OutboxStatus.PENDING.value if st_val == OutboxStatus.PENDING.value else st_val
-                                con.execute(
-                                    """
-                                    UPDATE verified_outbox
-                                    SET payload=?, status=?, updated_at=?, version=version+1
-                                    WHERE event_id=?
-                                    """,
-                                    (payload.json(), next_st, now, payload.event_id)
-                                )
-                                logger.info("verified_alerts: verified_alert_revoked")
-                                return True
-
-                            # 3. Both are VERIFIED: CAS protection if same cost_basis but conflicting net_pnl
-                            if old_p.get("cost_basis") == payload.cost_basis and old_net != new_net:
-                                logger.info("verified_alerts: conflicting_same_revision_blocked")
-                                return False
-
-                            if is_financial_change:
-                                next_st = OutboxStatus.PENDING.value if st_val == OutboxStatus.PENDING.value else st_val
-                                con.execute(
-                                    """
-                                    UPDATE verified_outbox
-                                    SET payload=?, status=?, updated_at=?, version=version+1
-                                    WHERE event_id=?
-                                    """,
-                                    (payload.json(), next_st, now, payload.event_id)
-                                )
-                                logger.info("verified_alerts: corrected_verified_alert_updated")
-                                return True
-
-                            logger.info("verified_alerts: duplicate_event_blocked")
-                            return False
-
-                        # new_ev > existing_ev: Financial Revision Update
-                        old_net = old_p.get("net_pnl")
-                        new_net = payload.net_pnl
-                        old_pnl_st = str(old_p.get("pnl_verification_status") or "").upper()
-                        new_pnl_st = str(getattr(payload.pnl_verification_status, "value", payload.pnl_verification_status) or "").upper()
-                        is_financial_change = (
-                            old_net != new_net or
-                            old_pnl_st != new_pnl_st or
-                            old_p.get("cost_basis") != payload.cost_basis or
-                            old_p.get("roi_pct") != payload.roi_pct or
-                            old_p.get("event_type") != payload.event_type
-                        )
-
-                        if is_financial_change:
-                            # In-flight transmission protection:
-                            # If currently SENDING, do not overwrite the in-flight row to avoid falsely attributing
-                            # old transmission success to new revision. Insert a distinct delivery event!
-                            if st_val == OutboxStatus.SENDING.value:
-                                corr_event_id = f"{payload.event_id}:corr{new_ev}"
-                                existing_corr = con.execute("SELECT payload FROM verified_outbox WHERE event_id=?", (corr_event_id,)).fetchone()
-                                if existing_corr and existing_corr[0] == payload.json():
-                                    logger.info("verified_alerts: duplicate_inflight_correction_blocked")
-                                    return False
-                                con.execute(
-                                    """
-                                    INSERT OR REPLACE INTO verified_outbox (
-                                        event_id, exchange, symbol, order_id, client_order_id,
-                                        event_type, version, payload, status, attempts,
-                                        max_attempts, next_retry_at, created_at, updated_at
-                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
-                                    """,
-                                    (
-                                        corr_event_id, payload.exchange, payload.symbol, payload.order_id,
-                                        payload.client_order_id, payload.event_type, new_ev, payload.json(),
-                                        OutboxStatus.PENDING.value, max_attempts, now, now, now
-                                    )
-                                )
-                                logger.info("verified_alerts: inflight_safe_correction_enqueued")
-                                return True
-
-                            # Delivery state management:
-                            # PENDING, SENT, FAILED are promoted to deliver the new revision (1 post)
-                            # UNKNOWN and HELD preserve their uncertain hold (0 post)
-                            if st_val in (OutboxStatus.PENDING.value, OutboxStatus.SENT.value, OutboxStatus.FAILED.value):
-                                next_st = OutboxStatus.PENDING.value
-                            else:
-                                next_st = st_val
-
-                            con.execute(
-                                """
-                                UPDATE verified_outbox
-                                SET payload=?, status=?, updated_at=?, version=version+1, next_retry_at=?
-                                WHERE event_id=?
-                                """,
-                                (payload.json(), next_st, now, now, payload.event_id)
-                            )
-                            logger.info("verified_alerts: corrected_verified_alert_updated")
-                            return True
-
-                    logger.info("verified_alerts: duplicate_event_blocked")
+                # Stale check: compared against highest correction/revision, not only root
+                if new_ev < max_rev:
+                    logger.info("verified_alerts: stale_revision_blocked")
                     return False
-            return True
+
+                if new_ev == max_rev:
+                    # Check against existing revision payload
+                    rev_row = con.execute(
+                        "SELECT payload FROM verified_revisions WHERE event_id=? AND revision=?",
+                        (root_id, new_ev)
+                    ).fetchone()
+                    existing_payload = rev_row[0] if rev_row else old_p_json
+
+                    if existing_payload == payload.json():
+                        logger.info("verified_alerts: duplicate_event_blocked")
+                        return False
+                    else:
+                        # Same revision number but different payload -> CAS conflict
+                        logger.info("verified_alerts: conflicting_same_revision_blocked")
+                        return False
+
+                # new_ev > max_rev: valid new revision
+                rev_id = f"{root_id}:rev{new_ev}"
+                con.execute(
+                    "INSERT OR REPLACE INTO verified_revisions (id, event_id, revision, state, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    (rev_id, root_id, new_ev, OutboxStatus.PENDING.value, payload.json(), now)
+                )
+
+                if st_val == OutboxStatus.PENDING.value:
+                    # In-place update for pending root
+                    con.execute(
+                        """
+                        UPDATE verified_outbox
+                        SET payload=?, status=?, updated_at=?, version=?, next_retry_at=?
+                        WHERE event_id=?
+                        """,
+                        (payload.json(), OutboxStatus.PENDING.value, now, new_ev, now, root_id)
+                    )
+                    logger.info("verified_alerts: corrected_verified_alert_updated")
+                    return True
+                else:
+                    # Root has already been dispatched/held/failed (SENDING, SENT, UNKNOWN, HELD, FAILED).
+                    # Immutable root preservation: branch into a correction delivery row!
+                    corr_event_id = f"{root_id}:corr{new_ev}"
+
+                    # Guard against collision with unrelated order event_id
+                    existing_other = con.execute(
+                        "SELECT payload FROM verified_outbox WHERE event_id=?",
+                        (corr_event_id,)
+                    ).fetchone()
+                    if existing_other:
+                        try:
+                            other_p = json.loads(existing_other[0])
+                            if other_p.get("order_id") != payload.order_id and other_p.get("event_id") != root_id:
+                                corr_event_id = f"{root_id}:corr{new_ev}_{int(now*1000)}"
+                        except Exception:
+                            pass
+
+                    # Status policy: preserve UNKNOWN / HELD hold; otherwise PENDING
+                    corr_status = st_val if st_val in (OutboxStatus.UNKNOWN.value, OutboxStatus.HELD.value) else OutboxStatus.PENDING.value
+
+                    con.execute(
+                        """
+                        INSERT OR REPLACE INTO verified_outbox (
+                            event_id, exchange, symbol, order_id, client_order_id,
+                            event_type, version, payload, status, attempts,
+                            max_attempts, next_retry_at, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+                        """,
+                        (
+                            corr_event_id,
+                            payload.exchange,
+                            payload.symbol,
+                            payload.order_id,
+                            payload.client_order_id,
+                            payload.event_type,
+                            new_ev,
+                            payload.json(),
+                            corr_status,
+                            max_attempts,
+                            now,
+                            now,
+                            now,
+                        )
+                    )
+                    logger.info(f"verified_alerts: revision_branched_to_correction corr_id={corr_event_id} status={corr_status}")
+                    return True
+
         except sqlite3.IntegrityError:
             logger.info("verified_alerts: duplicate_event_blocked")
             return False
@@ -360,16 +343,40 @@ class NotificationOutboxStore:
                 (OutboxStatus.PENDING.value, OutboxStatus.PENDING.value, now, limit),
             ).fetchall()
 
-            return [
-                {
-                    "event_id": r[0],
-                    "payload": json.loads(r[1]),
-                    "attempts": r[2],
-                    "max_attempts": r[3],
-                    "next_retry_at": r[4],
-                }
-                for r in rows
-            ]
+            res = []
+            malformed_ids = []
+            for r in rows:
+                try:
+                    payload_dict = json.loads(r[1])
+                    if not isinstance(payload_dict, dict):
+                        raise ValueError("Payload must be a JSON object (dict)")
+                    res.append({
+                        "event_id": r[0],
+                        "payload": payload_dict,
+                        "attempts": r[2],
+                        "max_attempts": r[3],
+                        "next_retry_at": r[4],
+                    })
+                except Exception:
+                    malformed_ids.append(r[0])
+
+        if malformed_ids:
+            try:
+                with self._connect() as con:
+                    ensure_quarantine_schema(con)
+                    for bad_id in malformed_ids:
+                        con.execute(
+                            "UPDATE verified_outbox SET status=?, last_error='malformed_json', updated_at=? WHERE event_id=?",
+                            (OutboxStatus.FAILED.value, now, bad_id)
+                        )
+                        con.execute(
+                            "INSERT OR REPLACE INTO verified_quarantine (id, reason, payload) VALUES (?, ?, ?)",
+                            (bad_id, "malformed_json_outbox", "not-json")
+                        )
+            except Exception as e:
+                logger.warning(f"Failed to quarantine malformed outbox rows: {e}")
+
+        return res
 
     def prune_completed(self, max_age_seconds: float = 7 * 86400) -> int:
         cutoff = time.time() - max_age_seconds
@@ -470,23 +477,25 @@ class NotificationOutboxStore:
     def recover(self):
         now = time.time()
         with self._connect() as con:
-            con.execute("CREATE TABLE IF NOT EXISTS verified_quarantine (id TEXT PRIMARY KEY, reason TEXT, payload TEXT)")
+            ensure_quarantine_schema(con)
             # 1. Recover abandoned sends
             con.execute("UPDATE verified_outbox SET status='UNKNOWN', last_error='abandoned_send' WHERE status='SENDING' AND updated_at<?", (now - 30,))
             con.execute("UPDATE verified_jobs SET state='PENDING' WHERE state='VERIFYING' AND due<?", (now,))
 
             # 2. Recover unconfirmed / incomplete DONE jobs bounded to 40 (to ensure touched <= 100)
             last_rec = NotificationOutboxStore._last_done_recovery_by_db.get(self.db_path, 0.0)
-            pending_count = con.execute("SELECT count(*) FROM verified_jobs WHERE state='PENDING'").fetchone()[0]
+            pending_count = con.execute("SELECT count(*) FROM verified_jobs WHERE state='PENDING' AND due <= ?", (now,)).fetchone()[0]
             if now - last_rec >= 60.0 and pending_count < 40:
                 NotificationOutboxStore._last_done_recovery_by_db[self.db_path] = now
-                done_rows = con.execute("SELECT id, data FROM verified_jobs WHERE state='DONE'").fetchall()
+                done_rows = con.execute("SELECT id, data FROM verified_jobs WHERE state='DONE' ORDER BY id ASC").fetchall()
                 to_recover = []
                 for j_id, encoded in done_rows:
                     try:
                         j_data = json.loads(encoded)
+                        if not isinstance(j_data, dict):
+                            raise ValueError("Job data must be a JSON object (dict)")
                     except Exception:
-                        con.execute("INSERT OR REPLACE INTO verified_quarantine VALUES (?, ?, ?)", (j_id, "malformed_json", str(encoded)))
+                        con.execute("INSERT OR REPLACE INTO verified_quarantine (id, reason, payload) VALUES (?, ?, ?)", (j_id, "malformed_json", str(encoded)))
                         con.execute("UPDATE verified_jobs SET state='QUARANTINED' WHERE id=?", (j_id,))
                         continue
 
@@ -494,11 +503,16 @@ class NotificationOutboxStore:
                     if acct_v is None or acct_v is False or acct_v == 0:
                         to_recover.append(j_id)
                     elif acct_v == 1 or acct_v is True:
-                        ord_res = j_data.get("result", {})
+                        info = j_data.get("info", {}) if isinstance(j_data.get("info"), dict) else {}
+                        exch = str(info.get("exchange") or "").upper()
+                        ord_res = j_data.get("result", {}) if isinstance(j_data.get("result"), dict) else {}
                         oid = str(ord_res.get("id") or ord_res.get("uuid") or "")
                         if oid:
-                            # Check if outbox alert for this order has unconfirmed PnL
-                            outbox_row = con.execute("SELECT payload FROM verified_outbox WHERE order_id=? LIMIT 1", (oid,)).fetchone()
+                            # Check if outbox alert for this order has unconfirmed PnL scoped to exchange
+                            if exch:
+                                outbox_row = con.execute("SELECT payload FROM verified_outbox WHERE order_id=? AND UPPER(exchange)=? LIMIT 1", (oid, exch)).fetchone()
+                            else:
+                                outbox_row = con.execute("SELECT payload FROM verified_outbox WHERE order_id=? LIMIT 1", (oid,)).fetchone()
                             if outbox_row:
                                 try:
                                     ob_p = json.loads(outbox_row[0])
@@ -512,7 +526,16 @@ class NotificationOutboxStore:
                                 except Exception:
                                     pass
                             pattern = f'%"order": "{oid}"%'
-                            has_trade = con.execute("SELECT 1 FROM verified_trades WHERE data LIKE ? LIMIT 1", (pattern,)).fetchone()
+                            if exch:
+                                from .ledger import identity
+                                acct = str(j_data.get("account") or "")
+                                m_type = str(info.get("market_type") or "spot")
+                                sym = str(info.get("unified_symbol") or info.get("symbol") or "")
+                                pos_side = str(info.get("position_side") or "LONG")
+                                exp_scope = identity(exch, acct, m_type, sym, pos_side)
+                                has_trade = con.execute("SELECT 1 FROM verified_trades WHERE scope=? AND data LIKE ? LIMIT 1", (exp_scope, pattern)).fetchone()
+                            else:
+                                has_trade = con.execute("SELECT 1 FROM verified_trades WHERE data LIKE ? LIMIT 1", (pattern,)).fetchone()
                             if not has_trade:
                                 to_recover.append(j_id)
                     if len(to_recover) >= 40:
