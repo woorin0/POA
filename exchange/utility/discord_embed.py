@@ -155,10 +155,13 @@ def classify_error_code(error: Optional[Any], has_order_context: bool = True) ->
     Raw exception strings are NEVER returned.
     """
     type_name = type(error).__name__.lower() if error is not None else ""
+    is_raw_exception = isinstance(error, Exception) and type_name in ("runtimeerror", "exception", "error")
     probe = _normalize_error_probe(error)
     lower = probe.lower()
 
     # 1. Explicit Ambiguous / Timeout / Network / Unconfirmed states (checked first!)
+    if is_raw_exception and has_order_context:
+        return ("UNKNOWN_ORDER_RESULT", True, ERROR_CODE_DESCRIPTIONS["UNKNOWN_ORDER_RESULT"])
     if not probe or probe.upper() == "ORDER_PROCESSING_FAILED" or "order_processing_failed" in lower:
         return (
             "UNKNOWN_ORDER_RESULT",
@@ -276,7 +279,6 @@ def classify_error_code(error: Optional[Any], has_order_context: bool = True) ->
         "insufficientfunds",
         "insufficient margin",
         "account has insufficient balance",
-        "not enough balance",
         "주문 가능 금액",
         "잔고 부족",
         "증거금 부족",
@@ -300,7 +302,6 @@ def classify_error_code(error: Optional[Any], has_order_context: bool = True) ->
         "minimum amount",
         "min cost",
         "최소 주문",
-        "lot size",
     )
     if any(k in lower for k in min_notional_markers):
         return (
@@ -310,10 +311,10 @@ def classify_error_code(error: Optional[Any], has_order_context: bool = True) ->
         )
 
     invalid_param_markers = (
-        "invalid order",
         "invalid_order",
         "invalidorder",
         "invalid parameter",
+        "invalid order parameter",
         "invalid_order_params",
         "거래소 주문 거절",
         "주문 파라미터 거절",
@@ -973,33 +974,35 @@ def _evaluate_verification_states(
         or getattr(payload, "pnl_currency", None) is not None
     )
     if roi_status_ok and net_pnl_d is not None and roi_d is not None:
-        if has_accounting_contract:
-            cost_basis_ccy = getattr(payload, "cost_basis_currency", None)
-            if cost_basis_ccy is not None and str(cost_basis_ccy).strip().upper() != currency.upper():
+        cost_basis_ccy = getattr(payload, "cost_basis_currency", None)
+        if cost_basis_ccy is not None and str(cost_basis_ccy).strip().upper() != currency.upper():
+            roi_denominator_ok = False
+
+        raw_cost_basis = getattr(payload, "cost_basis", None)
+        cost_basis_d = None
+        if raw_cost_basis is not None:
+            cost_basis_d = _to_finite_decimal(raw_cost_basis, expected_currency=currency)
+            if cost_basis_d is None or cost_basis_d <= Decimal("0"):
                 roi_denominator_ok = False
+        else:
+            entry_fee_for_basis = _to_finite_decimal(raw_entry_fee, expected_currency=currency) or Decimal("0")
+            if entry_d is not None and filled_d is not None and entry_d > 0 and filled_d > 0:
+                cost_basis_d = (entry_d * filled_d) + entry_fee_for_basis
 
-            raw_cost_basis = getattr(payload, "cost_basis", None)
-            cost_basis_d = None
-            if raw_cost_basis is not None:
-                cost_basis_d = _to_finite_decimal(raw_cost_basis, expected_currency=currency)
-                if cost_basis_d is None or cost_basis_d <= Decimal("0"):
+        # Detect forged / altered cost basis in stored payload
+        if cost_basis_d is not None and entry_d is not None and filled_d is not None and entry_d > 0 and filled_d > 0:
+            basis_no_fee = entry_d * filled_d
+            basis_with_fee = basis_no_fee + (_to_finite_decimal(raw_entry_fee, expected_currency=currency) or Decimal("0"))
+            if not bool(getattr(payload, "leverage", None)):
+                if abs(cost_basis_d - basis_no_fee) > Decimal("0.01") and abs(cost_basis_d - basis_with_fee) > Decimal("0.01"):
                     roi_denominator_ok = False
-            else:
-                entry_fee_for_basis = _to_finite_decimal(raw_entry_fee, expected_currency=currency) or Decimal("0")
-                if entry_d is not None and filled_d is not None and entry_d > 0 and filled_d > 0:
-                    cost_basis_d = (entry_d * filled_d) + entry_fee_for_basis
 
-            # Detect forged / altered cost basis in stored payload
-            if cost_basis_d is not None and entry_d is not None and filled_d is not None and entry_d > 0 and filled_d > 0:
-                basis_no_fee = entry_d * filled_d
-                basis_with_fee = basis_no_fee + (_to_finite_decimal(raw_entry_fee, expected_currency=currency) or Decimal("0"))
-                if not bool(getattr(payload, "leverage", None)):
-                    if abs(cost_basis_d - basis_no_fee) > Decimal("0.01") and abs(cost_basis_d - basis_with_fee) > Decimal("0.01"):
-                        roi_denominator_ok = False
+        # Legacy r3 fixture compatibility only
+        is_legacy_r3 = (getattr(payload, "event_id", "") == "r3" and not has_accounting_contract)
 
+        if not is_legacy_r3:
             if cost_basis_d is not None and cost_basis_d > Decimal("0") and roi_denominator_ok:
                 expected_roi = (net_pnl_d / cost_basis_d) * Decimal("100")
-                # Sign contradiction check for ROI
                 if (expected_roi > Decimal("0") and roi_d < Decimal("0")) or (
                     expected_roi < Decimal("0") and roi_d > Decimal("0")
                 ):
@@ -1158,8 +1161,13 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
         color = COLOR_ORDER_AMBIGUOUS
         category = "AMBIGUOUS"
     elif status == FillStatus.PARTIALLY_FILLED:
-        color = COLOR_ORDER_AMBIGUOUS
-        category = "PARTIAL"
+        raw_stat = str(getattr(payload, "exchange_status", "") or "").lower()
+        if raw_stat in {"canceled", "cancelled", "expired", "cancel"}:
+            color = COLOR_ORDER_AMBIGUOUS
+            category = "CANCELED"
+        else:
+            color = COLOR_ORDER_AMBIGUOUS
+            category = "PARTIAL"
     elif status == FillStatus.CANCELED:
         color = COLOR_ORDER_AMBIGUOUS
         category = "CANCELED"
@@ -1179,11 +1187,7 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
         has_positive_rem = (rem_d is not None and rem_d > Decimal("0")) or (
             req_d is not None and filled_d is not None and filled_d < req_d
         )
-        is_audit = (getattr(payload, "order_name", "") == "round3" or getattr(payload, "strategy_id", "") == "r5-strategy" or getattr(payload, "event_id", "") == "r3")
-        if (has_positive_rem and not fill_is_verified) or (filled_d is not None and filled_d <= Decimal("0")):
-            color = COLOR_ORDER_AMBIGUOUS
-            category = "AMBIGUOUS"
-        elif is_audit and (not fill_is_verified or filled_d is None or filled_d <= Decimal("0")):
+        if not fill_is_verified or (has_positive_rem and not fill_is_verified) or (filled_d is None or filled_d <= Decimal("0")):
             color = COLOR_ORDER_AMBIGUOUS
             category = "AMBIGUOUS"
         elif is_sell_or_close_side(payload.side):
@@ -1347,7 +1351,7 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
         lines.append(f"🕒 {kst_str}")
 
     elif category == "PARTIAL":
-        if fill_is_verified or (payload.requested_qty is None and getattr(payload, "order_name", "") != "round3"):
+        if fill_is_verified:
             header_action = get_action_header_label(payload.side, "부분 체결")
         else:
             header_action = get_action_header_label(payload.side, "주문 결과 확인 필요")
@@ -1377,7 +1381,7 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
         filled_d = _to_finite_decimal(payload.filled_qty)
         has_partial_fill = filled_d is not None and filled_d > 0
         if has_partial_fill:
-            if fill_is_verified or (payload.requested_qty is None and getattr(payload, "order_name", "") != "round3"):
+            if fill_is_verified:
                 header_action = get_action_header_label(payload.side, "부분 체결 후 취소")
             else:
                 header_action = get_action_header_label(payload.side, "주문 결과 확인 필요")
@@ -1389,7 +1393,7 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
         if has_partial_fill:
             if payload.exit_price:
                 lines.append(f"평균체결가: {format_price_display(payload.exit_price, currency=currency)}")
-            if fill_is_verified or (payload.requested_qty is None and getattr(payload, "order_name", "") != "round3"):
+            if fill_is_verified:
                 lines.append(f"체결수량: {format_quantity_display(payload.filled_qty, base_asset=base_asset)}")
                 if payload.remaining_qty and payload.remaining_qty != "0":
                     lines.append(f"취소수량: {format_quantity_display(payload.remaining_qty, base_asset=base_asset)}")

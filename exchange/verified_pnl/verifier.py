@@ -103,15 +103,67 @@ class FillVerifier:
             value = to_decimal(raw.get("realizedPnl")) if exchange_name == "BINANCE" else (
                 to_decimal(raw.get("fillPnl")) if exchange_name == "OKX" else None)
             pnl.append(value)
+        # Validate individual trades
+        completeness_reason = None
+        valid_trades = True
+        seen_tids = {}
+        for raw_t in (data.get("trades") or []):
+            if not isinstance(raw_t, dict): continue
+            tid = str(raw_t.get("id") or "")
+            t_sym = raw_t.get("symbol")
+            if t_sym and t_sym != symbol:
+                valid_trades = False
+                completeness_reason = "wrong_symbol"
+                break
+            t_ord = raw_t.get("order") or raw_t.get("uuid")
+            if t_ord and oid and str(t_ord) != str(oid):
+                valid_trades = False
+                completeness_reason = "wrong_order"
+                break
+            t_px = to_decimal(raw_t.get("price"))
+            t_amt = to_decimal(raw_t.get("amount"))
+            if tid:
+                if tid in seen_tids:
+                    prev_px, prev_amt = seen_tids[tid]
+                    if prev_px != t_px or prev_amt != t_amt:
+                        valid_trades = False
+                        completeness_reason = "duplicate_conflicting"
+                        break
+                else:
+                    seen_tids[tid] = (t_px, t_amt)
+
         trade_qty = sum((t.amount for t in trades), Decimal(0))
         quantity = reported if reported is not None else trade_qty
-        coverage = bool(trades) and (reported is None or trade_qty == reported)
+        has_summary = (reported is not None)
+        if trades:
+            coverage = bool(valid_trades and has_summary and (trade_qty == reported))
+            if not has_summary:
+                coverage = False
+                if not completeness_reason: completeness_reason = "unknown_summary"
+        else:
+            coverage = None
+        if data.get("page_capped"):
+            coverage = False
+            if not completeness_reason: completeness_reason = "page_cap"
+
         reported_count = to_decimal(data.get("trades_count") or (data.get("info") or {}).get("trades_count"))
         if reported_count is not None and reported_count > 0 and len(trades) < reported_count:
             coverage = False
-        average = (sum(t.price * t.amount for t in trades) / trade_qty) if coverage and trade_qty > 0 else None
-        if average is None and quantity > 0:
-            average = to_decimal(data.get("average"))
+            if not completeness_reason: completeness_reason = "partial_trades"
+
+        rest_avg = to_decimal(data.get("average"))
+        trades_vwap = (sum(t.price * t.amount for t in trades) / trade_qty) if trade_qty > 0 else None
+
+        if coverage and rest_avg is not None and trades_vwap is not None:
+            if abs(trades_vwap - rest_avg) > Decimal("0.00000001"):
+                coverage = False
+                completeness_reason = "vwap_mismatch"
+
+        if trades_vwap is not None and (coverage or rest_avg is None):
+            average = trades_vwap
+        else:
+            average = rest_avg
+
         if average is None and quantity > 0:
             total_funds = to_decimal(data.get("cost") or data.get("executed_funds") or data.get("funds"))
             if total_funds is not None and total_funds > 0:
@@ -158,8 +210,8 @@ class FillVerifier:
             position_side=pos_side,
             market_type="linear" if futures else "spot", requested_quantity=requested,
             filled_quantity=quantity, remaining_quantity=remaining, average_fill_price=average,
-            contract_size=factor, trades=trades, trades_complete=bool(coverage),
-            trades_completeness_reason=None if coverage else ("partial_trades" if trades else "no_trades"),
+            contract_size=factor, trades=trades, trades_complete=coverage,
+            trades_completeness_reason=None if coverage is True else (completeness_reason or ("partial_trades" if trades else None)),
             fees=fees, fees_complete=bool(complete_fees),
             realized_pnl=gross, pnl_currency="USDT" if futures else settlement,
             accounting_basis="gross" if gross is not None else "unknown",
@@ -212,6 +264,8 @@ class FillVerifier:
                     if matched:
                         if data is None: data = {"id":order_id, "status":"open"}
                         data["trades"] = matched
+                        if len(values) >= 100:
+                            data["page_capped"] = True
                 except Exception:
                     pass
         if data is None: return None

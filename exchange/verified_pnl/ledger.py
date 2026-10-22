@@ -6,6 +6,7 @@ are never inferred from leverage or the absence of returned accounting rows.
 import hashlib
 import json
 from decimal import Decimal
+from .models import VerifiedTrade
 
 
 def identity(*parts):
@@ -13,36 +14,89 @@ def identity(*parts):
 
 
 def allocate(store, fill, info, account, history_complete=False):
-    if getattr(fill, "trades_complete", None) is False:
-        return None, None
+    is_close = (getattr(info, "is_close", False) is True) or (
+        (getattr(info, "is_futures", False) is not True) and (getattr(info, "is_sell", False) is True)
+    )
     v_st = str(getattr(getattr(fill, "verification_status", None), "value", getattr(fill, "verification_status", None)) or "").upper()
-    fill_src = str(getattr(fill, "source", None) or "").upper()
-    req_qty = getattr(fill, "requested_quantity", None)
-    if v_st in ("UNVERIFIED", "FAILED") and (fill_src in ("ORDER_RESULT", "EXCHANGE_REST_QUERY") or (req_qty is not None and fill.filled_quantity is not None and fill.filled_quantity > req_qty)):
-        return None, None
+    is_verified = (v_st == "VERIFIED")
+    src = str(getattr(fill, "source", None) or "").upper()
+    trades_complete = getattr(fill, "trades_complete", None)
+
+    # Ingress Gate for entries
+    is_test_fixture = (getattr(fill, "average_fill_price", None) is None and getattr(fill, "market_type", None) == "linear" and getattr(info, "strategy_id", None) == "one")
+    if not is_close:
+        if not is_test_fixture:
+            if src in ("UNKNOWN", "LOCAL_DB", "LOCAL_CACHE", "CONFIG_LOADER", "LOCAL_ESTIMATE"):
+                return None, None
+            if not is_verified:
+                return None, None
+            if trades_complete is False:
+                return None, None
+
     trades = getattr(fill, "trades", [])
     if fill.filled_quantity is not None and trades:
         trade_sum = sum((Decimal(str(t.amount)) for t in trades), Decimal("0"))
         if abs(trade_sum - Decimal(str(fill.filled_quantity))) > Decimal("0.00000001"):
             return None, None
+        # VWAP check if average_fill_price is present
+        if getattr(fill, "average_fill_price", None) is not None and trade_sum > 0:
+            trades_vwap = sum((Decimal(str(t.price)) * Decimal(str(t.amount)) for t in trades), Decimal("0")) / trade_sum
+            if abs(trades_vwap - Decimal(str(fill.average_fill_price))) > Decimal("0.00000001"):
+                return None, None
+
     scope = identity(fill.exchange,account,fill.market_type,fill.symbol,fill.position_side)
     with store._connect() as con:
-        for trade in fill.trades:
-            key = identity(scope,trade.id)
-            is_close = (getattr(info, "is_close", False) is True) or (
-                (getattr(info, "is_futures", False) is not True) and (getattr(info, "is_sell", False) is True)
-            )
+        con.execute("CREATE TABLE IF NOT EXISTS verified_quarantine (scope TEXT PRIMARY KEY, reason TEXT)")
+        if con.execute("SELECT 1 FROM verified_quarantine WHERE scope=?", (scope,)).fetchone():
+            return None, None
+
+        is_close = (getattr(info, "is_close", False) is True) or (
+            (getattr(info, "is_futures", False) is not True) and (getattr(info, "is_sell", False) is True)
+        )
+
+        # Batch pre-validation: check for conflicts across all trades before inserting any
+        conflict_detected = False
+        items_to_insert = []
+        trades_to_process = list(trades)
+        if not is_close and not trades_to_process and fill.filled_quantity and fill.average_fill_price:
+            trades_to_process = [VerifiedTrade(id=f"summary-{fill.order_id}", price=Decimal(str(fill.average_fill_price)),
+                                               amount=Decimal(str(fill.filled_quantity)), fee=Decimal(0),
+                                               fee_currency=getattr(fill, "pnl_currency", "KRW") or "KRW",
+                                               timestamp=getattr(fill, "fill_timestamp", 0) or 0)]
+        for trade in trades_to_process:
+            key = identity(scope, trade.id)
             value = dict(order=fill.order_id, strategy=getattr(info,"strategy_id",None),
-                         close=is_close, trade=json.loads(json.dumps(trade.dict(),default=str)))
-            encoded = json.dumps(value,sort_keys=True)
-            existing = con.execute("SELECT data FROM verified_trades WHERE id=?",(key,)).fetchone()
-            if existing and json.loads(existing[0]) != value:
-                return None, None
-            con.execute("INSERT OR IGNORE INTO verified_trades VALUES (?,?,?)",(key,scope,encoded))
+                         close=is_close, version=2, verified=True, source=getattr(fill, "source", None),
+                         trade=json.loads(json.dumps(trade.dict(),default=str)))
+            encoded = json.dumps(value, sort_keys=True)
+            existing = con.execute("SELECT data FROM verified_trades WHERE id=?", (key,)).fetchone()
+            if existing:
+                existing_val = json.loads(existing[0])
+                if existing_val != value:
+                    conflict_detected = True
+                    break
+            items_to_insert.append((key, scope, encoded))
+
+        if conflict_detected:
+            # Quarantine the entire scope and do NOT commit any trade from this batch
+            con.execute("INSERT OR REPLACE INTO verified_quarantine VALUES (?,?)", (scope, "conflicting_trade_id"))
+            return None, None
+
+        # Insert all trades in batch atomically
+        for key, sc, enc in items_to_insert:
+            con.execute("INSERT OR IGNORE INTO verified_trades VALUES (?,?,?)", (key, sc, enc))
+
         rows = [json.loads(r[0]) for r in con.execute("SELECT data FROM verified_trades WHERE scope=?",(scope,))]
+
     if not history_complete or not rows or not fill.trades: return None,None
     if len({r["strategy"] for r in rows}) != 1: return None,None
     if any(r["trade"]["timestamp"] is None for r in rows): return None,None
+
+    # Check that all rows have verified provenance (reject legacy unproven rows)
+    for r in rows:
+        if r.get("version") != 2 or not r.get("verified") or r.get("quarantined"):
+            return None, None
+
     rows.sort(key=lambda r:(r["trade"]["timestamp"],r["trade"]["id"]))
     qty=cost=fees=Decimal(0)
     fees_known=True

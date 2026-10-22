@@ -156,6 +156,7 @@ class NotificationPayload(BaseModel):
     verification_source: str = "거래소 실제 체결 내역"
     event_timestamp: float  # UTC timestamp
     fill_timestamp: Optional[float] = None  # UTC timestamp
+    exchange_status: Optional[str] = None
     leverage: Optional[int] = None
     amount_field_name: str = "수량"
     error_message: Optional[str] = None

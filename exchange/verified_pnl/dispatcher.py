@@ -144,6 +144,7 @@ def make_payload(key, fill, info, pnl, entry_price, settings):
         verification_source=fill.source + " / PnL: " + pnl.verification_status.value,
         event_timestamp=time.time(),
         fill_timestamp=fill.fill_timestamp,
+        exchange_status=getattr(fill, "exchange_status", None),
         leverage=info.leverage,
         fee_breakdown=", ".join(f"{v} {k}" for k, v in fill.fees.items()) or None,
         signal_id=str(getattr(info, "signal_id", None)) if getattr(info, "signal_id", None) is not None else None,
@@ -269,9 +270,17 @@ def verification_tick(settings, client_factory):
             terminal=fill.status in {FillStatus.FILLED,FillStatus.CANCELED,FillStatus.FAILED}
             expired=time.time()-created>=settings.FILL_VERIFICATION_TIMEOUT_SEC
             raw_state = str(data.get("result", {}).get("status") or data.get("result", {}).get("state") or getattr(fill, "exchange_status", "") or "").lower()
-            is_exchange_terminal = terminal or (raw_state in {"canceled", "cancelled", "expired", "reject", "rejected"})
+            is_order_terminal = terminal or (raw_state in {"canceled", "cancelled", "expired", "reject", "rejected", "cancel", "closed", "filled", "done"})
 
-            if terminal:
+            # Determine if financial accounting (PnL / Ledger entry) is verified
+            is_close = (getattr(info, "is_close", False) is True) or ((not getattr(info, "is_futures", False)) and getattr(info, "is_sell", False))
+            if is_close:
+                pnl_done = (pnl.net_realized_pnl is not None and getattr(pnl, "verification_status", None) == VerificationStatus.VERIFIED)
+            else:
+                pnl_done = (getattr(fill, "verification_status", None) == VerificationStatus.VERIFIED and (getattr(fill, "trades_complete", None) is not False))
+
+            is_canceled_terminal = raw_state in {"canceled", "cancelled", "expired", "cancel"}
+            if terminal or is_canceled_terminal:
                 event_type = "final"
                 event = identity(key, event_type, [], 2)
                 payload = make_payload(event, fill, info, pnl, entry, settings)
@@ -299,9 +308,17 @@ def verification_tick(settings, client_factory):
             long_term_recovery = getattr(settings, "LONG_TERM_RECOVERY_ENABLED", True)
             max_recovery_delay = getattr(settings, "LONG_TERM_RECOVERY_MAX_DELAY", 300.0)
 
-            if is_exchange_terminal:
+            cost_basis_strict = getattr(settings, "VERIFIED_COST_BASIS_COMPLETE", False)
+            if is_order_terminal and (pnl_done or not cost_basis_strict):
                 next_state = "DONE"
                 next_due = now
+            elif is_order_terminal and not pnl_done and cost_basis_strict:
+                # Order completed on exchange but financial evidence incomplete: keep PENDING for recovery
+                staged_delays = getattr(settings, "VERIFY_STAGED_DELAYS", [2.0, 5.0, 10.0, 20.0, 40.0])
+                delay_idx = min(attempts - 1, len(staged_delays) - 1)
+                delay = staged_delays[delay_idx]
+                next_state = "PENDING"
+                next_due = now + delay
             elif not has_id:
                 # Order ID missing: cannot query exchange safely. Hold for manual review.
                 logger.warning("verified_alerts: manual_review_missing_order_id")
