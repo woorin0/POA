@@ -465,7 +465,8 @@ class VerifiedPnlTests(unittest.TestCase):
         p0 = NotificationPayload(
             event_id="e0", exchange="UPBIT", symbol="SOL/KRW", side="매수", order_name="주문",
             exit_reason=ExitReason.UNKNOWN, pnl_result=PnlResult.UNKNOWN, fill_status=FillStatus.FILLED,
-            event_timestamp=time.time()
+            filled_qty="1.0", fill_verification_status=VerificationStatus.VERIFIED,
+            verification_source="ORDER_RESULT", event_timestamp=time.time()
         )
         self.assertEqual(build_verified_embed(p0).data["color"], 0x16A34A)
 
@@ -473,7 +474,8 @@ class VerifiedPnlTests(unittest.TestCase):
         p1 = NotificationPayload(
             event_id="e1", exchange="BINANCE", symbol="BTC/USDT", side="롱 종료", order_name="주문",
             exit_reason=ExitReason.TP, pnl_result=PnlResult.PROFIT, fill_status=FillStatus.FILLED,
-            event_timestamp=time.time()
+            filled_qty="1.0", fill_verification_status=VerificationStatus.VERIFIED,
+            verification_source="ORDER_RESULT", event_timestamp=time.time()
         )
         self.assertEqual(build_verified_embed(p1).data["color"], 0xEF4444)
 
@@ -481,7 +483,8 @@ class VerifiedPnlTests(unittest.TestCase):
         p2 = NotificationPayload(
             event_id="e2", exchange="BINANCE", symbol="BTC/USDT", side="롱 종료", order_name="주문",
             exit_reason=ExitReason.SL, pnl_result=PnlResult.LOSS, fill_status=FillStatus.FILLED,
-            event_timestamp=time.time()
+            filled_qty="1.0", fill_verification_status=VerificationStatus.VERIFIED,
+            verification_source="ORDER_RESULT", event_timestamp=time.time()
         )
         self.assertEqual(build_verified_embed(p2).data["color"], 0xEF4444)
 
@@ -489,7 +492,8 @@ class VerifiedPnlTests(unittest.TestCase):
         p3 = NotificationPayload(
             event_id="e3", exchange="BINANCE", symbol="BTC/USDT", side="롱 종료", order_name="주문",
             exit_reason=ExitReason.BE, pnl_result=PnlResult.BREAKEVEN, fill_status=FillStatus.FILLED,
-            event_timestamp=time.time()
+            filled_qty="1.0", fill_verification_status=VerificationStatus.VERIFIED,
+            verification_source="ORDER_RESULT", event_timestamp=time.time()
         )
         self.assertEqual(build_verified_embed(p3).data["color"], 0xEF4444)
 

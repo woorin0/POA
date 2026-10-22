@@ -277,7 +277,7 @@ def verification_tick(settings, client_factory):
             if is_close:
                 pnl_done = (pnl.net_realized_pnl is not None and getattr(pnl, "verification_status", None) == VerificationStatus.VERIFIED)
             else:
-                pnl_done = (getattr(fill, "verification_status", None) == VerificationStatus.VERIFIED and (getattr(fill, "trades_complete", None) is not False))
+                pnl_done = (getattr(fill, "verification_status", None) == VerificationStatus.VERIFIED and (getattr(fill, "trades_complete", None) is True))
 
             is_canceled_terminal = raw_state in {"canceled", "cancelled", "expired", "cancel"}
             if terminal or is_canceled_terminal:

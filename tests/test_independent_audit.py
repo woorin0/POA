@@ -147,7 +147,7 @@ def test_split_buy_sell_ledger_and_fee_inclusive_roi(tmp_path):
     s=NotificationOutboxStore(str(tmp_path/'ledger.sqlite'))
     def event(oid,side,qty,price,fee,stamp,strategy='s'):
         info=t.OrderRequest(exchange='BINANCE',base='BTC',quote='USDT',side=side,amount=float(qty),strategy_id=strategy)
-        f=VerifiedFill(exchange='BINANCE',symbol='BTC/USDT',order_id=oid,market_type='spot',position_side='LONG',filled_quantity=D(qty),average_fill_price=D(price),status=FillStatus.FILLED,verification_status=VerificationStatus.VERIFIED,pnl_currency='USDT',fees={'USDT':D(fee)},fees_complete=True,trades=[VerifiedTrade(id=oid,price=D(price),amount=D(qty),fee=D(fee),fee_currency='USDT',timestamp=stamp)])
+        f=VerifiedFill(exchange='BINANCE',symbol='BTC/USDT',order_id=oid,market_type='spot',position_side='LONG',filled_quantity=D(qty),average_fill_price=D(price),status=FillStatus.FILLED,verification_status=VerificationStatus.VERIFIED,source='ORDER_RESULT',trades_complete=True,pnl_currency='USDT',fees={'USDT':D(fee)},fees_complete=True,trades=[VerifiedTrade(id=oid,price=D(price),amount=D(qty),fee=D(fee),fee_currency='USDT',timestamp=stamp)])
         return f,info
     for oid,price,stamp in [('b1','100',1),('b2','200',2)]:
         f,i=event(oid,'buy','1',price,'1',stamp);allocate(s,f,i,'acct',True)

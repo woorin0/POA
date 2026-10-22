@@ -22,37 +22,41 @@ def allocate(store, fill, info, account, history_complete=False):
     src = str(getattr(fill, "source", None) or "").upper()
     trades_complete = getattr(fill, "trades_complete", None)
 
-    # Ingress Gate for entries
-    is_test_fixture = (getattr(fill, "average_fill_price", None) is None and getattr(fill, "market_type", None) == "linear" and getattr(info, "strategy_id", None) == "one")
+    # Ingress Gate for entries:
+    # Requires positive verification, positively proven completeness (True only),
+    # and trusted exchange source without any identifier-based exceptions.
     if not is_close:
-        if not is_test_fixture:
-            if src in ("UNKNOWN", "LOCAL_DB", "LOCAL_CACHE", "CONFIG_LOADER", "LOCAL_ESTIMATE"):
-                return None, None
-            if not is_verified:
-                return None, None
-            if trades_complete is False:
-                return None, None
+        if not is_verified:
+            return None, None
+        if trades_complete is not True:
+            return None, None
+        if src in ("UNKNOWN", "LOCAL_DB", "LOCAL_CACHE", "CONFIG_LOADER", "LOCAL_ESTIMATE", "UNVERIFIED", ""):
+            return None, None
 
     trades = getattr(fill, "trades", [])
     if fill.filled_quantity is not None and trades:
+        # Check order_id match across all trades
+        fill_oid = str(getattr(fill, "order_id", "") or "")
+        for t in trades:
+            t_oid = str(getattr(t, "order_id", None) or getattr(t, "order", None) or "")
+            if t_oid and fill_oid and t_oid != fill_oid:
+                return None, None
+
         trade_sum = sum((Decimal(str(t.amount)) for t in trades), Decimal("0"))
         if abs(trade_sum - Decimal(str(fill.filled_quantity))) > Decimal("0.00000001"):
             return None, None
+
         # VWAP check if average_fill_price is present
         if getattr(fill, "average_fill_price", None) is not None and trade_sum > 0:
             trades_vwap = sum((Decimal(str(t.price)) * Decimal(str(t.amount)) for t in trades), Decimal("0")) / trade_sum
             if abs(trades_vwap - Decimal(str(fill.average_fill_price))) > Decimal("0.00000001"):
                 return None, None
 
-    scope = identity(fill.exchange,account,fill.market_type,fill.symbol,fill.position_side)
+    scope = identity(fill.exchange, account, fill.market_type, fill.symbol, fill.position_side)
     with store._connect() as con:
         con.execute("CREATE TABLE IF NOT EXISTS verified_quarantine (scope TEXT PRIMARY KEY, reason TEXT)")
         if con.execute("SELECT 1 FROM verified_quarantine WHERE scope=?", (scope,)).fetchone():
             return None, None
-
-        is_close = (getattr(info, "is_close", False) is True) or (
-            (getattr(info, "is_futures", False) is not True) and (getattr(info, "is_sell", False) is True)
-        )
 
         # Batch pre-validation: check for conflicts across all trades before inserting any
         conflict_detected = False
@@ -114,10 +118,11 @@ def allocate(store, fill, info, account, history_complete=False):
             if qty<n or qty<=0: return None,None
             share=n/qty
             matched_cost,matched_fee=cost*share,fees*share
-            if row["order"]==fill.order_id:
-                allocated_qty+=n; allocated_cost+=matched_cost; allocated_fee+=matched_fee
-                allocation_known &= fees_known
-            qty-=n; cost-=matched_cost; fees-=matched_fee
-            if qty==0: fees_known=True
-    if allocated_qty != fill.filled_quantity: return None,None
-    return allocated_cost/allocated_qty if allocated_qty else None, allocated_fee if allocation_known else None
+            cost-=matched_cost; fees-=matched_fee; qty-=n
+            if t["id"] in [x.id for x in fill.trades]:
+                allocated_qty+=n; allocated_cost+=matched_cost
+                if fee is None or not fees_known: allocation_known=False
+                else: allocated_fee+=matched_fee
+    if not allocation_known or allocated_qty<=0: return None,None
+    return allocated_cost/allocated_qty, allocated_fee
+

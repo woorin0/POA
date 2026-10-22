@@ -201,6 +201,8 @@ class UpbitVerifiedTests(unittest.TestCase):
             fees={"KRW": D("500")},
             fees_complete=True,
             verification_status=VerificationStatus.VERIFIED,
+            source="ORDER_RESULT",
+            trades_complete=True,
             trades=[
                 VerifiedTrade(
                     id="t-b1",
@@ -245,6 +247,8 @@ class UpbitVerifiedTests(unittest.TestCase):
             fees={"KRW": D("525")},
             fees_complete=True,
             verification_status=VerificationStatus.VERIFIED,
+            source="ORDER_RESULT",
+            trades_complete=True,
             trades=[
                 VerifiedTrade(
                     id="t-s1",
@@ -285,6 +289,7 @@ class UpbitVerifiedTests(unittest.TestCase):
             exchange="UPBIT", symbol="BTC/KRW", order_id="b1", market_type="spot", position_side="LONG",
             status=FillStatus.FILLED, filled_quantity=D("0.005"), average_fill_price=D("100000000"),
             pnl_currency="KRW", fees={"KRW": D("250")}, fees_complete=True, verification_status=VerificationStatus.VERIFIED,
+            source="ORDER_RESULT", trades_complete=True,
             trades=[VerifiedTrade(id="tb1", price=D("100000000"), amount=D("0.005"), fee=D("250"), fee_currency="KRW", timestamp=10.0)],
         )
         allocate(self.store, b1_fill, b1_info, "acct-split", True)
@@ -295,6 +300,7 @@ class UpbitVerifiedTests(unittest.TestCase):
             exchange="UPBIT", symbol="BTC/KRW", order_id="b2", market_type="spot", position_side="LONG",
             status=FillStatus.FILLED, filled_quantity=D("0.005"), average_fill_price=D("110000000"),
             pnl_currency="KRW", fees={"KRW": D("275")}, fees_complete=True, verification_status=VerificationStatus.VERIFIED,
+            source="ORDER_RESULT", trades_complete=True,
             trades=[VerifiedTrade(id="tb2", price=D("110000000"), amount=D("0.005"), fee=D("275"), fee_currency="KRW", timestamp=20.0)],
         )
         allocate(self.store, b2_fill, b2_info, "acct-split", True)
@@ -306,6 +312,7 @@ class UpbitVerifiedTests(unittest.TestCase):
             exchange="UPBIT", symbol="BTC/KRW", order_id="s1", market_type="spot", position_side="LONG",
             status=FillStatus.FILLED, filled_quantity=D("0.004"), average_fill_price=D("120000000"),
             pnl_currency="KRW", fees={"KRW": D("240")}, fees_complete=True, verification_status=VerificationStatus.VERIFIED,
+            source="ORDER_RESULT", trades_complete=True,
             trades=[VerifiedTrade(id="ts1", price=D("120000000"), amount=D("0.004"), fee=D("240"), fee_currency="KRW", timestamp=30.0)],
         )
         avg1, fee1 = allocate(self.store, s1_fill, s1_info, "acct-split", True)
@@ -325,6 +332,7 @@ class UpbitVerifiedTests(unittest.TestCase):
             exchange="UPBIT", symbol="BTC/KRW", order_id="s2", market_type="spot", position_side="LONG",
             status=FillStatus.FILLED, filled_quantity=D("0.006"), average_fill_price=D("115000000"),
             pnl_currency="KRW", fees={"KRW": D("345")}, fees_complete=True, verification_status=VerificationStatus.VERIFIED,
+            source="ORDER_RESULT", trades_complete=True,
             trades=[VerifiedTrade(id="ts2", price=D("115000000"), amount=D("0.006"), fee=D("345"), fee_currency="KRW", timestamp=40.0)],
         )
         avg2, fee2 = allocate(self.store, s2_fill, s2_info, "acct-split", True)
@@ -381,6 +389,7 @@ class UpbitVerifiedTests(unittest.TestCase):
             exchange="UPBIT", symbol="BTC/KRW", order_id="bm1", market_type="spot", position_side="LONG",
             status=FillStatus.FILLED, filled_quantity=D("0.01"), average_fill_price=D("100000000"),
             pnl_currency="KRW", fees={"KRW": D("500")}, fees_complete=True, verification_status=VerificationStatus.VERIFIED,
+            source="ORDER_RESULT", trades_complete=True,
             trades=[VerifiedTrade(id="tbm1", price=D("100000000"), amount=D("0.01"), fee=D("500"), fee_currency="KRW", timestamp=10.0)],
         )
         allocate(self.store, b_fill, b_info, "acct-m", True)
@@ -393,6 +402,7 @@ class UpbitVerifiedTests(unittest.TestCase):
             exchange="UPBIT", symbol="BTC/KRW", order_id="sm1", market_type="spot", position_side="LONG",
             status=FillStatus.FILLED, filled_quantity=D("0.01"), average_fill_price=D("100000500"),
             pnl_currency="KRW", fees={"KRW": D("500.25")}, fees_complete=True, verification_status=VerificationStatus.VERIFIED,
+            source="ORDER_RESULT", trades_complete=True,
             trades=[VerifiedTrade(id="tsm1", price=D("100000500"), amount=D("0.01"), fee=D("500.25"), fee_currency="KRW", timestamp=20.0)],
         )
         avg, fee = allocate(self.store, s_fill, s_info, "acct-m", True)
@@ -410,6 +420,7 @@ class UpbitVerifiedTests(unittest.TestCase):
             exchange="UPBIT", symbol="BTC/KRW", order_id="bm2", market_type="spot", position_side="LONG",
             status=FillStatus.FILLED, filled_quantity=D("0.01"), average_fill_price=D("100000000"),
             pnl_currency="KRW", fees={"KRW": D("500")}, fees_complete=True, verification_status=VerificationStatus.VERIFIED,
+            source="ORDER_RESULT", trades_complete=True,
             trades=[VerifiedTrade(id="tbm2", price=D("100000000"), amount=D("0.01"), fee=D("500"), fee_currency="KRW", timestamp=10.0)],
         )
         allocate(self.store, b_fill, b_info, "acct-m2", True)
@@ -422,6 +433,7 @@ class UpbitVerifiedTests(unittest.TestCase):
             exchange="UPBIT", symbol="BTC/KRW", order_id="sm2", market_type="spot", position_side="LONG",
             status=FillStatus.FILLED, filled_quantity=D("0.01"), average_fill_price=D("101000000"),
             pnl_currency="KRW", fees={"KRW": D("505")}, fees_complete=True, verification_status=VerificationStatus.VERIFIED,
+            source="ORDER_RESULT", trades_complete=True,
             trades=[VerifiedTrade(id="tsm2", price=D("101000000"), amount=D("0.01"), fee=D("505"), fee_currency="KRW", timestamp=20.0)],
         )
         avg, fee = allocate(self.store, s_fill, s_info, "acct-m2", True)
@@ -526,6 +538,14 @@ class UpbitVerifiedTests(unittest.TestCase):
                 "executed_volume": str(i),
                 "average": str(1000 * i),
                 "paid_fee": str(5 * i),
+                "trades": [
+                    {
+                        "id": f"t-{i}",
+                        "price": str(1000 * i),
+                        "volume": str(i),
+                        "funds": str(1000 * i * i),
+                    }
+                ],
             }
             clients[f"COIN{i}/KRW"] = mock_client
 

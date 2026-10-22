@@ -128,8 +128,12 @@ class Integrity(unittest.TestCase):
     def test_ledger_split_entry_and_three_closes(self):
         def record(oid,tid,qty,price,fee,stamp,close):
             info=NS(is_close=close,strategy_id='one')
-            fill=VerifiedFill(exchange='BINANCE',symbol='BTC/USDT:USDT',market_type='linear',position_side='LONG',order_id=oid,
-                filled_quantity=D(qty),pnl_currency='USDT',trades=[VerifiedTrade(id=tid,price=D(price),amount=D(qty),fee=D(fee),fee_currency='USDT',timestamp=stamp)])
+            fill=VerifiedFill(
+                exchange='BINANCE',symbol='BTC/USDT:USDT',market_type='linear',position_side='LONG',order_id=oid,
+                filled_quantity=D(qty),average_fill_price=D(price),pnl_currency='USDT',
+                verification_status=VerificationStatus.VERIFIED,source='ORDER_RESULT',trades_complete=True,
+                trades=[VerifiedTrade(id=tid,price=D(price),amount=D(qty),fee=D(fee),fee_currency='USDT',timestamp=stamp)]
+            )
             return allocate(self.store,fill,info,'acct',True)
         record('e1','t1','.005','100000','.5',1,False)
         record('e2','t2','.005','102000','.5',2,False)

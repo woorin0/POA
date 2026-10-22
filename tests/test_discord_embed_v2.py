@@ -395,6 +395,10 @@ class DiscordEmbedV2Tests(unittest.TestCase):
             net_pnl=None,
             roi_pct=None,
             verification_status=VerificationStatus.UNVERIFIED,
+            fill_verification_status=VerificationStatus.VERIFIED,
+            pnl_verification_status=VerificationStatus.UNVERIFIED,
+            roi_verification_status=VerificationStatus.UNVERIFIED,
+            verification_source="ORDER_RESULT",
             event_timestamp=1760958129.0,
         )
         embed = build_verified_embed(payload).data
@@ -481,6 +485,8 @@ class DiscordEmbedV2Tests(unittest.TestCase):
             filled_qty="0.4",
             remaining_qty="0.6",
             exit_price="2,500",
+            fill_verification_status=VerificationStatus.VERIFIED,
+            verification_source="ORDER_RESULT",
             event_timestamp=1760958129.0,
         )
         e_part = build_verified_embed(p_partial).data
@@ -521,6 +527,8 @@ class DiscordEmbedV2Tests(unittest.TestCase):
             filled_qty="100",
             remaining_qty="50",
             exit_price="800",
+            fill_verification_status=VerificationStatus.VERIFIED,
+            verification_source="ORDER_RESULT",
             event_timestamp=1760958129.0,
         )
         e_pc = build_verified_embed(p_part_cancel).data
@@ -586,6 +594,8 @@ class DiscordEmbedV2Tests(unittest.TestCase):
             fees={"KRW": D("367.56")},
             fees_complete=True,
             verification_status=VerificationStatus.VERIFIED,
+            source="ORDER_RESULT",
+            trades_complete=True,
             trades=[VerifiedTrade(id="tb1", price=D("144000"), amount=D("5.105"), fee=D("367.56"), fee_currency="KRW", timestamp=100.0)],
         )
         allocate(store, buy_fill, buy_info, "acct-sol", True)
@@ -604,6 +614,8 @@ class DiscordEmbedV2Tests(unittest.TestCase):
             fees={"KRW": D("377.77")},
             fees_complete=True,
             verification_status=VerificationStatus.VERIFIED,
+            source="ORDER_RESULT",
+            trades_complete=True,
             trades=[VerifiedTrade(id="ts1", price=D("148000"), amount=D("5.105"), fee=D("377.77"), fee_currency="KRW", timestamp=200.0)],
         )
         avg, entry_fee = allocate(store, sell_fill, sell_info, "acct-sol", True)
@@ -638,6 +650,7 @@ class DiscordEmbedV2Tests(unittest.TestCase):
                 exchange="UPBIT", symbol="SOL/KRW", order_id=f"b-{idx}", market_type="spot", position_side="LONG",
                 status=FillStatus.FILLED, filled_quantity=D("1"), average_fill_price=price, pnl_currency="KRW",
                 fees={"KRW": fee}, fees_complete=True, verification_status=VerificationStatus.VERIFIED,
+                source="ORDER_RESULT", trades_complete=True,
                 trades=[VerifiedTrade(id=f"tb-{idx}", price=price, amount=D("1"), fee=fee, fee_currency="KRW", timestamp=float(idx))],
             )
             allocate(store, b_fill, b_info, "acct-split", True)

@@ -374,25 +374,6 @@ def build_verified_embed(payload: NotificationPayload) -> Embed:
         spec.loader.exec_module(mod)
         build_mobile_verified_embed = mod.build_mobile_verified_embed
 
-    v2_fixtures = {
-        "buy-sol-1", "entry-btc-1", "sell-sol-profit", "sell-sol-loss", "sell-sol-be",
-        "close-btc-case-b", "sell-case-c", "fail-1", "part-1", "canc-0", "canc-part",
-        "def-1", "multi-fee", "det-1", "e0", "e1", "e2", "e3"
-    }
-    event_id = getattr(payload, "event_id", "") or ""
-    if event_id in v2_fixtures or event_id.startswith("mat-"):
-        updates = {}
-        if getattr(payload, "fill_verification_status", None) is None:
-            updates["fill_verification_status"] = VerificationStatus.VERIFIED
-        if not getattr(payload, "verification_source", None) or payload.verification_source in ("LOCAL_DB", "LOCAL_CACHE", "CONFIG_LOADER", "LOCAL_ESTIMATE", "UNVERIFIED", ""):
-            updates["verification_source"] = "ORDER_RESULT"
-        if event_id in ("e0", "e1", "e2", "e3"):
-            updates["verification_status"] = VerificationStatus.VERIFIED
-            if getattr(payload, "filled_qty", None) is None:
-                updates["filled_qty"] = "1.0"
-        if updates:
-            payload = payload.copy(update=updates)
-
     embed = build_mobile_verified_embed(payload)
     return embed
 
