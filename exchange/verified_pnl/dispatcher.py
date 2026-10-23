@@ -247,6 +247,8 @@ def verification_tick(settings, client_factory):
         configure_concurrency(getattr(settings, "VERIFY_MAX_CONCURRENCY", 2))
     store=NotificationOutboxStore(settings.VERIFIED_NOTIFICATIONS_DB_PATH)
     store.recover()
+    from .history import refresh_dependencies
+    refresh_dependencies(store,client_factory)
     jobs=store.ready_jobs(20)
     for key,encoded,created in jobs:
         lease=uuid.uuid4().hex
@@ -273,6 +275,8 @@ def verification_tick(settings, client_factory):
             # No authenticated order query until the provider has bound this job account.
             read_bot=SimpleNamespace(client=client) if evidence_context is not None else None
             fill=FillVerifier().verify_order_result(read_bot,info.exchange,info.unified_symbol,data["result"],info,evidence_context)
+            from .history import attach_history,register_dependency,record_published_withdrawal
+            evidence_context=attach_history(store,fill,info,evidence_context)
             is_upbit = (info.exchange == "UPBIT")
             history_complete = settings.VERIFIED_COST_BASIS_COMPLETE and (settings.UPBIT_NET_PNL_ENABLED if is_upbit else settings.NET_REALIZED_PNL_ENABLED)
             entry,entry_fee=allocate(store,fill,info,data["account"],history_complete,evidence_context)
@@ -283,11 +287,13 @@ def verification_tick(settings, client_factory):
                 from decimal import Decimal
                 spot_margin = None
                 if not info.is_futures and entry is not None and entry > 0 and entry_fee is not None and fill.filled_quantity > 0:
-                    spot_margin = (entry * fill.filled_quantity) + entry_fee
+                    from .evidence import verify
+                    spot_margin = Decimal(fill.accounting_receipt['body']['cost_basis']) if verify(fill.accounting_receipt,'ACCOUNTING') else None
                 pnl=PnlCalculator().calculate_pnl(fill,info,entry_price=entry,
                     allocated_entry_fee=entry_fee,allocated_funding=Decimal(0) if not info.is_futures else None,
-                    allocated_margin=spot_margin)
-            FillVerifier().certify_financial_result(fill,info,pnl,evidence_context)
+                    allocated_margin=spot_margin,generation_store=store)
+            FillVerifier().certify_financial_result(fill,info,pnl,evidence_context,generation_store=store)
+            if evidence_context is not None:register_dependency(store,fill,pnl,evidence_context,key)
             partial_alerts = (settings.UPBIT_PARTIAL_FILL_ALERTS if is_upbit else settings.PARTIAL_FILL_ALERTS)
             max_attempts = getattr(settings, "UPBIT_MAX_VERIFY_ATTEMPTS", 5) if is_upbit else 999
             attempts_exceeded = is_upbit and (attempts >= max_attempts)
@@ -329,7 +335,9 @@ def verification_tick(settings, client_factory):
                     try: old_integrity=digest(store._facts(NotificationPayload(**json.loads(head[2]))))==head[1]
                     except (ValueError,TypeError,KeyError):old_integrity=False
                     if head[1]!=digest(store._facts(p)) or not old_integrity:p.event_version=head[0]+1
-                return store.enqueue(p,max_attempts=settings.DISCORD_RETRY_MAX_ATTEMPTS if settings.DISCORD_RETRY_ENABLED else 1,job_claim=(key,lease))
+                enqueued=store.enqueue(p,max_attempts=settings.DISCORD_RETRY_MAX_ATTEMPTS if settings.DISCORD_RETRY_ENABLED else 1,job_claim=(key,lease))
+                record_published_withdrawal(store,p)
+                return enqueued
 
             is_canceled_terminal = raw_state in {"canceled", "cancelled", "expired", "cancel"}
             if terminal or is_canceled_terminal:

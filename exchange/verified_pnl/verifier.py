@@ -379,15 +379,16 @@ class FillVerifier:
         fill.accounting_receipt=receipt
         return receipt
 
-    def certify_financial_result(self, fill, info, result, context):
+    def certify_financial_result(self, fill, info, result, context, generation_store=None):
         from .evidence import verify,digest,fill_facts
         if context is None or not verify(fill.accounting_receipt,'ACCOUNTING'): return None
         body=fill.accounting_receipt['body']
         from .pnl_calculator import PnlCalculator
-        expected=PnlCalculator().calculate_pnl(fill,info,entry_price=Decimal(body['entry_price']),allocated_entry_fee=Decimal(body['entry_fee']),allocated_funding=Decimal(0) if fill.market_type=='spot' else None,allocated_margin=Decimal(body['cost_basis']))
+        expected=PnlCalculator().calculate_pnl(fill,info,entry_price=Decimal(body['entry_price']),allocated_entry_fee=Decimal(body['entry_fee']),allocated_funding=Decimal(0) if fill.market_type=='spot' else None,allocated_margin=Decimal(body['cost_basis']),generation_store=generation_store)
         if result.dict(exclude={'financial_receipt'})!=expected.dict(exclude={'financial_receipt'}): return None
         if result.net_realized_pnl is None or result.verification_status!=VerificationStatus.VERIFIED: return None
         facts={'scope':fill.scope_data,'order_id':fill.order_id,'execution_digest':digest(fill.execution_receipt['body']),'accounting_digest':digest(body),'fill':fill_facts(fill),'result':result.dict(exclude={'financial_receipt'})}
+        if body.get('generation_id') is not None:facts['generation_id']=body['generation_id']
         result.financial_receipt=context.authority._attest('FINANCIAL',facts)
         return result.financial_receipt
 

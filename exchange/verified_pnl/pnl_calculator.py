@@ -4,12 +4,12 @@ from .models import PnlCalculationResult, VerificationStatus
 
 class PnlCalculator:
     def calculate_pnl(self, fill, order_info, entry_price=None, pos_leverage=None,
-                      allocated_entry_fee=None, allocated_funding=None, allocated_margin=None):
+                      allocated_entry_fee=None, allocated_funding=None, allocated_margin=None, generation_store=None):
         with localcontext() as arithmetic:
             arithmetic.prec=512
-            return self._calculate_pnl(fill,order_info,entry_price,pos_leverage,allocated_entry_fee,allocated_funding,allocated_margin)
+            return self._calculate_pnl(fill,order_info,entry_price,pos_leverage,allocated_entry_fee,allocated_funding,allocated_margin,generation_store)
 
-    def _calculate_pnl(self,fill,order_info,entry_price=None,pos_leverage=None,allocated_entry_fee=None,allocated_funding=None,allocated_margin=None):
+    def _calculate_pnl(self,fill,order_info,entry_price=None,pos_leverage=None,allocated_entry_fee=None,allocated_funding=None,allocated_margin=None,generation_store=None):
         is_close = (getattr(order_info, "is_close", False) is True) or (
             (getattr(order_info, "is_futures", False) is not True) and (getattr(order_info, "is_sell", False) is True)
         )
@@ -21,6 +21,9 @@ class PnlCalculator:
         if not execution_valid(fill,fill.scope_data) or not verify(fill.accounting_receipt,"ACCOUNTING"):
             return PnlCalculationResult(source="UNVERIFIED_ACCOUNTING_EVIDENCE")
         basis=fill.accounting_receipt["body"]
+        if basis.get("generation_id") is not None:
+            from .history import accounting_valid
+            if not accounting_valid(generation_store,fill,basis):return PnlCalculationResult(source="UNVERIFIED_HISTORY_GENERATION")
         if basis.get("scope")!=fill.scope_data or basis.get("order_id")!=fill.order_id:
             return PnlCalculationResult(source="UNVERIFIED_ACCOUNTING_EVIDENCE")
         if entry_price!=Decimal(basis["entry_price"]) or allocated_entry_fee!=Decimal(basis["entry_fee"]):
@@ -37,6 +40,11 @@ class PnlCalculator:
             delta = close - entry_price if getattr(order_info, "is_sell", False) else entry_price - close
             if gross is None: gross = delta * fill.filled_quantity
             price_return = delta / entry_price * 100
+        if basis.get('generation_id') is not None:
+            # Signed allocation principal and actual trade proceeds avoid division
+            # round-trip drift from an averaged display/entry price.
+            if fill.market_type!='spot' or fill.accounting_basis=='net':return PnlCalculationResult(source='UNSUPPORTED_GENERATION_ACCOUNTING')
+            gross=sum((t.price*t.amount for t in fill.trades),Decimal(0))-Decimal(basis['entry_cost'])
         exit_fee = fill.fees.get(ccy) if set(fill.fees) <= {ccy} else None
         net = None
         base = fill.realized_pnl if fill.accounting_basis == "net" else gross

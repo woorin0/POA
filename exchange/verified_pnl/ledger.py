@@ -61,6 +61,10 @@ def _allocation_plan(records,fill,history):
     return {'scope':scope,'order_id':fill.order_id,'executions':sorted(digest(x['receipt']['body']) for x in records),'history_digest':digest(history['body']),'entry_price':str(allocated_cost/allocated),'entry_fee':str(allocated_fee),'cost_basis':str(basis),'currency':fill.pnl_currency}
 
 def allocate(store,fill,info,account,history_complete=False,evidence_context=None):
+    if evidence_context is not None and isinstance(evidence_context.history_receipt,dict) and evidence_context.history_receipt.get('body',{}).get('generation_id') is not None:
+        from .history import accounting_for_generation
+        if history_complete is not True:return None,None
+        return accounting_for_generation(store,fill,evidence_context)
     scope=fill.scope_data
     if not scope or scope.get('account')!=account or not execution_valid(fill,scope):return None,None
     scope_id=digest(scope);close=bool(getattr(info,'is_close',False) or (not getattr(info,'is_futures',False) and getattr(info,'is_sell',False)))
@@ -84,7 +88,7 @@ def allocate(store,fill,info,account,history_complete=False,evidence_context=Non
         if not compatible:
             con.execute('INSERT OR IGNORE INTO vpnl_quarantine VALUES(?,?,?,?,0)',(identity('conflict',key),scope_id,'execution_conflict',key));return None,None
         con.execute('INSERT OR IGNORE INTO vpnl_ledger_entries VALUES(?,?,?,?)',(key,scope_id,fill.order_id,encoded))
-    if not close or history_complete is not True or evidence_context is None:return None,None
+    if not close or history_complete is not True or evidence_context is None or not verify(evidence_context.history_receipt,'HISTORY'):return None,None
     records=[];cursor=0
     with store._connect_read() as con:
         while True:
