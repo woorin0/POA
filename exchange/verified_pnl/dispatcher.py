@@ -305,12 +305,23 @@ def verification_tick(settings, client_factory):
             pnl_done=pnl_done or rejected_final
 
             def _dispatch_enqueue(p):
+                # One financial stream per persisted verification job, independent of message phase.
+                p.event_id=identity(key,'final',[],2)
                 from .evidence import digest
                 with store._connect_read() as c:
                     owned=c.execute("SELECT 1 FROM vpnl_jobs WHERE id=? AND state='VERIFYING' AND job_lease=?",(key,lease)).fetchone()
                     if not owned:raise ValueError('job_lease_lost')
                     head=c.execute('SELECT r.head,v.financial_digest,v.payload FROM vpnl_roots r JOIN vpnl_revisions v ON v.root_id=r.id AND v.revision=r.head WHERE r.alias=?',(p.event_id,)).fetchone()
                 if head:
+                    from .evidence import verify,payload_valid
+                    prior=NotificationPayload(**json.loads(head[2]))
+                    history=evidence_context.history_receipt if evidence_context is not None else None
+                    if not payload_valid(p) and verify(history,'HISTORY'):
+                        candidate=p.copy(deep=True)
+                        candidate.financial_revocation_receipt=history
+                        if store._withdrawal_valid(candidate,prior):
+                            p=candidate
+                            p.event_type='revoked'
                     try: old_integrity=digest(store._facts(NotificationPayload(**json.loads(head[2]))))==head[1]
                     except (ValueError,TypeError,KeyError):old_integrity=False
                     if head[1]!=digest(store._facts(p)) or not old_integrity:p.event_version=head[0]+1

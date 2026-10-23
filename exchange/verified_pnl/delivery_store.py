@@ -2,7 +2,7 @@
 import hashlib,json,sqlite3,time,uuid,secrets
 from pathlib import Path
 from contextlib import contextmanager
-from .evidence import canonical,digest,strict_object,payload_valid,payload_fill_valid,safe_code
+from .evidence import canonical,digest,strict_object,payload_valid,payload_fill_valid,safe_code,verify
 from .models import NotificationPayload,VerificationStatus
 from .migrations import install,migrate_batch
 from loguru import logger
@@ -39,7 +39,7 @@ class NotificationOutboxStore:
         finally:c.close()
     @staticmethod
     def _facts(p):
-        d=p.dict();excluded={'event_id','event_version','event_timestamp','order_name','strategy_id','signal_id','verification_source','financial_receipt','execution_receipt','outcome_receipt'}
+        d=p.dict();excluded={'event_type','event_id','event_version','event_timestamp','order_name','strategy_id','signal_id','verification_source','financial_receipt','execution_receipt','outcome_receipt','financial_revocation_receipt'}
         facts={k:v for k,v in d.items() if k not in excluded}
         from .evidence import outcome_rejected
         financial=None
@@ -48,26 +48,110 @@ class NotificationOutboxStore:
             financial={k:body[k] for k in ('scope','order_id','fill')}
             financial['result']={k:v for k,v in body['result'].items() if k not in {'source','notes'}}
         facts["evidence_semantics"]={"financial":financial,"execution":p.execution_receipt["body"] if payload_fill_valid(p) else None,"outcome":p.outcome_receipt["body"] if outcome_rejected(p) else None}
+        if p.financial_revocation_receipt is not None:
+            item=NotificationOutboxStore._withdrawal_item(p)
+            facts['withdrawal']=item
         return facts
+    @staticmethod
+    def _scope(p):
+        if not payload_fill_valid(p):return None
+        scope=p.execution_receipt['body']['scope']
+        required={'exchange','account','market_type','instrument','symbol','settlement','contract_size','position_side','position_cycle','book'}
+        if not required<=set(scope) or any(scope[k] in (None,'') for k in required):return None
+        if payload_valid(p) and canonical(scope)!=canonical(p.financial_receipt['body']['scope']):return None
+        return scope
+    @staticmethod
+    def _withdrawal_item(p):
+        """Only an explicit HISTORY-signed invalidation, never missing data or a timeout."""
+        receipt=p.financial_revocation_receipt
+        if not verify(receipt,'HISTORY') or receipt['body'].get('complete') is not False:return None
+        scope=NotificationOutboxStore._scope(p)
+        if scope is None or canonical(receipt['body'].get('scope'))!=canonical(scope):return None
+        values=receipt['body'].get('withdrawals')
+        if not isinstance(values,list):return None
+        matches=[v for v in values if isinstance(v,dict) and v.get('order_id')==p.order_id]
+        if len(matches)!=1:return None
+        item=matches[0]
+        if set(item)!={'order_id','financial_receipt_digest','accounting_digest','reason'} or item['reason']!='ACCOUNTING_EVIDENCE_REVOKED':return None
+        return item
+    @staticmethod
+    def _withdrawal_valid(p,old):
+        if not payload_valid(old) or payload_valid(p):return False
+        item=NotificationOutboxStore._withdrawal_item(p)
+        if item is None:return False
+        prior=old.financial_receipt
+        return (canonical(NotificationOutboxStore._scope(p))==canonical(prior['body']['scope'])
+                and p.financial_revocation_receipt['key_id']==prior['key_id']
+                and item['financial_receipt_digest']==digest(prior['body'])
+                and item['accounting_digest']==prior['body']['accounting_digest'])
+    @staticmethod
+    def _binding(p,job_claim,job):
+        """Renewable leases authorize a stable producer; flags and message kinds do not."""
+        scope=NotificationOutboxStore._scope(p)
+        producer={'kind':'JOB','id':job_claim[0]} if job_claim is not None else ({'kind':'VERIFIER','id':p.execution_receipt['key_id']} if scope is not None else {'kind':'DIAGNOSTIC'})
+        if job is not None:
+            info=job['info'];result=job['result']
+            order=str(result.get('id') or result.get('uuid') or '')
+            if not order or (p.exchange,p.symbol,p.order_id)!=(info['exchange'],info['unified_symbol'],order):raise ValueError('producer_order_binding')
+            if scope is not None and scope['account']!=job['account']:raise ValueError('producer_account_binding')
+        return {'version':1,'scope':scope,'exchange':p.exchange,'symbol':p.symbol,'order_id':p.order_id,'producer':producer}
+    @staticmethod
+    def _review_root(c,rid):
+        c.execute('INSERT OR IGNORE INTO vpnl_quarantine VALUES(?,?,?,?,0)',(digest(['root_binding',rid]),None,'root_binding_review',rid))
+        c.execute("UPDATE vpnl_deliveries SET status='HELD' WHERE root_id=? AND status IN ('PENDING','CLAIMED')",(rid,))
     @staticmethod
     def _wire(p):
         from .outbox import build_verified_embed
-        return canonical({'embeds':[build_verified_embed(p).data],'allowed_mentions':{'parse':[]}}).encode()
+        data=build_verified_embed(p).data
+        if p.event_type=='revoked' and NotificationOutboxStore._withdrawal_item(p) is not None:
+            data=dict(data)
+            prefix='⚠️ 이전 순손익·ROI 검증이 철회되었습니다. 현재 손익은 미확정입니다.\n'
+            other=len(data.get('title',''))+len(data.get('footer',{}).get('text',''))+len(data.get('author',{}).get('name',''))+sum(len(f.get('name',''))+len(f.get('value','')) for f in data.get('fields',[]))
+            data['description']=(prefix+data.get('description',''))[:max(0,min(4096,6000-other))]
+        return canonical({'embeds':[data],'allowed_mentions':{'parse':[]}}).encode()
     def enqueue(self,payload,max_attempts=5,*,job_claim=None):
         p=payload.copy(deep=True);valid=payload_valid(p)
         if not valid:
             p.net_pnl=p.roi_pct=p.cost_basis=None;p.pnl_verification_status=p.roi_verification_status=VerificationStatus.UNVERIFIED;p.financial_receipt=None
         if not payload_fill_valid(p):
             p.fill_verification_status=p.verification_status=VerificationStatus.UNVERIFIED
-        facts=self._facts(p);fd=digest(facts);wire=self._wire(p);wd=hashlib.sha256(wire).hexdigest();now=time.time()
-        topic=digest([p.event_id,p.financial_receipt['body']['scope'],p.order_id,p.event_type]) if valid else digest(['diagnostic',p.event_id,p.exchange,p.symbol,p.order_id,p.event_type])
+        now=time.time()
         with self._connect() as c:
-            if job_claim is not None and not c.execute("SELECT 1 FROM vpnl_jobs WHERE id=? AND job_lease=? AND state='VERIFYING' AND due>?",(*job_claim,time.time())).fetchone():raise ValueError('job_lease_lost')
+            job=None
+            if job_claim is not None:
+                owned=c.execute("SELECT data FROM vpnl_jobs WHERE id=? AND job_lease=? AND state='VERIFYING' AND due>?",(*job_claim,time.time())).fetchone()
+                if not owned:raise ValueError('job_lease_lost')
+                job=self.parse_job(owned[0])
+            try:binding=self._binding(p,job_claim,job)
+            except ValueError:return False
+            if valid and binding['scope'] is None:return False
+            topic=digest(['execution-root-v1',p.event_id,binding])
             root=c.execute('SELECT id,head,topic FROM vpnl_roots WHERE alias=? OR topic=?',(p.event_id,topic)).fetchone()
             if root:
                 rid,head,existing_topic=root
-                if existing_topic!=topic:return False
+                saved=c.execute('SELECT binding,binding_digest FROM vpnl_root_bindings WHERE root_id=?',(rid,)).fetchone()
+                try:
+                    existing_binding=strict_object(saved[0]) if saved else None
+                    intact=existing_binding is not None and digest(existing_binding)==saved[1]
+                except (ValueError,TypeError,KeyError):intact=False
+                if not intact:
+                    self._review_root(c,rid);return False
+                if existing_topic!=topic or canonical(binding)!=saved[0]:
+                    if existing_binding.get('scope') is None and binding['scope'] is not None:self._review_root(c,rid)
+                    return False
                 old=c.execute('SELECT payload,financial_digest FROM vpnl_revisions WHERE root_id=? AND revision=?',(rid,head)).fetchone()
+                old_payload=NotificationPayload(**strict_object(old[0]))
+                withdrawing=self._withdrawal_valid(p,old_payload)
+                if payload_valid(old_payload) and not valid and not withdrawing:return False
+                if p.event_type=='revoked' and not withdrawing:
+                    if old_payload.event_type!='revoked' or self._withdrawal_item(p) is None:return False
+                    if canonical(self._withdrawal_item(p))!=canonical(self._withdrawal_item(old_payload)) or p.financial_revocation_receipt['key_id']!=old_payload.financial_revocation_receipt['key_id']:return False
+                if p.financial_revocation_receipt is not None and p.event_type!='revoked':return False
+                if old_payload.event_type=='revoked' and not valid and p.event_type!='revoked':return False
+                if old_payload.event_type=='revoked' and valid:
+                    item=self._withdrawal_item(old_payload)
+                    if item and (item['financial_receipt_digest']==digest(p.financial_receipt['body']) or item['accounting_digest']==p.financial_receipt['body']['accounting_digest']):return False
+                facts=self._facts(p);fd=digest(facts);wire=self._wire(p);wd=hashlib.sha256(wire).hexdigest()
                 try:old_integrity=digest(self._facts(NotificationPayload(**strict_object(old[0]))))==old[1]
                 except (ValueError,TypeError,KeyError):old_integrity=False
                 if old[1]==fd and old_integrity:
@@ -75,8 +159,11 @@ class NotificationOutboxStore:
                 if p.event_version<=head:return False
                 revision=p.event_version
             else:
+                if p.event_type=='revoked' or p.financial_revocation_receipt is not None:return False
                 rid=uuid.uuid4().hex;revision=max(1,p.event_version);c.execute('INSERT INTO vpnl_roots VALUES(?,?,?,0)',(rid,p.event_id,topic))
-            c.execute('INSERT INTO vpnl_revisions VALUES(?,?,?,?,?,?)',(rid,revision,p.json(),fd,'FINANCIAL_CHANGE' if root else 'INITIAL',now))
+                c.execute('INSERT INTO vpnl_root_bindings VALUES(?,?,?)',(rid,canonical(binding),digest(binding)))
+                facts=self._facts(p);fd=digest(facts);wire=self._wire(p);wd=hashlib.sha256(wire).hexdigest()
+            c.execute('INSERT INTO vpnl_revisions VALUES(?,?,?,?,?,?)',(rid,revision,p.json(),fd,('ACCOUNTING_EVIDENCE_REVOKED' if p.event_type=='revoked' else 'FINANCIAL_CHANGE') if root else 'INITIAL',now))
             c.execute('UPDATE vpnl_roots SET head=? WHERE id=?',(revision,rid))
             previous=c.execute('SELECT id,status FROM vpnl_deliveries WHERE root_id=? ORDER BY revision DESC LIMIT 1',(rid,)).fetchone()
             status='PENDING';parent=previous[0] if previous else None
@@ -87,7 +174,7 @@ class NotificationOutboxStore:
                 elif previous[1] in ('UNKNOWN','HELD','BLOCKED_PREDECESSOR'):status='HELD'
             legacy=c.execute('SELECT status FROM verified_outbox WHERE event_id=?',(p.event_id,)).fetchone()
             if legacy and legacy[0] in ('SENT','SENDING','UNKNOWN','HELD'):status='HELD'
-            c.execute('INSERT INTO vpnl_deliveries(id,root_id,revision,kind,parent,wire,wire_digest,status,due,updated,max_attempts) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(uuid.uuid4().hex,rid,revision,'CORRECTION' if previous else 'INITIAL',parent,wire,wd,status,now,now,max_attempts))
+            c.execute('INSERT INTO vpnl_deliveries(id,root_id,revision,kind,parent,wire,wire_digest,status,due,updated,max_attempts) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(uuid.uuid4().hex,rid,revision,('REVOKE' if p.event_type=='revoked' else 'CORRECTION') if previous else 'INITIAL',parent,wire,wd,status,now,now,max_attempts))
         logger.info('verified_alerts: financial_revision_recorded');return True
     def get_pending(self,limit=10):
         with self._connect_read() as c:
@@ -104,8 +191,17 @@ class NotificationOutboxStore:
             row=c.execute("SELECT d.id,d.root_id,d.revision,d.wire,d.wire_digest,d.attempts,r.payload,r.financial_digest FROM vpnl_deliveries d JOIN vpnl_revisions r ON r.root_id=d.root_id AND r.revision=d.revision WHERE d.status='PENDING' AND d.due<=? ORDER BY d.due,d.id LIMIT 1",(time.time(),)).fetchone()
             if not row:return None
             did,rid,rev,wire,wd,epoch,encoded,fd=row
+            if not c.execute('SELECT 1 FROM vpnl_root_bindings WHERE root_id=?',(rid,)).fetchone():
+                self._review_root(c,rid);return False
             try:
                 p=NotificationPayload(**strict_object(encoded))
+                saved=c.execute('SELECT binding,binding_digest FROM vpnl_root_bindings WHERE root_id=?',(rid,)).fetchone()
+                bound=strict_object(saved[0])
+                if digest(bound)!=saved[1] or canonical(bound.get('scope'))!=canonical(self._scope(p)):raise ValueError('root_binding')
+                if (p.exchange,p.symbol,p.order_id)!=(bound['exchange'],bound['symbol'],bound['order_id']):raise ValueError('root_binding')
+                if p.event_type=='revoked':
+                    prior=c.execute('SELECT payload FROM vpnl_revisions WHERE root_id=? AND revision<? ORDER BY revision DESC LIMIT 1',(rid,rev)).fetchone()
+                    if prior is None or not self._withdrawal_valid(p,NotificationPayload(**strict_object(prior[0]))):raise ValueError('withdrawal_binding')
                 if digest(self._facts(p))!=fd or self._wire(p)!=wire or hashlib.sha256(wire).hexdigest()!=wd:raise ValueError('wire_binding')
                 if p.net_pnl is not None and not payload_valid(p):raise ValueError('financial_binding')
             except (ValueError,TypeError,KeyError):

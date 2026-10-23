@@ -133,6 +133,7 @@ class PnlCalculationResult(BaseModel):
 
 
 class NotificationPayload(BaseModel):
+    financial_revocation_receipt: Optional[Dict[str, Any]] = None
     execution_receipt: Optional[Dict[str, Any]] = None
     financial_receipt: Optional[Dict[str, Any]] = None
     outcome_receipt: Optional[Dict[str, Any]] = None

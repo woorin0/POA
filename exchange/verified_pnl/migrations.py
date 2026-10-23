@@ -21,6 +21,10 @@ def install(con):
     'CREATE INDEX IF NOT EXISTS vpnl_delivery_ready ON vpnl_deliveries(status,due,id)',
     'CREATE INDEX IF NOT EXISTS vpnl_jobs_financial ON vpnl_jobs(financial_state,id)']
     for statement in statements:con.execute(statement)
+    con.execute('CREATE TABLE IF NOT EXISTS vpnl_root_bindings(root_id TEXT PRIMARY KEY,binding TEXT NOT NULL,binding_digest TEXT NOT NULL,FOREIGN KEY(root_id) REFERENCES vpnl_roots(id))')
+    con.execute("CREATE TRIGGER IF NOT EXISTS vpnl_root_binding_immutable BEFORE UPDATE ON vpnl_root_bindings BEGIN SELECT RAISE(ABORT,'immutable_root_binding'); END")
+    con.execute("CREATE TRIGGER IF NOT EXISTS vpnl_root_binding_retain BEFORE DELETE ON vpnl_root_bindings BEGIN SELECT RAISE(ABORT,'retained_root_binding'); END")
+    con.execute("CREATE TRIGGER IF NOT EXISTS vpnl_revision_binding_required BEFORE INSERT ON vpnl_revisions WHEN NOT EXISTS(SELECT 1 FROM vpnl_root_bindings WHERE root_id=NEW.root_id) BEGIN SELECT RAISE(ABORT,'root_binding_required'); END")
     if 'job_lease' not in [x[1] for x in con.execute('PRAGMA table_info(vpnl_jobs)')]:
         con.execute('ALTER TABLE vpnl_jobs ADD COLUMN job_lease TEXT')
     con.execute('CREATE TABLE IF NOT EXISTS vpnl_job_tombstones(id TEXT PRIMARY KEY,proof_digest TEXT NOT NULL)')
