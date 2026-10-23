@@ -82,6 +82,8 @@ def dispatch_verified_alert(exchange_name, order_result, order_info, settings, b
         data=dict(info=info,result=result,account=account,recorded_at=time.time())
         store=NotificationOutboxStore(settings.VERIFIED_NOTIFICATIONS_DB_PATH)
         with store._connect() as con:
+            from .migrations import require_cutover
+            require_cutover(con)
             if con.execute("SELECT 1 FROM vpnl_job_tombstones WHERE id=?",(key,)).fetchone():return
             inserted=con.execute("INSERT OR IGNORE INTO vpnl_jobs(id,data,state,due,created,financial_state) VALUES (?,?, 'PENDING',?,?,'NEW')",
                         (key,json.dumps(data),time.time(),time.time())).rowcount
@@ -533,11 +535,13 @@ def start_worker(settings):
         # Run cleanup / recovery on startup
         try:
             init_store = NotificationOutboxStore(settings.VERIFIED_NOTIFICATIONS_DB_PATH)
+            if not init_store.cutover_ready():
+                warning("notification_cutover_required");return
             init_store.recover()
             if hasattr(init_store, "prune_completed"):
                 init_store.prune_completed()
         except Exception:
-            pass
+            warning("notification_store_not_ready");return
         tick_count = 0
         while not stop.is_set():
             try:

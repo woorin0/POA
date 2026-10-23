@@ -28,6 +28,7 @@ def install(con):
     if 'job_lease' not in [x[1] for x in con.execute('PRAGMA table_info(vpnl_jobs)')]:
         con.execute('ALTER TABLE vpnl_jobs ADD COLUMN job_lease TEXT')
     con.execute('CREATE TABLE IF NOT EXISTS vpnl_job_tombstones(id TEXT PRIMARY KEY,proof_digest TEXT NOT NULL)')
+    install_cutover(con)
     con.execute('INSERT OR IGNORE INTO vpnl_schema VALUES(1,4)')
     if con.execute('SELECT version FROM vpnl_schema WHERE id=1').fetchone()[0]!=4:raise ValueError('unsupported_notification_schema')
     for table,columns in [('vpnl_revisions','payload,financial_digest,root_id,revision,reason'),('vpnl_deliveries','wire,wire_digest,root_id,revision,kind,parent')]:
@@ -42,28 +43,165 @@ def install(con):
             con.execute(f"CREATE TRIGGER IF NOT EXISTS vpnl_freeze_{table}_{verb} BEFORE {verb} ON {table} BEGIN SELECT RAISE(ABORT,'legacy_notification_read_only'); END")
 
 def migrate_batch(con,limit=40):
+    """Explicitly approved, archival-only import. No legacy row grants send authority."""
+    gate=con.execute('SELECT phase FROM vpnl_cutover WHERE id=1').fetchone()
+    if not gate or gate[0] not in ('APPROVED','IMPORTING'):return 0
+    con.execute("UPDATE vpnl_cutover SET phase='IMPORTING' WHERE id=1")
     remaining=min(max(int(limit),0),40);count=0
     for table in TABLES:
         progress=con.execute('SELECT cursor,highwater,complete FROM vpnl_migration_progress WHERE source=?',(table,)).fetchone()
         if not progress or progress[2] or not remaining:continue
         cursor,high,_=progress
-        q=con.execute(f'SELECT rowid,* FROM {table} WHERE rowid>? AND rowid<=? ORDER BY rowid LIMIT ?',(cursor,high,remaining))
+        q=con.execute(f'SELECT rowid AS __source_rowid__,* FROM {table} WHERE rowid>? AND rowid<=? ORDER BY rowid LIMIT ?',(cursor,high,remaining))
         cols=[x[0] for x in q.description];rows=q.fetchall()
         for row in rows:
-            record=dict(zip(cols,row));rid=row[0];ref=f'{table}:{rid}';disposition='LEGACY_UNPROVEN'
-            if table=='verified_jobs':
-                try:
-                    data=strict_object(record['data'])
-                    if not isinstance(data.get('info'),dict) or not isinstance(data.get('result'),dict):raise ValueError('job_schema')
-                    con.execute("INSERT OR IGNORE INTO vpnl_jobs(id,data,state,due,created) VALUES(?,?,?,?,?)",(record['id'],canonical(data),'PENDING',0,record['created']))
-                    disposition='REVERIFY'
-                except (ValueError,TypeError,KeyError):disposition='MALFORMED'
-            if table=='verified_quarantine':
-                scope=str(record.get('scope') or record.get('id') or '')
-                con.execute('INSERT OR IGNORE INTO vpnl_quarantine VALUES(?,?,?,?,0)',(digest([table,rid]),scope,'legacy_quarantine',ref))
-            if disposition in ('LEGACY_UNPROVEN','MALFORMED'):
-                con.execute('INSERT OR IGNORE INTO vpnl_quarantine VALUES(?,?,?,?,0)',(digest([table,rid]),None,disposition.lower(),ref))
-            con.execute('INSERT OR IGNORE INTO vpnl_legacy_map VALUES(?,?,?,?)',(table,rid,digest(record),disposition))
+            record=dict(zip(cols,row));rid=row[0];ref=f'{table}:{rid}'
+            encoded=canonical(_jsonable(record));state=str(record.get('status') or record.get('state') or 'REVIEW')
+            reason='legacy_evidence_unproven'
+            for key in ('data','payload'):
+                if record.get(key) is not None:
+                    try:strict_object(record[key])
+                    except (ValueError,TypeError):reason='legacy_schema_invalid'
+            if table=='verified_quarantine':reason='legacy_quarantine_retained'
+            alias=record.get('event_id') or (record.get('id') if table=='verified_outbox' else None)
+            con.execute('INSERT INTO vpnl_legacy_archive VALUES(?,?,?,?,?,?,?)',
+                (table,rid,digest(_jsonable(record)),encoded,state,'REVIEW',reason))
+            if table=='verified_jobs' and record.get('id') is not None:
+                con.execute("UPDATE vpnl_jobs SET state='HELD',financial_state='LEGACY_REVIEW' WHERE id=?",(str(record['id']),))
+            if alias is not None:
+                con.execute('INSERT INTO vpnl_legacy_aliases VALUES(?,?,?)',(str(alias),table,rid))
+            con.execute('INSERT OR IGNORE INTO vpnl_quarantine VALUES(?,?,?,?,0)',(digest([table,rid]),str(record.get('scope') or '') or None,reason,ref))
+            con.execute('INSERT OR IGNORE INTO vpnl_legacy_map VALUES(?,?,?,?)',(table,rid,digest(_jsonable(record)),'REVIEW'))
             cursor=rid;remaining-=1;count+=1
         con.execute('UPDATE vpnl_migration_progress SET cursor=?,complete=? WHERE source=?',(cursor,int(cursor>=high or not rows),table))
+    if not con.execute('SELECT 1 FROM vpnl_migration_progress WHERE complete=0').fetchone():
+        con.execute("UPDATE vpnl_cutover SET phase='VALIDATION' WHERE id=1")
     return count
+
+
+def _jsonable(value):
+    if isinstance(value,bytes):return {'sqlite_blob_hex':value.hex()}
+    if isinstance(value,dict):return {k:_jsonable(v) for k,v in value.items()}
+    return value
+
+def _manifest(con):
+    import hashlib
+    report={}
+    for table in TABLES:
+        if not con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone():continue
+        schema=[list(r) for r in con.execute('PRAGMA table_info('+table+')')]
+        h=hashlib.sha256();count=0;states={};invalid=[]
+        q=con.execute('SELECT rowid AS __source_rowid__,* FROM '+table+' ORDER BY rowid');cols=[d[0] for d in q.description]
+        while True:
+            batch=q.fetchmany(40)
+            if not batch:break
+            for row in batch:
+                d=dict(zip(cols,row));h.update((canonical(_jsonable(d))+'\n').encode());count+=1
+                state=display_state(d.get('status') or d.get('state') or 'NONE');states[state]=states.get(state,0)+1
+                for key in ('payload','data'):
+                    if d.get(key) is not None:
+                        try:strict_object(d[key])
+                        except (ValueError,TypeError):
+                            if len(invalid)<40:invalid.append(row[0])
+        report[table]={'schema':schema,'count':count,'states':states,'digest':h.hexdigest(),'invalid_sample':invalid}
+    return report
+
+def preflight(path):
+    """Read-only snapshot; no initialization, journal change or credential loading."""
+    import sqlite3
+    from pathlib import Path
+    with sqlite3.connect(Path(path).resolve().as_uri()+'?mode=ro',uri=True) as con:
+        con.execute('BEGIN')
+        result={'integrity':con.execute('PRAGMA integrity_check').fetchone()[0],'tables':_manifest(con)}
+        result['fingerprint']=digest(result['tables'])
+        result['unproven']={table:{'count':info['count'],'sample_source_rows':[r[0] for r in con.execute('SELECT rowid FROM '+table+' ORDER BY rowid LIMIT 40')]} for table,info in result['tables'].items()}
+        parts=[]
+        for table in TABLES:
+            if table not in result['tables']:continue
+            columns={r[1] for r in con.execute('PRAGMA table_info('+table+')')}
+            column='event_id' if 'event_id' in columns else ('alias' if 'alias' in columns else None)
+            if column:parts.append('SELECT '+column+' AS alias FROM '+table+' WHERE '+column+' IS NOT NULL')
+        result['multiple_alias_references']=[]
+        if parts:
+            for alias,n in con.execute('SELECT alias,count(*) FROM ('+' UNION ALL '.join(parts)+') GROUP BY alias HAVING count(*)>1 ORDER BY alias LIMIT 40'):
+                result['multiple_alias_references'].append({'alias_digest':digest(str(alias)),'references':n,'review_required':True})
+        return result
+
+def install_cutover(con):
+    con.execute('CREATE TABLE IF NOT EXISTS vpnl_cutover(id INTEGER PRIMARY KEY CHECK(id=1),phase TEXT NOT NULL,manifest TEXT NOT NULL,backup_path TEXT,backup_digest TEXT,actor_digest TEXT)')
+    con.execute('CREATE TABLE IF NOT EXISTS vpnl_legacy_archive(source TEXT NOT NULL,source_row INTEGER NOT NULL,source_digest TEXT NOT NULL,record TEXT NOT NULL,legacy_state TEXT NOT NULL,disposition TEXT NOT NULL,reason TEXT NOT NULL,PRIMARY KEY(source,source_row))')
+    con.execute('CREATE TABLE IF NOT EXISTS vpnl_legacy_aliases(alias TEXT NOT NULL,source TEXT NOT NULL,source_row INTEGER NOT NULL,PRIMARY KEY(alias,source,source_row))')
+    con.execute('CREATE TABLE IF NOT EXISTS vpnl_manual_actions(id TEXT PRIMARY KEY,delivery_id TEXT NOT NULL,revision INTEGER NOT NULL,action TEXT NOT NULL,actor_digest TEXT NOT NULL,created REAL NOT NULL)')
+    for table in ('vpnl_legacy_archive','vpnl_legacy_aliases','vpnl_manual_actions'):
+        for verb in ('UPDATE','DELETE'):
+            con.execute(f"CREATE TRIGGER IF NOT EXISTS {table}_{verb}_retain BEFORE {verb} ON {table} BEGIN SELECT RAISE(ABORT,'retained_cutover_history'); END")
+    if not con.execute('SELECT 1 FROM vpnl_cutover').fetchone():
+        manifest=_manifest(con);nonempty=any(t['count'] for t in manifest.values())
+        # Existing v4 data are preserved, but previously bypassed legacy migrations need explicit review.
+        con.execute('INSERT INTO vpnl_cutover(id,phase,manifest) VALUES(1,?,?)',('QUIESCED' if nonempty else 'CUTOVER',canonical(manifest)))
+        if nonempty:
+            con.execute('UPDATE vpnl_migration_progress SET cursor=0,complete=0')
+
+def require_cutover(con):
+    row=con.execute('SELECT phase FROM vpnl_cutover WHERE id=1').fetchone()
+    if not row or row[0]!='CUTOVER':raise ValueError('notification_cutover_required')
+
+def verify_backup(store,destination,*,writer_quiesced=False):
+    """Caller must stop all old writers/senders first; triggers enforce subsequent writes."""
+    import sqlite3,hashlib,os
+    from pathlib import Path
+    if writer_quiesced is not True:raise ValueError('writer_quiescence_required')
+    dest=Path(destination).resolve()
+    if dest==Path(store.db_path).resolve():raise ValueError('distinct_backup_required')
+    with store._connect() as c:
+        phase=c.execute('SELECT phase FROM vpnl_cutover WHERE id=1').fetchone()[0]
+        if phase not in ('QUIESCED','BACKUP_VERIFIED'):raise ValueError('cutover_phase')
+        expected=c.execute('SELECT manifest FROM vpnl_cutover WHERE id=1').fetchone()[0]
+        if canonical(_manifest(c))!=expected:raise ValueError('legacy_snapshot_changed')
+    fd=os.open(dest,os.O_CREAT|os.O_EXCL|os.O_WRONLY);os.close(fd)
+    # An interrupted backup is never accepted implicitly; operator uses a new destination.
+    with sqlite3.connect(Path(store.db_path).resolve().as_uri()+'?mode=ro',uri=True) as src,sqlite3.connect(dest) as dst:src.backup(dst)
+    check=preflight(dest)
+    if check['integrity']!='ok' or canonical(check['tables'])!=expected:raise ValueError('backup_verification_failed')
+    checksum=_file_digest(dest)
+    with store._connect() as c:
+        c.execute("UPDATE vpnl_cutover SET phase='BACKUP_VERIFIED',backup_path=?,backup_digest=? WHERE id=1 AND phase IN ('QUIESCED','BACKUP_VERIFIED')",(str(dest),checksum))
+    return {'integrity':'ok','backup_digest':checksum}
+
+def approve_cutover(store,*,approved=False,actor=None):
+    import hashlib
+    from pathlib import Path
+    if approved is not True or not isinstance(actor,str) or not actor.strip():raise ValueError('explicit_cutover_approval_required')
+    with store._connect() as c:
+        row=c.execute('SELECT phase,backup_path,backup_digest,manifest FROM vpnl_cutover WHERE id=1').fetchone()
+        if row[0]!='BACKUP_VERIFIED':raise ValueError('backup_verification_required')
+        if _file_digest(Path(row[1]))!=row[2]:raise ValueError('backup_changed')
+        if canonical(_manifest(c))!=row[3]:raise ValueError('legacy_snapshot_changed')
+        c.execute("UPDATE vpnl_cutover SET phase='APPROVED',actor_digest=? WHERE id=1",(digest(actor),))
+
+def finish_cutover(store):
+    with store._connect() as c:
+        phase,manifest=c.execute('SELECT phase,manifest FROM vpnl_cutover WHERE id=1').fetchone()
+        if phase=='CUTOVER':return False
+        if phase!='VALIDATION':raise ValueError('import_incomplete')
+        backup=c.execute('SELECT backup_path,backup_digest FROM vpnl_cutover WHERE id=1').fetchone()
+        if not backup[0] or _file_digest(backup[0])!=backup[1]:raise ValueError('backup_changed')
+        if canonical(_manifest(c))!=manifest:raise ValueError('legacy_snapshot_changed')
+        for table,info in json.loads(manifest).items():
+            if c.execute('SELECT count(*) FROM vpnl_legacy_archive WHERE source=?',(table,)).fetchone()[0]!=info['count']:raise ValueError('archive_count_mismatch')
+        if c.execute('PRAGMA foreign_key_check').fetchone() or c.execute('PRAGMA integrity_check').fetchone()[0]!='ok':raise ValueError('cutover_integrity_failed')
+        c.execute("UPDATE vpnl_cutover SET phase='CUTOVER' WHERE id=1")
+        return True
+
+
+def _file_digest(path):
+    import hashlib
+    h=hashlib.sha256()
+    with open(path,'rb') as stream:
+        for chunk in iter(lambda:stream.read(65536),b''):h.update(chunk)
+    return h.hexdigest()
+
+
+def display_state(value):
+    allowed={'NONE','PENDING','SENDING','SENT','UNKNOWN','HELD','FAILED','DONE','VERIFYING','REVIEW','QUARANTINED','POSTING','CLAIMED','CANCELED','SUPERSEDED_UNSENT','BLOCKED_PREDECESSOR'}
+    return value if isinstance(value,str) and value in allowed else 'UNRECOGNIZED'

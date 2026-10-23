@@ -4,7 +4,7 @@ from pathlib import Path
 from contextlib import contextmanager
 from .evidence import canonical,digest,strict_object,payload_valid,payload_fill_valid,safe_code,verify
 from .models import NotificationPayload,VerificationStatus
-from .migrations import install,migrate_batch
+from .migrations import install,migrate_batch,require_cutover
 from loguru import logger
 
 class NotificationOutboxStore:
@@ -117,6 +117,7 @@ class NotificationOutboxStore:
             p.fill_verification_status=p.verification_status=VerificationStatus.UNVERIFIED
         now=time.time()
         with self._connect() as c:
+            require_cutover(c)
             job=None
             if job_claim is not None:
                 owned=c.execute("SELECT data FROM vpnl_jobs WHERE id=? AND job_lease=? AND state='VERIFYING' AND due>?",(*job_claim,time.time())).fetchone()
@@ -187,6 +188,7 @@ class NotificationOutboxStore:
         return None
     def _claim_next(self):
         with self._connect() as c:
+            require_cutover(c)
             c.execute("UPDATE vpnl_deliveries SET status='FAILED',error='send_failed' WHERE id IN (SELECT id FROM vpnl_deliveries WHERE status='PENDING' AND attempts>=max_attempts ORDER BY due,id LIMIT 40)")
             row=c.execute("SELECT d.id,d.root_id,d.revision,d.wire,d.wire_digest,d.attempts,r.payload,r.financial_digest FROM vpnl_deliveries d JOIN vpnl_revisions r ON r.root_id=d.root_id AND r.revision=d.revision WHERE d.status='PENDING' AND d.due<=? ORDER BY d.due,d.id LIMIT 1",(time.time(),)).fetchone()
             if not row:return None
@@ -215,6 +217,7 @@ class NotificationOutboxStore:
         return c.execute('SELECT a.id FROM vpnl_delivery_attempts a JOIN vpnl_deliveries d ON d.id=a.delivery_id WHERE a.id=? AND a.delivery_id=? AND a.epoch=? AND a.token_hash=? AND a.revision=? AND a.wire_digest=? AND a.phase=? AND d.status=? AND d.root_id=? AND a.expires>?',(claim['attempt_id'],claim['delivery_id'],claim['epoch'],hashlib.sha256(claim['token'].encode()).hexdigest(),claim['revision'],claim['wire_digest'],phase,phase,claim['root_id'],0 if allow_expired else time.time())).fetchone()
     def begin_post(self,claim):
         with self._connect() as c:
+            require_cutover(c)
             if not self._attempt(c,claim,'CLAIMED'):return False
             row=c.execute('SELECT head FROM vpnl_roots WHERE id=?',(claim['root_id'],)).fetchone()
             expiry=c.execute('SELECT expires FROM vpnl_delivery_attempts WHERE id=?',(claim['attempt_id'],)).fetchone()[0]
@@ -249,15 +252,42 @@ class NotificationOutboxStore:
         # Legacy diagnostics cannot mutate an active leased attempt.
         with self._connect() as c:
             c.execute("UPDATE vpnl_deliveries SET error=? WHERE id=? AND status IN ('PENDING','HELD','UNKNOWN','FAILED')",(safe_code(error_msg),event_id))
-    def requeue_unknown(self,event_id=None,*,confirm_duplicate_risk=False,allow_bulk=False):
+    def requeue_unknown(self,event_id=None,*,confirm_duplicate_risk=False,allow_bulk=False,actor=None,expected_revision=None,expected_digest=None):
+        """Individual delivery only. Explicit resend may duplicate an already delivered webhook.
+
+        A lost response cannot provide Exactly-Once delivery. No bulk approval is accepted.
+        """
         if confirm_duplicate_risk is not True:raise ValueError('duplicate_risk_confirmation_required')
-        if event_id is None and allow_bulk is not True:raise ValueError('individual_delivery_required')
+        if event_id is None or allow_bulk is not False:raise ValueError('individual_delivery_required')
+        with self._connect_read() as c:
+            if c.execute('SELECT 1 FROM vpnl_roots WHERE alias=?',(str(event_id),)).fetchone() or c.execute('SELECT 1 FROM vpnl_legacy_aliases WHERE alias=? LIMIT 1',(str(event_id),)).fetchone():raise ValueError('alias_is_not_delivery_uuid')
+        return self.manual_delivery('requeue',event_id,approved=confirm_duplicate_risk,actor=actor,expected_revision=expected_revision,expected_digest=expected_digest)
+    def manual_delivery(self,action,delivery_id,*,approved=False,actor=None,expected_revision=None,expected_digest=None):
+        """CAS admin action; never invokes HTTP. Actor is recorded as a digest only."""
+        if approved is not True or not isinstance(actor,str) or not actor.strip():raise ValueError('manual_approval_required')
+        if action not in ('hold','requeue') or type(expected_revision) is not int or not isinstance(expected_digest,str):raise ValueError('delivery_cas_required')
+        try:did=uuid.UUID(str(delivery_id)).hex
+        except (ValueError,TypeError,AttributeError):raise ValueError('delivery_uuid_required') from None
         with self._connect() as c:
-            if event_id is None:
-                n=c.execute("UPDATE vpnl_deliveries SET status='PENDING',due=?,updated=?,max_attempts=attempts+5 WHERE status IN ('UNKNOWN','HELD')",(time.time(),time.time())).rowcount
-            else:
-                n=c.execute("UPDATE vpnl_deliveries SET status='PENDING',due=?,updated=?,max_attempts=attempts+5 WHERE id=? AND status IN ('UNKNOWN','HELD')",(time.time(),time.time(),str(event_id))).rowcount
-        logger.warning('verified_alerts: manual_resend_authorized count={}',n);return n
+            require_cutover(c)
+            row=c.execute('SELECT d.status,d.revision,d.wire_digest,d.root_id,r.head,d.parent FROM vpnl_deliveries d JOIN vpnl_roots r ON r.id=d.root_id WHERE d.id=?',(did,)).fetchone()
+            if row is None:raise ValueError('delivery_not_found')
+            state,rev,wd,root,head,parent=row
+            if (rev,wd)!=(expected_revision,expected_digest) or head!=rev:raise ValueError('delivery_cas_conflict')
+            if c.execute("SELECT 1 FROM vpnl_delivery_attempts WHERE delivery_id=? AND phase IN ('CLAIMED','POSTING')",(did,)).fetchone():raise ValueError('active_lease')
+            allowed=('UNKNOWN','HELD') if action=='requeue' else ('PENDING',)
+            if state not in allowed:raise ValueError('delivery_state_conflict')
+            if action=='requeue':
+                if c.execute("SELECT 1 FROM vpnl_deliveries WHERE root_id=? AND status IN ('CLAIMED','POSTING')",(root,)).fetchone():raise ValueError('active_predecessor')
+                if parent and not c.execute('SELECT 1 FROM vpnl_deliveries WHERE id=? AND root_id=?',(parent,root)).fetchone():raise ValueError('predecessor_unresolved')
+                # Explicit per-delivery duplicate-risk approval may release a correction
+                # after UNKNOWN/HELD. Never mark its uncertain predecessor SENT.
+            status='PENDING' if action=='requeue' else 'HELD';now=time.time()
+            n=c.execute('UPDATE vpnl_deliveries SET status=?,due=?,updated=?,max_attempts=attempts+5 WHERE id=? AND status=? AND revision=? AND wire_digest=?',(status,now,now,did,state,rev,wd)).rowcount
+            if n!=1:raise ValueError('delivery_cas_conflict')
+            c.execute('INSERT INTO vpnl_manual_actions VALUES(?,?,?,?,?,?)',(str(uuid.uuid4()),did,rev,action,digest(actor),now))
+        logger.warning('verified_alerts: manual_delivery_action count={}',n)
+        return n
     def _quarantine_job(self,c,key,encoded):
         c.execute('INSERT OR IGNORE INTO vpnl_quarantine VALUES(?,?,?,?,0)',(digest(['job',key]),None,'schema_invalid',digest(encoded)))
         c.execute("UPDATE vpnl_jobs SET state='QUARANTINED',financial_state='QUARANTINED' WHERE id=?",(key,))
@@ -289,6 +319,7 @@ class NotificationOutboxStore:
     def ready_jobs(self,limit=20):
         limit=min(limit,20);now=time.time()
         with self._connect_read() as c:
+            require_cutover(c)
             recovery=c.execute("SELECT id,data,created FROM vpnl_jobs WHERE state='PENDING' AND due<=? AND financial_state!='NEW' ORDER BY due,id LIMIT ?",(now,limit//2)).fetchall()
             fresh=c.execute("SELECT id,data,created FROM vpnl_jobs WHERE state='PENDING' AND due<=? AND financial_state='NEW' ORDER BY due,id LIMIT ?",(now,limit-len(recovery))).fetchall()
             left=limit-len(recovery)-len(fresh)
@@ -297,10 +328,16 @@ class NotificationOutboxStore:
                 more=c.execute(f"SELECT id,data,created FROM vpnl_jobs WHERE state='PENDING' AND due<=? AND id NOT IN ({placeholders}) ORDER BY due,id LIMIT ?",[now]+picked+[left]).fetchall()
             else:more=[]
             return recovery+fresh+more
+    def import_legacy_batch(self,limit=40):
+        with self._connect() as c:return migrate_batch(c,limit)
+    def cutover_ready(self):
+        with self._connect_read() as c:
+            return c.execute('SELECT phase FROM vpnl_cutover WHERE id=1').fetchone()[0]=='CUTOVER'
     def recover(self):
         now=time.time()
         with self._connect() as c:
             migrate_batch(c,40)
+            if c.execute('SELECT phase FROM vpnl_cutover WHERE id=1').fetchone()[0]!='CUTOVER':return
             expired=c.execute("SELECT a.id,a.delivery_id,a.phase FROM vpnl_delivery_attempts a JOIN vpnl_deliveries d ON d.id=a.delivery_id WHERE a.phase IN ('POSTING','CLAIMED') AND a.expires<? AND d.status=a.phase ORDER BY a.expires,a.id LIMIT 40",(now,)).fetchall()
             for aid,did,phase in expired:
                 state='UNKNOWN' if phase=='POSTING' else 'PENDING'
