@@ -52,6 +52,8 @@ def dispatch_verified_alert(exchange_name, order_result, order_info, settings, b
     try:
         info={k:getattr(order_info,k,None) for k in INFO_FIELDS}
         info={k:v if isinstance(v,(str,int,float,bool,type(None))) else None for k,v in info.items()}
+        for flag in ("is_buy","is_sell","is_close","is_futures"):
+            if info.get(flag) is None:info[flag]=False
         result=order_result if isinstance(order_result,dict) else {}
         order_id = result.get("id") or result.get("uuid")
         client_order_id = result.get("clientOrderId") or result.get("identifier")
@@ -69,16 +71,19 @@ def dispatch_verified_alert(exchange_name, order_result, order_info, settings, b
             if result.get("clientOrderId"):
                 order_ident = str(result.get("clientOrderId"))
             elif sig:
-                order_ident = f"sig:{strat}:{sig}"
+                order_ident = uuid.uuid4().hex
             else:
                 order_ident = uuid.uuid4().hex
         sym = info.get("unified_symbol") or (f"{info.get('base')}/{info.get('quote')}" if info.get("base") and info.get("quote") else "unknown")
-        account=identity(exchange_name,getattr(settings,exchange_name+"_KEY",None) or "unconfigured")
+        from .evidence import account_reference
+        legacy_account=identity(exchange_name,getattr(settings,exchange_name+"_KEY",None) or "unconfigured")
+        account=account_reference(exchange_name,legacy_account) or legacy_account
         key=identity(exchange_name,account,"linear" if info.get("is_futures") else "spot",sym,str(order_ident))
         data=dict(info=info,result=result,account=account,recorded_at=time.time())
         store=NotificationOutboxStore(settings.VERIFIED_NOTIFICATIONS_DB_PATH)
         with store._connect() as con:
-            inserted=con.execute("INSERT OR IGNORE INTO verified_jobs VALUES (?,?, 'PENDING',?,?)",
+            if con.execute("SELECT 1 FROM vpnl_job_tombstones WHERE id=?",(key,)).fetchone():return
+            inserted=con.execute("INSERT OR IGNORE INTO vpnl_jobs(id,data,state,due,created,financial_state) VALUES (?,?, 'PENDING',?,?,'NEW')",
                         (key,json.dumps(data),time.time(),time.time())).rowcount
         if not inserted: logger.info("verified_alerts: duplicate_job_blocked")
     except Exception:
@@ -91,6 +96,8 @@ def dispatch_verified_error_alert(error_message, order_info, settings):
 
 
 def make_payload(key, fill, info, pnl, entry_price, settings):
+    def format_decimal(value):
+        return '-' if value is None else format(value,'f')
     def money(value): return None if value is None else f"{value:+f} {pnl.pnl_currency}"
     reason=classify_exit_reason(info,{"type":fill.verified_order_type}) if settings.EXIT_REASON_CLASSIFICATION_V2 else ExitReason.UNKNOWN
     notional = None
@@ -112,8 +119,13 @@ def make_payload(key, fill, info, pnl, entry_price, settings):
 
     roi_label = "추정 ROI (레버리지 기반)" if is_est_roi else "ROI"
 
+    from .evidence import execution_valid
+    trusted_fill=execution_valid(fill,fill.scope_data)
     return NotificationPayload(
         event_id=key,
+        financial_receipt=pnl.financial_receipt,
+        execution_receipt=fill.execution_receipt,
+        outcome_receipt=fill.outcome_receipt,
         exchange=fill.exchange,
         symbol=fill.symbol,
         side=get_side_display(info),
@@ -137,7 +149,7 @@ def make_payload(key, fill, info, pnl, entry_price, settings):
         roi_pct=str(pnl.net_roi_pct) if pnl.net_roi_pct is not None else None,
         roi_label=roi_label,
         verification_status=fill.verification_status,
-        fill_verification_status=fill.verification_status,
+        fill_verification_status=fill.verification_status if trusted_fill else VerificationStatus.UNVERIFIED,
         pnl_verification_status=pnl_ver_status,
         roi_verification_status=roi_ver_status,
         is_roi_estimated=is_est_roi,
@@ -233,15 +245,20 @@ def verification_tick(settings, client_factory):
         configure_concurrency(getattr(settings, "VERIFY_MAX_CONCURRENCY", 2))
     store=NotificationOutboxStore(settings.VERIFIED_NOTIFICATIONS_DB_PATH)
     store.recover()
-    with store._connect_read() as con:
-        jobs=con.execute("SELECT id,data,created FROM verified_jobs WHERE state='PENDING' AND due<=? ORDER BY created LIMIT 20",(time.time(),)).fetchall()
+    jobs=store.ready_jobs(20)
     for key,encoded,created in jobs:
+        lease=uuid.uuid4().hex
         with store._connect() as con:
-            if not con.execute("UPDATE verified_jobs SET state='VERIFYING',due=? WHERE id=? AND state='PENDING'",(time.time()+120,key)).rowcount: continue
-        data = None
-        attempts = 1
+            if not con.execute("UPDATE vpnl_jobs SET state='VERIFYING',due=?,job_lease=? WHERE id=? AND state='PENDING'",(time.time()+120,lease,key)).rowcount:continue
         try:
-            data=json.loads(encoded); info=SimpleNamespace(**data["info"])
+            data=store.parse_job(encoded)
+        except (ValueError,TypeError,KeyError):
+            with store._connect() as con:store._quarantine_job(con,key,encoded)
+            warning('job_schema_invalid')
+            continue
+        attempts=1
+        try:
+            info=SimpleNamespace(**data['info'])
             attempts = data.get("attempts", 0) + 1
             data["attempts"] = attempts
             client=client_factory(info.exchange,info)
@@ -249,10 +266,12 @@ def verification_tick(settings, client_factory):
             market=client.market(info.unified_symbol)
             if info.exchange=="OKX" and info.is_futures:
                 info.contract_size=market.get("contractSize")
-            fill=FillVerifier().verify_order_result(SimpleNamespace(client=client),info.exchange,info.unified_symbol,data["result"],info)
+            from .evidence import context_for
+            evidence_context=context_for(info.exchange,data["account"],info,client)
+            fill=FillVerifier().verify_order_result(SimpleNamespace(client=client),info.exchange,info.unified_symbol,data["result"],info,evidence_context)
             is_upbit = (info.exchange == "UPBIT")
             history_complete = settings.VERIFIED_COST_BASIS_COMPLETE and (settings.UPBIT_NET_PNL_ENABLED if is_upbit else settings.NET_REALIZED_PNL_ENABLED)
-            entry,entry_fee=allocate(store,fill,info,data["account"],history_complete)
+            entry,entry_fee=allocate(store,fill,info,data["account"],history_complete,evidence_context)
             pnl=PnlCalculationResult()
             pnl_enabled = (settings.UPBIT_NET_PNL_ENABLED if is_upbit else settings.NET_REALIZED_PNL_ENABLED)
             if pnl_enabled:
@@ -264,6 +283,7 @@ def verification_tick(settings, client_factory):
                 pnl=PnlCalculator().calculate_pnl(fill,info,entry_price=entry,
                     allocated_entry_fee=entry_fee,allocated_funding=Decimal(0) if not info.is_futures else None,
                     allocated_margin=spot_margin)
+            FillVerifier().certify_financial_result(fill,info,pnl,evidence_context)
             partial_alerts = (settings.UPBIT_PARTIAL_FILL_ALERTS if is_upbit else settings.PARTIAL_FILL_ALERTS)
             max_attempts = getattr(settings, "UPBIT_MAX_VERIFY_ATTEMPTS", 5) if is_upbit else 999
             attempts_exceeded = is_upbit and (attempts >= max_attempts)
@@ -275,21 +295,26 @@ def verification_tick(settings, client_factory):
             # Determine if financial accounting (PnL / Ledger entry) is verified
             is_close = (getattr(info, "is_close", False) is True) or ((not getattr(info, "is_futures", False)) and getattr(info, "is_sell", False))
             if is_close:
-                pnl_done = (pnl.net_realized_pnl is not None and getattr(pnl, "verification_status", None) == VerificationStatus.VERIFIED)
+                pnl_done = (pnl.financial_receipt is not None and pnl.net_realized_pnl is not None and getattr(pnl, "verification_status", None) == VerificationStatus.VERIFIED)
             else:
-                pnl_done = (getattr(fill, "verification_status", None) == VerificationStatus.VERIFIED and (getattr(fill, "trades_complete", None) is True))
+                from .evidence import execution_valid
+                pnl_done=execution_valid(fill,fill.scope_data)
+
+            from .evidence import verify
+            rejected_final=verify(fill.outcome_receipt,'OUTCOME') and fill.outcome_receipt['body'].get('outcome')=='REJECTED_FINAL'
+            pnl_done=pnl_done or rejected_final
 
             def _dispatch_enqueue(p):
-                try:
-                    with store._connect_read() as c:
-                        m_rev = c.execute("SELECT MAX(revision) FROM verified_revisions WHERE event_id=?", (p.event_id,)).fetchone()
-                        if m_rev and m_rev[0] is not None:
-                            last_p = c.execute("SELECT payload FROM verified_revisions WHERE event_id=? AND revision=?", (p.event_id, m_rev[0])).fetchone()
-                            if last_p and last_p[0] != p.json():
-                                p.event_version = m_rev[0] + 1
-                except Exception:
-                    pass
-                return store.enqueue(p, max_attempts=settings.DISCORD_RETRY_MAX_ATTEMPTS if settings.DISCORD_RETRY_ENABLED else 1)
+                from .evidence import digest
+                with store._connect_read() as c:
+                    owned=c.execute("SELECT 1 FROM vpnl_jobs WHERE id=? AND state='VERIFYING' AND job_lease=?",(key,lease)).fetchone()
+                    if not owned:raise ValueError('job_lease_lost')
+                    head=c.execute('SELECT r.head,v.financial_digest,v.payload FROM vpnl_roots r JOIN vpnl_revisions v ON v.root_id=r.id AND v.revision=r.head WHERE r.alias=?',(p.event_id,)).fetchone()
+                if head:
+                    try: old_integrity=digest(store._facts(NotificationPayload(**json.loads(head[2]))))==head[1]
+                    except (ValueError,TypeError,KeyError):old_integrity=False
+                    if head[1]!=digest(store._facts(p)) or not old_integrity:p.event_version=head[0]+1
+                return store.enqueue(p,max_attempts=settings.DISCORD_RETRY_MAX_ATTEMPTS if settings.DISCORD_RETRY_ENABLED else 1,job_claim=(key,lease))
 
             is_canceled_terminal = raw_state in {"canceled", "cancelled", "expired", "cancel"}
             if terminal or is_canceled_terminal:
@@ -321,11 +346,11 @@ def verification_tick(settings, client_factory):
             max_recovery_delay = getattr(settings, "LONG_TERM_RECOVERY_MAX_DELAY", 300.0)
 
             cost_basis_strict = getattr(settings, "VERIFIED_COST_BASIS_COMPLETE", False)
-            if is_order_terminal and (pnl_done or not cost_basis_strict):
+            if is_order_terminal and pnl_done:
                 data["accounting_verified"] = 1 if pnl_done else 0
                 next_state = "DONE"
                 next_due = now
-            elif is_order_terminal and not pnl_done and cost_basis_strict:
+            elif is_order_terminal and not pnl_done:
                 data["accounting_verified"] = 0
                 # Order completed on exchange but financial evidence incomplete: keep PENDING for recovery
                 staged_delays = getattr(settings, "VERIFY_STAGED_DELAYS", [2.0, 5.0, 10.0, 20.0, 40.0])
@@ -377,27 +402,18 @@ def verification_tick(settings, client_factory):
                     next_due = now + 86400.0
                     enqueue_manual_review_alert(store, key, data, "long_term_recovery_disabled", settings)
 
+            from .evidence import digest
+            data['completion_receipt']=(fill.outcome_receipt if rejected_final else (pnl.financial_receipt if is_close else fill.execution_receipt)) if pnl_done else None
             with store._connect() as con:
-                con.execute("UPDATE verified_jobs SET state=?,due=?,data=? WHERE id=?",(
-                    next_state, next_due, json.dumps(data), key))
+                con.execute("UPDATE vpnl_jobs SET state=?,due=?,data=?,financial_state=?,completed=?,validation_digest=? WHERE id=? AND job_lease=?",(
+                    next_state,next_due,json.dumps(data),'VERIFIED_COMPLETE' if pnl_done else 'WAIT_EVIDENCE',now if next_state=='DONE' else None,digest(data) if pnl_done else None,key,lease))
         except Exception as exc:
             warning("fill_verification_failed")
-            logger.warning(f"verified_alerts: fill_verification_failed (stage=verification_tick, job_key={identity(key, 'diag')[:8]}, exc={type(exc).__name__})")
+            logger.warning("verified_alerts: verification_failed_safe")
             now = time.time()
-            raw_data = data if data is not None else None
+            raw_data = data
             if raw_data is None:
-                try:
-                    loaded = json.loads(encoded)
-                    if isinstance(loaded, dict):
-                        raw_data = loaded
-                except Exception:
-                    pass
-            if raw_data is None:
-                logger.warning("verified_alerts: malformed_pending_job_quarantined")
-                with store._connect() as con:
-                    con.execute("CREATE TABLE IF NOT EXISTS verified_quarantine (id TEXT PRIMARY KEY, reason TEXT, payload TEXT)")
-                    con.execute("INSERT OR REPLACE INTO verified_quarantine (id, reason, payload) VALUES (?, ?, ?)", (key, "malformed_json", str(encoded)[:200]))
-                    con.execute("UPDATE verified_jobs SET state='QUARANTINED', due=? WHERE id=?", (now + 86400.0, key))
+                with store._connect() as con:store._quarantine_job(con,key,encoded)
                 continue
             if now-created>=settings.FILL_VERIFICATION_TIMEOUT_SEC:
                 try:
@@ -451,32 +467,23 @@ def verification_tick(settings, client_factory):
                 delay = min(60.0, 10.0 * (2 ** min(attempts, 3)))
             saved_data = json.dumps(raw_data) if raw_data is not None else encoded
             with store._connect() as con:
-                con.execute("UPDATE verified_jobs SET state=?,due=?,data=? WHERE id=?",(next_st, now+delay, saved_data, key))
+                con.execute("UPDATE vpnl_jobs SET state=?,due=?,data=? WHERE id=? AND job_lease=?",(next_st, now+delay, saved_data, key,lease))
 
 
 def flush_outbox(settings):
     store=NotificationOutboxStore(settings.VERIFIED_NOTIFICATIONS_DB_PATH)
     store.recover()
-    retry_on_5xx = bool(getattr(settings, "DISCORD_RETRY_ON_5XX", False))
-    for item in store.get_pending(limit=20):
-        key=item["event_id"]
-        if not store.claim(key): continue
-        sender=DiscordSender(settings.DISCORD_WEBHOOK_URL, retry_on_5xx=retry_on_5xx)
+    for _ in range(20):
+        claim=store.claim_next()
+        if claim is None:break
+        if not store.begin_post(claim):continue
+        sender=DiscordSender(settings.DISCORD_WEBHOOK_URL,retry_on_5xx=False)
         try:
-            success,error,delay=sender.send_payload(NotificationPayload(**item["payload"]))
-            if success:
-                store.mark_sent(key,sender.message_id)
-                logger.info("verified_alerts: discord_sent")
-            elif error=="delivery_unknown" or str(error or "").startswith("delivery_unknown"):
-                store.hold_unknown(key); warning("discord_delivery_unknown")
-            else:
-                permanent=delay is None or not settings.DISCORD_RETRY_ENABLED
-                backoff=delay if delay is not None and "429" in (error or "") else random.uniform(0,min(60,2**item["attempts"]))
-                store.mark_failed(key,error or "send_failed",terminal=permanent,delay=backoff)
-                warning("discord_failed" if permanent else "discord_retry_scheduled")
+            success,error,delay=sender.send_frozen(claim['wire'])
+            store.ack(claim,success,sender.message_id,error,delay)
         except Exception:
-            store.hold_unknown(key)
-            warning("discord_delivery_unknown")
+            store.ack(claim,False,error='delivery_unknown')
+            warning('discord_delivery_unknown')
 
 
 class ReadClients:

@@ -67,12 +67,18 @@ class VerifiedTrade(BaseModel):
 class VerifiedFill(BaseModel):
     account_id: str = "default"
     market_type: str = "unknown"
+    execution_role: Optional[str] = None
     fees_complete: bool = False
     accounting_basis: str = "unknown"
     pnl_includes_entry_fee: bool = False
     pnl_includes_exit_fee: bool = False
     pnl_includes_funding: bool = False
     verified_order_type: Optional[str] = None
+    execution_receipt: Optional[Dict[str, Any]] = None
+    accounting_receipt: Optional[Dict[str, Any]] = None
+    financial_receipt: Optional[Dict[str, Any]] = None
+    outcome_receipt: Optional[Dict[str, Any]] = None
+    scope_data: Optional[Dict[str, Any]] = None
     raw_data: Optional[Dict[str, Any]] = None
     exchange: str
     symbol: str
@@ -113,6 +119,7 @@ class PnlCalculationResult(BaseModel):
     is_roi_estimated: bool = False
     pnl_currency: str = "USDT"
     verification_status: VerificationStatus = VerificationStatus.UNVERIFIED
+    financial_receipt: Optional[Dict[str, Any]] = None
     source: str = "UNVERIFIED"
     notes: List[str] = []
     cost_basis: Optional[Decimal] = None
@@ -126,6 +133,9 @@ class PnlCalculationResult(BaseModel):
 
 
 class NotificationPayload(BaseModel):
+    execution_receipt: Optional[Dict[str, Any]] = None
+    financial_receipt: Optional[Dict[str, Any]] = None
+    outcome_receipt: Optional[Dict[str, Any]] = None
     event_type: str = "final"
     event_version: int = 2
     fee_breakdown: Optional[str] = None

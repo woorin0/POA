@@ -1,4 +1,4 @@
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, localcontext
 import threading
 from .models import VerifiedFill, VerifiedTrade, FillStatus, VerificationStatus
 
@@ -15,7 +15,7 @@ def configure_concurrency(max_concurrency: int = 2):
 def to_decimal(value):
     try:
         result = Decimal(str(value))
-        return result if result.is_finite() else None
+        return result if result.is_finite() and len(result.as_tuple().digits)<=128 and abs(result.as_tuple().exponent)<=128 else None
     except (InvalidOperation, TypeError, ValueError):
         return None
 
@@ -24,7 +24,7 @@ class FillVerifier:
     def __init__(self, timeout_sec=30):
         self.timeout_sec = timeout_sec
 
-    def verify_order_result(self, bot, exchange_name, symbol, order_result, order_info):
+    def verify_order_result(self, bot, exchange_name, symbol, order_result, order_info, evidence_context=None):
         data = order_result if isinstance(order_result, dict) else {}
         fill = self._parse_order_dict(exchange_name, symbol, data, order_info)
         if bot is not None:
@@ -32,6 +32,9 @@ class FillVerifier:
             cid = str(data.get("clientOrderId") or data.get("identifier") or "")
             fetched = self._fetch_verified_order(bot, exchange_name, symbol, oid, cid, order_info)
             if fetched is not None:
+                if evidence_context is not None:
+                    self._certify_execution(fetched,evidence_context,bot.client,order_info)
+                    self._certify_outcome(fetched,evidence_context,bot.client)
                 return fetched
         return fill
 
@@ -281,3 +284,101 @@ class FillVerifier:
         fill.source = "EXCHANGE_REST_QUERY"
         fill.verified_order_type = data.get("type") or data.get("ord_type")
         return fill
+
+    def _certify_execution(self, fill, context, client, info):
+        with localcontext() as arithmetic:
+            arithmetic.prec=512
+            return self._certify_execution_precise(fill,context,client,info)
+
+    def _certify_execution_precise(self, fill, context, client, info):
+        from .evidence import ObservationContext,strict_object,fill_facts,canonical
+        if not isinstance(context,ObservationContext) or context.client is not client: return
+        try:
+            scope=strict_object(context.scope_json)
+            required={'exchange','account','market_type','symbol','instrument','settlement','contract_size','position_side','position_cycle','book'}
+            if not required <= set(scope) or any(scope[k] in (None,'') for k in required): return
+            if any(str(scope[k])!=str(getattr(fill,k)) for k in ('exchange','market_type','symbol','position_side')): return
+            if scope['settlement']!=fill.pnl_currency or Decimal(str(scope['contract_size']))!=fill.contract_size: return
+            if fill.trades_complete is not True or fill.verification_status!=VerificationStatus.VERIFIED: return
+            if not fill.order_id or not fill.trades or fill.filled_quantity<=0: return
+            raw=fill.raw_data or {};raw_trades=raw.get('trades')
+            if raw.get('symbol')!=fill.symbol:return
+            market=client.market(fill.symbol)
+            if not isinstance(market,dict) or market.get('id')!=scope['instrument'] or market.get('symbol')!=fill.symbol:return
+            if fill.market_type=='spot' and market.get('spot') is not True:return
+            if fill.market_type!='spot' and market.get('linear') is not True:return
+            if not isinstance(raw_trades,list) or len(raw_trades)!=len(fill.trades): return
+            if any(str(t.get('order') or '')!=str(fill.order_id) for t in raw_trades): return
+            if len({t.id for t in fill.trades})!=len(fill.trades): return
+            q=sum((t.amount for t in fill.trades),Decimal(0))
+            if q!=fill.filled_quantity: return
+            if sum((t.price*t.amount for t in fill.trades),Decimal(0))/q!=fill.average_fill_price: return
+            totals={}
+            for t in fill.trades:
+                if t.fee is None or not t.fee.is_finite() or not t.fee_currency or t.timestamp is None: return
+                totals[t.fee_currency]=totals.get(t.fee_currency,Decimal(0))+t.fee
+            representations=[]
+            fee=raw.get('fee')
+            if fee is not None:
+                if not isinstance(fee,dict) or fee.get('cost') is None or not fee.get('currency'): return
+                representations.append({fee['currency']:Decimal(str(fee['cost']))})
+            if raw.get('fees') is not None:
+                if not isinstance(raw['fees'],list): return
+                grouped={}
+                for f in raw['fees']:
+                    if not isinstance(f,dict) or f.get('cost') is None or not f.get('currency'): return
+                    grouped[f['currency']]=grouped.get(f['currency'],Decimal(0))+Decimal(str(f['cost']))
+                if grouped: representations.append(grouped)
+            if raw.get('paid_fee') is not None: representations.append({fill.pnl_currency:Decimal(str(raw['paid_fee']))})
+            if context.fee_policy!='EXACT_SAME_ORDER_V1' or any(x!=totals for x in representations): return
+            actual_side=str(raw.get('side') or '').lower()
+            expected_side='buy' if getattr(info,'is_buy',False) else 'sell'
+            if actual_side!=expected_side: return
+            fill.fees=totals
+            fill.fees_complete=True
+            fill.execution_role='CLOSE' if (getattr(info,'is_close',False) or (not getattr(info,'is_futures',False) and getattr(info,'is_sell',False))) else 'ENTRY'
+            fill.scope_data=scope
+            fill.execution_receipt=context.authority._attest('EXECUTION',{'scope':scope,'fill':fill_facts(fill)})
+        except (ValueError,TypeError,KeyError,ArithmeticError):
+            return
+
+    def certify_allocation(self, fill, context, plan):
+        from .evidence import verify,execution_valid,canonical
+        if context is None or not execution_valid(fill,fill.scope_data): return None
+        history=context.history_receipt
+        if not verify(history,'HISTORY'): return None
+        if canonical(history['body'].get('scope'))!=canonical(fill.scope_data): return None
+        if history['body'].get('opening_quantity')!='0' or history['body'].get('complete') is not True: return None
+        # The plan is rebuilt from immutable, signed executions by ledger before certification.
+        from .ledger import allocation_plan
+        checked=allocation_plan(plan['records'],fill,history)
+        if checked is None or canonical(checked)!=canonical({k:v for k,v in plan.items() if k!='records'}): return None
+        receipt=context.authority._attest('ACCOUNTING',checked)
+        fill.accounting_receipt=receipt
+        return receipt
+
+    def certify_financial_result(self, fill, info, result, context):
+        from .evidence import verify,digest,fill_facts
+        if context is None or not verify(fill.accounting_receipt,'ACCOUNTING'): return None
+        body=fill.accounting_receipt['body']
+        from .pnl_calculator import PnlCalculator
+        expected=PnlCalculator().calculate_pnl(fill,info,entry_price=Decimal(body['entry_price']),allocated_entry_fee=Decimal(body['entry_fee']),allocated_funding=Decimal(0) if fill.market_type=='spot' else None,allocated_margin=Decimal(body['cost_basis']))
+        if result.dict(exclude={'financial_receipt'})!=expected.dict(exclude={'financial_receipt'}): return None
+        if result.net_realized_pnl is None or result.verification_status!=VerificationStatus.VERIFIED: return None
+        facts={'scope':fill.scope_data,'order_id':fill.order_id,'execution_digest':digest(fill.execution_receipt['body']),'accounting_digest':digest(body),'fill':fill_facts(fill),'result':result.dict(exclude={'financial_receipt'})}
+        result.financial_receipt=context.authority._attest('FINANCIAL',facts)
+        return result.financial_receipt
+
+    def _certify_outcome(self,fill,context,client):
+        from .evidence import ObservationContext,strict_object
+        if not isinstance(context,ObservationContext) or context.client is not client or not context.rejection_codes:return
+        raw=fill.raw_data or {};code=str((raw.get('info') or {}).get('code') or '')
+        reason=context.rejection_codes.get(code)
+        if reason not in {'INSUFFICIENT_BALANCE','ORDER_REJECTED'}:return
+        if str(raw.get('status') or '').lower()!='rejected' or to_decimal(raw.get('filled'))!=Decimal(0):return
+        scope=strict_object(context.scope_json)
+        if scope.get('exchange')!=fill.exchange or scope.get('symbol')!=fill.symbol or str(raw.get('id'))!=fill.order_id:return
+        if raw.get('symbol')!=fill.symbol:return
+        market=client.market(fill.symbol)
+        if not isinstance(market,dict) or market.get('id')!=scope.get('instrument') or market.get('symbol')!=fill.symbol:return
+        fill.outcome_receipt=context.authority._attest('OUTCOME',{'scope':scope,'order_id':fill.order_id,'outcome':'REJECTED_FINAL','filled_qty':'0','reason':reason})

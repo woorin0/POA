@@ -1020,6 +1020,10 @@ def _evaluate_verification_states(
         and roi_d is not None
     )
 
+    from exchange.verified_pnl.evidence import payload_fill_valid,payload_valid
+    fill_verified = fill_verified and payload_fill_valid(payload)
+    pnl_verified = pnl_verified and payload_valid(payload)
+    roi_verified = roi_verified and pnl_verified
     return fill_verified, pnl_verified, roi_verified, net_pnl_d, roi_d
 
 
@@ -1146,11 +1150,14 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
     )
     fill_is_unverified = not fill_is_verified
 
-    has_explicit_rejection = has_err_text and not is_err_ambig
+    from exchange.verified_pnl.evidence import payload_fill_valid,outcome_rejected
+    fill_is_verified = fill_is_verified and payload_fill_valid(payload)
+    has_explicit_rejection = outcome_rejected(payload)
+    fill_is_unverified = not fill_is_verified
     has_verified_partial_fill = fill_is_verified and has_partial_fill
 
     is_verified_zero_fill = (
-        fill_is_verified
+        has_explicit_rejection
         and filled_d is not None
         and filled_d == Decimal("0")
         and fill_src not in ("LOCAL_DB", "LOCAL_CACHE", "CONFIG_LOADER", "LOCAL_ESTIMATE", "UNVERIFIED", "")
@@ -1551,6 +1558,9 @@ def build_error_embed(
     err_text = error
     has_err_text = bool(err_text is not None and str(err_text).strip() != "")
     _, is_ambiguous, safe_reason = classify_error_code(err_text, has_order_context=has_order)
+    from exchange.verified_pnl.evidence import outcome_rejected
+    if has_order:
+        is_ambiguous=not outcome_rejected(order_info)
     kst_str = format_kst_full(timestamp if timestamp is not None else datetime.now(timezone.utc).timestamp())
 
     if order_info is not None:
@@ -1606,8 +1616,10 @@ def build_error_embed(
             v_status is not None
             and (v_status == VerificationStatus.VERIFIED or str(getattr(v_status, "value", v_status)).upper() == "VERIFIED")
         )
+        from exchange.verified_pnl.evidence import payload_fill_valid
+        is_verified = is_verified and payload_fill_valid(order_info)
         is_verified_zero_fill = (
-            is_verified
+            outcome_rejected(order_info)
             and filled_d is not None
             and filled_d == Decimal("0")
         )

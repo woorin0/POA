@@ -1,247 +1,126 @@
-import json
-from decimal import Decimal
-from typing import Optional, Tuple
-import hashlib
-from .models import VerifiedFill, VerifiedTrade, VerificationStatus, FillStatus
-
+"""Signed execution ledger. Legacy rows never acquire trust by adding metadata."""
+import json,hashlib
+from decimal import Decimal,localcontext
+from .evidence import canonical,digest,verify,execution_valid
 
 def identity(*parts):
-    return hashlib.sha256(json.dumps(parts, ensure_ascii=True, separators=(",", ":")).encode()).hexdigest()
-
+    return hashlib.sha256(json.dumps(parts,ensure_ascii=True,separators=(',',':')).encode()).hexdigest()
 
 def ensure_quarantine_schema(con):
-    tbl = con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='verified_quarantine'").fetchone()
-    if not tbl:
-        con.execute("CREATE TABLE verified_quarantine (id TEXT PRIMARY KEY, reason TEXT, payload TEXT)")
-        return
-    cols = [r[1] for r in con.execute("PRAGMA table_info(verified_quarantine)").fetchall()]
-    if "id" not in cols and "scope" in cols:
-        con.execute("ALTER TABLE verified_quarantine RENAME TO verified_quarantine_legacy")
-        con.execute("CREATE TABLE verified_quarantine (id TEXT PRIMARY KEY, reason TEXT, payload TEXT)")
-        con.execute("INSERT OR REPLACE INTO verified_quarantine (id, reason, payload) SELECT scope, reason, json_object('migrated_from', 'scope') FROM verified_quarantine_legacy")
-        con.execute("DROP TABLE verified_quarantine_legacy")
+    # Legacy quarantine is left intact, including the older scope/reason schema.
+    con.execute('CREATE TABLE IF NOT EXISTS vpnl_quarantine(id TEXT PRIMARY KEY,scope TEXT,reason TEXT,source_ref TEXT,resolved INTEGER NOT NULL DEFAULT 0)')
 
+def allocation_plan(records,fill,history):
+    with localcontext() as arithmetic:
+        arithmetic.prec=512
+        return _allocation_plan(records,fill,history)
 
-def allocate(store, fill, info, account, history_complete=False):
-    from .verifier import to_decimal
-    is_close = bool(
-        getattr(info, "is_close", False)
-        or getattr(info, "is_sell", False)
-        or str(getattr(info, "side", "")).lower() in ("sell", "매도", "숏 진입", "롱 종료", "숏 종료")
-    )
-    v_st = str(getattr(getattr(fill, "verification_status", None), "value", getattr(fill, "verification_status", None)) or "").upper()
-    is_verified = (v_st == "VERIFIED")
-    src = str(getattr(fill, "source", None) or "").upper()
-    trades_complete = getattr(fill, "trades_complete", None)
-
-    # Ingress Gate for entries and closes:
-    # Entries strictly require explicitly confirmed completeness (trades_complete is True).
-    # Closes require completeness not to be explicitly False and trades matching quantity.
-    TRUSTED_SOURCES = {"EXCHANGE_REST_QUERY", "ORDER_RESULT", "UPBIT_ORDER_QUERY", "REST_FETCH"}
-    if not is_close:
-        if trades_complete is not True:
-            return None, None
-    else:
-        if trades_complete is False:
-            return None, None
-    if not is_verified:
-        return None, None
-    if not fill.order_id or not fill.filled_quantity:
-        return None, None
-
-    # Validate raw exchange receipt structure if present
-    raw_data = getattr(fill, "raw_data", None)
-    raw_info = getattr(fill, "raw_info", None)
-    raw_obj = raw_data if (raw_data is not None and isinstance(raw_data, dict)) else (raw_info if (raw_info is not None and isinstance(raw_info, dict)) else None)
-    if raw_obj is not None:
-        RECEIPT_KEYS = {"id", "uuid", "orderId", "order_id", "status", "state", "executedQty", "filled", "trades", "fee", "price", "avg_price", "average", "cost"}
-        if not any(k in raw_obj for k in RECEIPT_KEYS):
-            return None, None
-        # Contradictory raw summary validation
-        raw_filled = to_decimal(raw_obj.get("filled") if raw_obj.get("filled") is not None else raw_obj.get("executedQty"))
-        if raw_filled is not None and abs(raw_filled - Decimal(str(fill.filled_quantity))) > Decimal("1e-8"):
-            return None, None
-        raw_avg = to_decimal(raw_obj.get("average") if raw_obj.get("average") is not None else raw_obj.get("avg_price"))
-        if raw_avg is not None and raw_avg > 0 and getattr(fill, "average_fill_price", None) is not None:
-            if abs(raw_avg - Decimal(str(fill.average_fill_price))) > Decimal("1e-8"):
-                return None, None
-
-    if src and src not in TRUSTED_SOURCES:
-        return None, None
-    if not src:
-        src = "ORDER_RESULT" if is_verified else "UNKNOWN"
-        if src not in TRUSTED_SOURCES:
-            return None, None
-
-    trades = getattr(fill, "trades", [])
-    if not trades:
-        return None, None
-    fill_oid = str(getattr(fill, "order_id", "") or "")
-    for t in trades:
-        if isinstance(t, dict):
-            t_oid = str(t.get("order") or t.get("order_id") or "")
-            raw_t_src = t.get("source")
+def _allocation_plan(records,fill,history):
+    scope=fill.scope_data
+    # Futures require separate proven contract/margin/funding allocation adapters.
+    if scope.get('market_type')!='spot' or Decimal(str(scope.get('contract_size',0)))!=1:return None
+    if not verify(history,'HISTORY') or canonical(history['body'].get('scope'))!=canonical(scope): return None
+    h=history['body']
+    if h.get('opening_quantity')!='0' or h.get('complete') is not True or h.get('nontrade_inventory_delta')!='0':return None
+    if not isinstance(h.get('orders'),list) or not isinstance(h.get('through'),(int,float)) or fill.fill_timestamp is None or h['through']<fill.fill_timestamp:return None
+    try:
+        expected={x['order_id']:set(x['trade_ids']) for x in h['orders'] if x['last_timestamp']<=fill.fill_timestamp}
+        if len({x['order_id'] for x in h['orders']})!=len(h['orders']):return None
+        records=[x for x in records if max(t['timestamp'] for t in x['fill']['trades'])<=fill.fill_timestamp]
+        actual={x['fill']['order_id']:{t['id'] for t in x['fill']['trades']} for x in records}
+        if actual!=expected:return None
+    except (KeyError,TypeError,ValueError):return None
+    qty=cost=fees=allocated=allocated_cost=allocated_fee=Decimal(0)
+    rows=[];seen=set();books=set()
+    for r in records:
+        if not verify(r['receipt'],'EXECUTION'): return None
+        b=r['receipt']['body'];f=b['fill']
+        if canonical(b['scope'])!=canonical(scope) or canonical(r['fill'])!=canonical(f): return None
+        books.add(b['scope']['book'])
+        for t in f['trades']:
+            key=t['id']
+            if key in seen: return None
+            seen.add(key)
+            if t.get('timestamp') is None or t.get('fee') is None or t.get('fee_currency')!=fill.pnl_currency: return None
+            rows.append((t['timestamp'],t['id'],f,t))
+    if len(books)!=1:return None
+    for _,_,f,t in sorted(rows,key=lambda x:(x[0],x[1])):
+        n,p,fee=Decimal(str(t['amount'])),Decimal(str(t['price'])),Decimal(str(t['fee']))
+        if min(n,p)<=0 or not all(x.is_finite() for x in (n,p,fee)): return None
+        close=f.get('execution_role')=='CLOSE'
+        if f.get('execution_role') not in ('CLOSE','ENTRY'):return None
+        if not close:qty+=n;cost+=n*p;fees+=fee
         else:
-            t_oid = str(getattr(t, "order", None) or getattr(t, "order_id", None) or "")
-            raw_t_src = getattr(t, "source", None)
-        # R9-F02: Trade executions cannot be fabricated using pure order-result tags without raw receipt
-        if raw_t_src == "ORDER_RESULT" and raw_obj is None:
-            return None, None
-        if t_oid and fill_oid and t_oid != fill_oid:
-            return None, None
-        t_src = str(raw_t_src or src)
-        if t_src not in TRUSTED_SOURCES:
-            return None, None
+            if qty<n:return None
+            share=n/qty;pc=cost*share;pf=fees*share
+            if f['order_id']==fill.order_id:allocated+=n;allocated_cost+=pc;allocated_fee+=pf
+            qty-=n;cost-=pc;fees-=pf
+    if allocated!=fill.filled_quantity or allocated<=0:return None
+    basis=allocated_cost+allocated_fee
+    if basis<=0:return None
+    return {'scope':scope,'order_id':fill.order_id,'executions':sorted(digest(x['receipt']['body']) for x in records),'history_digest':digest(history['body']),'entry_price':str(allocated_cost/allocated),'entry_fee':str(allocated_fee),'cost_basis':str(basis),'currency':fill.pnl_currency}
 
-    for rt in (raw_obj or {}).get("trades", []):
-        if isinstance(rt, dict):
-            r_ord = rt.get("order") or rt.get("uuid")
-            if r_ord and fill_oid and str(r_ord) != fill_oid:
-                return None, None
-            r_src = str(rt.get("source") or "")
-            if r_src and r_src not in TRUSTED_SOURCES:
-                return None, None
-
-    # Fee Reconciliation (R9-F01): Strict exact equality; no arbitrary epsilon or sign flip
-    order_fee_dict = (raw_obj or {}).get("fee") or {}
-    order_fee_val = to_decimal(order_fee_dict.get("cost") if isinstance(order_fee_dict, dict) else None)
-    if order_fee_val is None:
-        order_fee_val = to_decimal((raw_obj or {}).get("paid_fee"))
-    order_fee_ccy = str(order_fee_dict.get("currency") or "").upper() if isinstance(order_fee_dict, dict) else ""
-
-    if trades:
-        trade_fee_sum = Decimal(0)
-        trade_currencies = set()
-        has_trade_fees = False
-        for t in trades:
-            f_val = to_decimal(t.get("fee") if isinstance(t, dict) else getattr(t, "fee", None))
-            if f_val is not None:
-                has_trade_fees = True
-                trade_fee_sum += f_val
-            c_val = str((t.get("fee_currency") if isinstance(t, dict) else getattr(t, "fee_currency", None)) or "").upper()
-            if c_val:
-                trade_currencies.add(c_val)
-
-        if order_fee_val is not None and has_trade_fees:
-            if order_fee_ccy and trade_currencies and any(c != order_fee_ccy for c in trade_currencies):
-                return None, None
-            if order_fee_val != trade_fee_sum:
-                return None, None
-        elif order_fee_val is not None and not has_trade_fees and order_fee_val > Decimal(0):
-            return None, None
-
-    trade_sum = sum((Decimal(str(t.amount)) for t in trades), Decimal("0"))
-    if abs(trade_sum - Decimal(str(fill.filled_quantity))) > Decimal("0.00000001"):
-        return None, None
-
-    # VWAP check if average_fill_price is present
-    if getattr(fill, "average_fill_price", None) is not None and trade_sum > 0:
-        trades_vwap = sum((Decimal(str(t.price)) * Decimal(str(t.amount)) for t in trades), Decimal("0")) / trade_sum
-        if abs(trades_vwap - Decimal(str(fill.average_fill_price))) > Decimal("0.00000001"):
-            return None, None
-
-    scope = identity(fill.exchange, account, fill.market_type, fill.symbol, fill.position_side)
+def allocate(store,fill,info,account,history_complete=False,evidence_context=None):
+    scope=fill.scope_data
+    if not scope or scope.get('account')!=account or not execution_valid(fill,scope):return None,None
+    scope_id=digest(scope);close=bool(getattr(info,'is_close',False) or (not getattr(info,'is_futures',False) and getattr(info,'is_sell',False)))
+    record={'fill':fill.execution_receipt['body']['fill'],'receipt':fill.execution_receipt,'close':close}
     with store._connect() as con:
         ensure_quarantine_schema(con)
-        if con.execute("SELECT 1 FROM verified_quarantine WHERE id=?", (scope,)).fetchone():
-            return None, None
-
-        # Batch pre-validation: check for conflicts across all trades before inserting any
-        conflict_detected = False
-        items_to_insert = []
-        trades_to_process = list(trades)
-        for trade in trades_to_process:
-            key = identity(scope, trade.id)
-            t_dict = json.loads(json.dumps(trade.dict(), default=str))
-            if t_dict.get("cost") is None:
-                try:
-                    t_dict["cost"] = str(Decimal(str(t_dict.get("price"))) * Decimal(str(t_dict.get("amount"))))
-                except Exception:
-                    pass
-            t_dict["order"] = str(getattr(trade, "order", None) or getattr(trade, "order_id", None) or fill.order_id)
-            src_val = getattr(trade, "source", None) or getattr(fill, "source", None) or ("ORDER_RESULT" if is_verified else "UNKNOWN")
-            t_dict["source"] = str(src_val)
-
-            # Generate structured verifiable evidence receipt
-            evidence_receipt = identity("VERIFIED_EVIDENCE_V3", scope, fill.order_id, t_dict["id"], str(t_dict.get("price")), str(t_dict.get("amount")), str(t_dict.get("timestamp")))
-            value = dict(
-                order=fill.order_id,
-                strategy=getattr(info, "strategy_id", None),
-                close=is_close,
-                version=2,
-                verified=bool(is_verified),
-                source=src_val,
-                evidence_receipt=evidence_receipt,
-                trade=t_dict,
-            )
-            encoded = json.dumps(value, sort_keys=True)
-            existing = con.execute("SELECT data FROM verified_trades WHERE id=?", (key,)).fetchone()
-            if existing:
-                existing_val = json.loads(existing[0])
-                if existing_val != value:
-                    conflict_detected = True
-                    break
-            items_to_insert.append((key, scope, encoded))
-
-        if conflict_detected:
-            # Quarantine the entire scope and do NOT commit any trade from this batch
-            con.execute("INSERT OR REPLACE INTO verified_quarantine (id, reason, payload) VALUES (?,?,?)", (scope, "conflicting_trade_id", json.dumps([t.id for t in trades_to_process])))
-            return None, None
-
-        # Insert all trades in batch atomically
-        con.executemany("INSERT OR REPLACE INTO verified_trades VALUES (?,?,?)", items_to_insert)
-
-    if not is_close: return None,None
+        con.execute('CREATE TABLE IF NOT EXISTS vpnl_ledger_entries(id TEXT PRIMARY KEY,scope TEXT NOT NULL,order_id TEXT NOT NULL,data TEXT NOT NULL)')
+        if con.execute("SELECT 1 FROM vpnl_quarantine WHERE scope=? AND resolved=0 AND reason!='legacy_unproven' LIMIT 1",(scope_id,)).fetchone():return None,None
+        # Existing unproved history must not silently enter the trusted ledger.
+        old_scope=identity(fill.exchange,account,fill.market_type,fill.symbol,fill.position_side)
+        legacy=con.execute('SELECT id FROM verified_trades WHERE scope=? LIMIT 1',(old_scope,)).fetchone()
+        if legacy:
+            con.execute('INSERT OR IGNORE INTO vpnl_quarantine VALUES(?,?,?,?,0)',(identity('legacy',old_scope),scope_id,'legacy_unproven',legacy[0]))
+        key=digest([scope_id,fill.order_id,fill.execution_receipt['body']]);encoded=canonical(record)
+        previous=con.execute('SELECT data FROM vpnl_ledger_entries WHERE scope=? AND order_id=? ORDER BY rowid DESC LIMIT 1',(scope_id,fill.order_id)).fetchone()
+        compatible=True
+        if previous:
+            prior=json.loads(previous[0])['fill'];old_trades={x['id']:x for x in prior['trades']};new_trades={x['id']:x for x in record['fill']['trades']}
+            if Decimal(str(record['fill']['filled_quantity']))<Decimal(str(prior['filled_quantity'])):return None,None
+            compatible=all(k in new_trades and canonical(new_trades[k])==canonical(v) for k,v in old_trades.items())
+        if not compatible:
+            con.execute('INSERT OR IGNORE INTO vpnl_quarantine VALUES(?,?,?,?,0)',(identity('conflict',key),scope_id,'execution_conflict',key));return None,None
+        con.execute('INSERT OR IGNORE INTO vpnl_ledger_entries VALUES(?,?,?,?)',(key,scope_id,fill.order_id,encoded))
+    if not close or history_complete is not True or evidence_context is None:return None,None
+    records=[];cursor=0
     with store._connect_read() as con:
-        rows = [json.loads(x[0]) for x in con.execute("SELECT data FROM verified_trades WHERE scope=?",(scope,)).fetchall()]
-    if len({r["strategy"] for r in rows}) != 1: return None,None
-    if any(r["trade"]["timestamp"] is None for r in rows): return None,None
-
-    # Check that all rows have verified provenance and structured evidence (reject unproven rows without ID heuristics)
-    for r in rows:
-        if r.get("version") != 2 or not r.get("verified") or r.get("quarantined"):
-            return None, None
-        t_data = r.get("trade") or {}
-        if not r.get("evidence_receipt") or t_data.get("cost") is None:
-            return None, None
-        t_ord = t_data.get("order") or t_data.get("order_id")
-        if not t_ord or str(t_ord) != str(r.get("order")):
-            return None, None
-
-    sorted_trades = sorted(rows, key=lambda x: (x["trade"]["timestamp"], x["trade"]["id"]))
-    qty = cost = fees = Decimal(0)
-    fees_known = True
-    allocated_qty = allocated_cost = allocated_fee = Decimal(0)
-    allocation_known = True
-    for row in sorted_trades:
-        t = row["trade"]
-        n, p = Decimal(str(t["amount"])), Decimal(str(t["price"]))
-        fee = Decimal(str(t["fee"])) if t.get("fee") is not None and t.get("fee_currency") == fill.pnl_currency else None
-        if not row["close"]:
-            qty += n
-            cost += n * p
-            if fee is None:
-                fees_known = False
-            else:
-                fees += fee
-        else:
-            if qty < n or qty <= 0:
-                return None, None
-            share = n / qty
-            matched_cost, matched_fee = cost * share, fees * share
-            if row["order"] == fill.order_id:
-                allocated_qty += n
-                allocated_cost += matched_cost
-                allocated_fee += matched_fee
-                allocation_known &= fees_known
-            qty -= n
-            cost -= matched_cost
-            fees -= matched_fee
-            if qty == 0:
-                fees_known = True
-
-    if allocated_qty != Decimal(str(fill.filled_quantity)):
-        return None, None
-    if not allocation_known or allocated_qty <= 0:
-        return None, None
-    return allocated_cost / allocated_qty, allocated_fee if allocation_known else None
+        while True:
+            batch=con.execute('SELECT rowid,data FROM vpnl_ledger_entries WHERE scope=? AND rowid>? ORDER BY rowid LIMIT 40',(scope_id,cursor)).fetchall()
+            if not batch:break
+            records.extend(json.loads(x[1]) for x in batch);cursor=batch[-1][0]
+    latest={}
+    for candidate in records:
+        oid=candidate['fill']['order_id'];old=latest.get(oid)
+        if old is None or Decimal(str(candidate['fill']['filled_quantity']))>=Decimal(str(old['fill']['filled_quantity'])):latest[oid]=candidate
+    records=list(latest.values())
+    legacy_sources=[]
+    if legacy:
+        cursor=''
+        with store._connect_read() as con:
+            while True:
+                old_rows=con.execute('SELECT id,data,rowid FROM verified_trades WHERE scope=? AND id>? ORDER BY id LIMIT 40',(old_scope,cursor)).fetchall()
+                if not old_rows:break
+                for old_id,raw,source_row in old_rows:
+                    legacy_sources.append(source_row)
+                    try:oid=json.loads(raw)['order']
+                    except (ValueError,TypeError,KeyError):return None,None
+                    if oid not in latest:return None,None
+                cursor=old_rows[-1][0]
+    plan=allocation_plan(records,fill,evidence_context.history_receipt)
+    if plan is None:return None,None
+    from .verifier import FillVerifier
+    receipt=FillVerifier().certify_allocation(fill,evidence_context,dict(plan,records=records))
+    if receipt and legacy:
+        with store._connect() as con:
+            con.execute('CREATE TABLE IF NOT EXISTS vpnl_quarantine_resolutions(id TEXT PRIMARY KEY,receipt_digest TEXT NOT NULL)')
+            qid=identity('legacy',old_scope)
+            con.execute('INSERT OR IGNORE INTO vpnl_quarantine_resolutions VALUES(?,?)',(qid,digest(receipt)))
+            con.execute("UPDATE vpnl_quarantine SET resolved=1 WHERE id=? AND reason='legacy_unproven'",(qid,))
+            for source_row in legacy_sources:
+                source_id=digest(['verified_trades',source_row])
+                con.execute('INSERT OR IGNORE INTO vpnl_quarantine_resolutions VALUES(?,?)',(source_id,digest(receipt)))
+                con.execute("UPDATE vpnl_quarantine SET resolved=1 WHERE id=? AND reason='legacy_unproven'",(source_id,))
+    return (Decimal(plan['entry_price']),Decimal(plan['entry_fee'])) if receipt else (None,None)

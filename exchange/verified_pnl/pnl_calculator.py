@@ -1,10 +1,15 @@
-from decimal import Decimal
+from decimal import Decimal,localcontext
 from .models import PnlCalculationResult, VerificationStatus
 
 
 class PnlCalculator:
     def calculate_pnl(self, fill, order_info, entry_price=None, pos_leverage=None,
                       allocated_entry_fee=None, allocated_funding=None, allocated_margin=None):
+        with localcontext() as arithmetic:
+            arithmetic.prec=512
+            return self._calculate_pnl(fill,order_info,entry_price,pos_leverage,allocated_entry_fee,allocated_funding,allocated_margin)
+
+    def _calculate_pnl(self,fill,order_info,entry_price=None,pos_leverage=None,allocated_entry_fee=None,allocated_funding=None,allocated_margin=None):
         is_close = (getattr(order_info, "is_close", False) is True) or (
             (getattr(order_info, "is_futures", False) is not True) and (getattr(order_info, "is_sell", False) is True)
         )
@@ -12,6 +17,18 @@ class PnlCalculator:
             return PnlCalculationResult(source="ENTRY_ORDER")
         if fill.verification_status != VerificationStatus.VERIFIED:
             return PnlCalculationResult(source="UNVERIFIED_FILL")
+        from .evidence import execution_valid,verify
+        if not execution_valid(fill,fill.scope_data) or not verify(fill.accounting_receipt,"ACCOUNTING"):
+            return PnlCalculationResult(source="UNVERIFIED_ACCOUNTING_EVIDENCE")
+        basis=fill.accounting_receipt["body"]
+        if basis.get("scope")!=fill.scope_data or basis.get("order_id")!=fill.order_id:
+            return PnlCalculationResult(source="UNVERIFIED_ACCOUNTING_EVIDENCE")
+        if entry_price!=Decimal(basis["entry_price"]) or allocated_entry_fee!=Decimal(basis["entry_fee"]):
+            return PnlCalculationResult(source="UNVERIFIED_ACCOUNTING_EVIDENCE")
+        if allocated_margin is not None and allocated_margin!=Decimal(basis["cost_basis"]):
+            return PnlCalculationResult(source="UNVERIFIED_ACCOUNTING_EVIDENCE")
+        if fill.market_type=="spot" and allocated_funding not in (None,Decimal(0)):
+            return PnlCalculationResult(source="UNVERIFIED_FUNDING")
         ccy = fill.pnl_currency or "USDT"
         gross = fill.realized_pnl if fill.accounting_basis == "gross" else (fill.realized_pnl if fill.accounting_basis == "net" else None)
         close = fill.average_fill_price
