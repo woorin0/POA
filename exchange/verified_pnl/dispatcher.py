@@ -270,7 +270,9 @@ def verification_tick(settings, client_factory):
                 info.contract_size=market.get("contractSize")
             from .evidence import context_for
             evidence_context=context_for(info.exchange,data["account"],info,client)
-            fill=FillVerifier().verify_order_result(SimpleNamespace(client=client),info.exchange,info.unified_symbol,data["result"],info,evidence_context)
+            # No authenticated order query until the provider has bound this job account.
+            read_bot=SimpleNamespace(client=client) if evidence_context is not None else None
+            fill=FillVerifier().verify_order_result(read_bot,info.exchange,info.unified_symbol,data["result"],info,evidence_context)
             is_upbit = (info.exchange == "UPBIT")
             history_complete = settings.VERIFIED_COST_BASIS_COMPLETE and (settings.UPBIT_NET_PNL_ENABLED if is_upbit else settings.NET_REALIZED_PNL_ENABLED)
             entry,entry_fee=allocate(store,fill,info,data["account"],history_complete,evidence_context)
@@ -525,13 +527,22 @@ class ReadClients:
         return self.clients[key]
 
 
-def start_worker(settings):
+def start_worker(settings, *, execution_bootstrap=None):
     if not config_valid(settings): warning("configuration_incomplete"); return None
     if settings.EXCHANGE_NATIVE_TPSL_MONITOR:
         warning("native_tpsl_monitor_not_implemented")
+    from .bootstrap import configure_execution_bootstrap,current_bootstrap,execution_readiness
+    if execution_bootstrap is not None:
+        if not configure_execution_bootstrap(execution_bootstrap):
+            warning(execution_readiness()['execution']);return None
+    bootstrap=current_bootstrap()
+    if bootstrap is None:
+        warning('PROVIDER_NOT_CONFIGURED');return None
+    if not bootstrap.activate():
+        warning(execution_readiness()['execution']);return None
     stop=threading.Event()
     def run():
-        factory=ReadClients(settings)
+        factory=bootstrap.client_for
         # Run cleanup / recovery on startup
         try:
             init_store = NotificationOutboxStore(settings.VERIFIED_NOTIFICATIONS_DB_PATH)

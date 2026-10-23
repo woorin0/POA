@@ -61,6 +61,7 @@ class ObservationContext:
     history_receipt: Optional[dict] = None
     fee_policy: str = 'EXACT_SAME_ORDER_V1'
     rejection_codes: Optional[dict] = None
+    execution_reader: object = None
 
 class EvidenceAuthority:
     def __init__(self,key_id,private_key):

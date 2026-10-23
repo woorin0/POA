@@ -26,16 +26,38 @@ class FillVerifier:
 
     def verify_order_result(self, bot, exchange_name, symbol, order_result, order_info, evidence_context=None):
         data = order_result if isinstance(order_result, dict) else {}
-        fill = self._parse_order_dict(exchange_name, symbol, data, order_info)
+        try:fill = self._parse_order_dict(exchange_name, symbol, data, order_info)
+        except Exception:fill=VerifiedFill(exchange=exchange_name,symbol=symbol,order_id=str(data.get('id') or data.get('uuid') or ''))
+        fetched=None
         if bot is not None:
             oid = str(data.get("id") or data.get("uuid") or "")
             cid = str(data.get("clientOrderId") or data.get("identifier") or "")
-            fetched = self._fetch_verified_order(bot, exchange_name, symbol, oid, cid, order_info)
+            reader=getattr(evidence_context,'execution_reader',None)
+            if reader is not None:
+                from dataclasses import replace
+                with _VERIFY_SEMAPHORE:
+                    observed=reader.observe(oid,bot.client)
+                if observed is not None:
+                    evidence_context=replace(evidence_context,rejection_codes=observed.rejection_codes)
+                    fetched=self._parse_order_dict(exchange_name,symbol,observed.data,order_info)
+                    fetched.source='EXCHANGE_REST_QUERY'
+            else:
+                fetched = self._fetch_verified_order(bot, exchange_name, symbol, oid, cid, order_info)
             if fetched is not None:
+                fill=fetched
                 if evidence_context is not None:
-                    self._certify_execution(fetched,evidence_context,bot.client,order_info)
-                    self._certify_outcome(fetched,evidence_context,bot.client)
-                return fetched
+                    try:
+                        self._certify_execution(fill,evidence_context,bot.client,order_info)
+                        self._certify_outcome(fill,evidence_context,bot.client)
+                    except Exception:
+                        fill.execution_receipt=fill.outcome_receipt=None
+        from .evidence import execution_valid,outcome_rejected
+        verified=execution_valid(fill,fill.scope_data)
+        if not verified:
+            fill.execution_receipt=None
+            fill.verification_status=VerificationStatus.UNVERIFIED
+        reader=getattr(evidence_context,'execution_reader',None)
+        if reader is not None:reader.observed_result(verified or outcome_rejected(fill))
         return fill
 
     def _parse_order_dict(self, exchange_name, symbol, data, order_info):
