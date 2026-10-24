@@ -256,8 +256,8 @@ class NotificationOutboxStore:
         """Individual delivery only. Explicit resend may duplicate an already delivered webhook.
 
         DB state alone cannot establish whether Discord received the message.
-        Stop the old sender and inspect the existing message before approving a resend.
-        Exactly-Once delivery is not guaranteed: manual resend can duplicate it.
+        Stop the old sender. You MUST inspect the existing message before approving a resend.
+        Exactly-Once delivery cannot be guaranteed: manual resend can duplicate it.
         Approval must be exact bool True for one individual delivery with actor and CAS.
         No bulk approval is accepted; UNKNOWN/HELD never cause an automatic POST.
         """
