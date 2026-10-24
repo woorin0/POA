@@ -255,7 +255,11 @@ class NotificationOutboxStore:
     def requeue_unknown(self,event_id=None,*,confirm_duplicate_risk=False,allow_bulk=False,actor=None,expected_revision=None,expected_digest=None):
         """Individual delivery only. Explicit resend may duplicate an already delivered webhook.
 
-        A lost response cannot provide Exactly-Once delivery. No bulk approval is accepted.
+        DB state alone cannot establish whether Discord received the message.
+        Stop the old sender and inspect the existing message before approving a resend.
+        Exactly-Once delivery is not guaranteed: manual resend can duplicate it.
+        Approval must be exact bool True for one individual delivery with actor and CAS.
+        No bulk approval is accepted; UNKNOWN/HELD never cause an automatic POST.
         """
         if confirm_duplicate_risk is not True:raise ValueError('duplicate_risk_confirmation_required')
         if event_id is None or allow_bulk is not False:raise ValueError('individual_delivery_required')

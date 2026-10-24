@@ -1105,6 +1105,14 @@ def build_notification_details(payload: NotificationPayload) -> List[Dict[str, A
     return details
 
 
+def _append_unverified_financial_status(lines: List[str]) -> None:
+    """Keep execution status independent of missing financial evidence."""
+    if not any("손익:" in line and "미확정" in line for line in lines):
+        lines.append("확정손익: 미확정")
+    if not any("수익률:" in line and "미확정" in line for line in lines):
+        lines.append("수익률: 미확정")
+
+
 def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
     """
     Builds the POA v2 unified mobile-friendly Discord Embed from a NotificationPayload.
@@ -1473,6 +1481,11 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
         lines.append("⚠️ 미확정 주문 — 거래소 실제 체결 여부를 반드시 확인하세요")
         lines.append(f"🕒 {kst_str}")
 
+    if is_sell_or_close_side(payload.side):
+        from exchange.verified_pnl.evidence import payload_valid
+        if not payload_valid(payload):
+            _append_unverified_financial_status(lines)
+
     description = "\n".join(lines)
     embed = Embed(
         title=title[:256],
@@ -1671,6 +1684,8 @@ def build_error_embed(
 
         lines.append("")
         lines.append(f"🕒 {kst_str}")
+        if is_sell_or_close_side(side):
+            _append_unverified_financial_status(lines)
         embed = Embed(title=title[:256], description="\n".join(lines)[:4096], color=color)
         return enforce_embed_bounds(embed)
 
