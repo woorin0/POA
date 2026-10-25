@@ -40,6 +40,34 @@ def get_side_display(info):
     return "매수" if is_buy else "매도"
 
 
+def _host_identity_hint(info,reference,order_id):
+    """Pure lookup of an explicitly activated host binding; no REST in producer."""
+    from .bootstrap import current_bootstrap
+    from . import evidence as E
+    boot=current_bootstrap()
+    if boot is None or E._PROVIDER is not boot or not boot._key_ready():return None
+    if E.account_reference(info.get('exchange'),reference)!=boot.scope.account:return None
+    if not boot._matches(info.get('exchange'),boot.scope.account,SimpleNamespace(**info),boot.adapter.client):return None
+    scope=dict(exchange=boot.scope.exchange,account=boot.scope.account,subaccount=boot.scope.subaccount,market_type='spot',instrument=boot.scope.instrument,symbol=boot.scope.symbol,settlement=boot.scope.settlement,contract_size='1',position_side='LONG',position_cycle=boot.scope.position_cycle,book=boot.scope.book)
+    return NotificationOutboxStore.order_binding(scope,order_id,info)
+
+
+def _release_identity_jobs(store):
+    with store._connect() as c:
+        row=c.execute("SELECT cursor FROM vpnl_recovery_cursor WHERE lane='identity'").fetchone();after=row[0] if row else ''
+        batch=c.execute("SELECT id,data FROM vpnl_jobs WHERE state='HELD' AND financial_state='WAIT_IDENTITY' AND id>? ORDER BY id LIMIT 40",(after,)).fetchall()
+        if not batch:batch=c.execute("SELECT id,data FROM vpnl_jobs WHERE state='HELD' AND financial_state='WAIT_IDENTITY' ORDER BY id LIMIT 40").fetchall()
+        for key,encoded in batch:
+            try:
+                data=store.parse_job(encoded);hint=_host_identity_hint(data['info'],data.get('source_account_ref',data['account']),str(data['result'].get('id') or data['result'].get('uuid') or ''))
+                from .evidence import account_reference
+                mapped=account_reference(data['info']['exchange'],data.get('source_account_ref',data['account']))
+                from .bootstrap import current_bootstrap
+                if hint is not None or (current_bootstrap() is None and mapped is not None and mapped==data['account']):c.execute("UPDATE vpnl_jobs SET state='PENDING',due=0,financial_state='NEW' WHERE id=?",(key,))
+            except (ValueError,KeyError,TypeError):continue
+        c.execute("INSERT INTO vpnl_recovery_cursor VALUES('identity',?) ON CONFLICT(lane) DO UPDATE SET cursor=excluded.cursor",(batch[-1][0] if batch else '',))
+
+
 def dispatch_verified_alert(exchange_name, order_result, order_info, settings, bot=None):
     """Only a bounded local DB write; never calls a client or Discord here."""
     if not config_valid(settings):
@@ -78,16 +106,12 @@ def dispatch_verified_alert(exchange_name, order_result, order_info, settings, b
         from .evidence import account_reference
         legacy_account=identity(exchange_name,getattr(settings,exchange_name+"_KEY",None) or "unconfigured")
         account=account_reference(exchange_name,legacy_account) or legacy_account
-        key=identity(exchange_name,account,"linear" if info.get("is_futures") else "spot",sym,str(order_ident))
-        data=dict(info=info,result=result,account=account,recorded_at=time.time())
+        legacy_key=identity(exchange_name,legacy_account,"linear" if info.get("is_futures") else "spot",sym,str(order_ident))
+        key=identity('notification-input-v2',legacy_account,exchange_name,"linear" if info.get("is_futures") else "spot",sym,str(order_ident),NotificationOutboxStore.producer_identity(info))
+        data=dict(info=info,result=result,account=account,source_account_ref=legacy_account)
         store=NotificationOutboxStore(settings.VERIFIED_NOTIFICATIONS_DB_PATH)
-        with store._connect() as con:
-            from .migrations import require_cutover
-            require_cutover(con)
-            if con.execute("SELECT 1 FROM vpnl_job_tombstones WHERE id=?",(key,)).fetchone():return
-            inserted=con.execute("INSERT OR IGNORE INTO vpnl_jobs(id,data,state,due,created,financial_state) VALUES (?,?, 'PENDING',?,?,'NEW')",
-                        (key,json.dumps(data),time.time(),time.time())).rowcount
-        if not inserted: logger.info("verified_alerts: duplicate_job_blocked")
+        inserted=store.submit_job(key,legacy_key,data,_host_identity_hint(info,legacy_account,str(result.get('id') or '')))
+        if not inserted:logger.info('verified_alerts: duplicate_job_blocked')
     except Exception:
         warning("job_persistence_failed")
 
@@ -247,6 +271,10 @@ def verification_tick(settings, client_factory):
         configure_concurrency(getattr(settings, "VERIFY_MAX_CONCURRENCY", 2))
     store=NotificationOutboxStore(settings.VERIFIED_NOTIFICATIONS_DB_PATH)
     store.recover()
+    from .history import recover_consumers,recover_consumer_actions
+    recover_consumers(store)
+    recover_consumer_actions(store)
+    _release_identity_jobs(store)
     from .history import refresh_dependencies
     refresh_dependencies(store,client_factory)
     jobs=store.ready_jobs(20)
@@ -276,7 +304,7 @@ def verification_tick(settings, client_factory):
             read_bot=SimpleNamespace(client=client) if evidence_context is not None else None
             fill=FillVerifier().verify_order_result(read_bot,info.exchange,info.unified_symbol,data["result"],info,evidence_context)
             from .history import attach_history,register_dependency,record_published_withdrawal
-            evidence_context=attach_history(store,fill,info,evidence_context)
+            evidence_context=attach_history(store,fill,info,evidence_context,job_id=key)
             is_upbit = (info.exchange == "UPBIT")
             history_complete = settings.VERIFIED_COST_BASIS_COMPLETE and (settings.UPBIT_NET_PNL_ENABLED if is_upbit else settings.NET_REALIZED_PNL_ENABLED)
             entry,entry_fee=allocate(store,fill,info,data["account"],history_complete,evidence_context)
@@ -315,8 +343,17 @@ def verification_tick(settings, client_factory):
             pnl_done=pnl_done or rejected_final
 
             def _dispatch_enqueue(p):
-                # One financial stream per persisted verification job, independent of message phase.
+                from .evidence import verify,payload_valid
+                from .history import correction_alias
+                # Start with the producer stream, then honor a proven consumer target.
                 p.event_id=identity(key,'final',[],2)
+                history=evidence_context.history_receipt if evidence_context is not None else None
+                if verify(history,'HISTORY') and history['body'].get('complete') is False and history['body'].get('consumer_alias'):
+                    p.event_id=history['body']['consumer_alias']
+                elif payload_valid(p):
+                    target=correction_alias(store,p,key)
+                    if target:p.event_id=target
+
                 from .evidence import digest
                 with store._connect_read() as c:
                     owned=c.execute("SELECT 1 FROM vpnl_jobs WHERE id=? AND state='VERIFYING' AND job_lease=?",(key,lease)).fetchone()
@@ -426,6 +463,9 @@ def verification_tick(settings, client_factory):
                     enqueue_manual_review_alert(store, key, data, "long_term_recovery_disabled", settings)
 
             from .evidence import digest
+            from .history import consumer_job_pending
+            if consumer_job_pending(store,key):next_state='PENDING';next_due=time.time();pnl_done=False
+            if store.identity_review(key):next_state='HELD';pnl_done=False
             data['completion_receipt']=(fill.outcome_receipt if rejected_final else (pnl.financial_receipt if is_close else fill.execution_receipt)) if pnl_done else None
             with store._connect() as con:
                 con.execute("UPDATE vpnl_jobs SET state=?,due=?,data=?,financial_state=?,completed=?,validation_digest=? WHERE id=? AND job_lease=?",(

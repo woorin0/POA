@@ -79,6 +79,8 @@ class NotificationOutboxStore:
         if not payload_valid(old) or payload_valid(p):return False
         item=NotificationOutboxStore._withdrawal_item(p)
         if item is None:return False
+        target=p.financial_revocation_receipt['body'].get('consumer_alias')
+        if target is not None and target!=p.event_id:return False
         prior=old.financial_receipt
         return (canonical(NotificationOutboxStore._scope(p))==canonical(prior['body']['scope'])
                 and p.financial_revocation_receipt['key_id']==prior['key_id']
@@ -123,6 +125,7 @@ class NotificationOutboxStore:
                 owned=c.execute("SELECT data FROM vpnl_jobs WHERE id=? AND job_lease=? AND state='VERIFYING' AND due>?",(*job_claim,time.time())).fetchone()
                 if not owned:raise ValueError('job_lease_lost')
                 job=self.parse_job(owned[0])
+            if job_claim is not None and not self._authorize_order_identity(c,p,job_claim,job):return False
             try:binding=self._binding(p,job_claim,job)
             except ValueError:return False
             if valid and binding['scope'] is None:return False
@@ -176,6 +179,8 @@ class NotificationOutboxStore:
             legacy=c.execute('SELECT status FROM verified_outbox WHERE event_id=?',(p.event_id,)).fetchone()
             if legacy and legacy[0] in ('SENT','SENDING','UNKNOWN','HELD'):status='HELD'
             c.execute('INSERT INTO vpnl_deliveries(id,root_id,revision,kind,parent,wire,wire_digest,status,due,updated,max_attempts) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(uuid.uuid4().hex,rid,revision,('REVOKE' if p.event_type=='revoked' else 'CORRECTION') if previous else 'INITIAL',parent,wire,wd,status,now,now,max_attempts))
+            from .history import record_consumer
+            record_consumer(self,c,p,rid,revision,binding)
         logger.info('verified_alerts: financial_revision_recorded');return True
     def get_pending(self,limit=10):
         with self._connect_read() as c:
@@ -190,7 +195,7 @@ class NotificationOutboxStore:
         with self._connect() as c:
             require_cutover(c)
             c.execute("UPDATE vpnl_deliveries SET status='FAILED',error='send_failed' WHERE id IN (SELECT id FROM vpnl_deliveries WHERE status='PENDING' AND attempts>=max_attempts ORDER BY due,id LIMIT 40)")
-            row=c.execute("SELECT d.id,d.root_id,d.revision,d.wire,d.wire_digest,d.attempts,r.payload,r.financial_digest FROM vpnl_deliveries d JOIN vpnl_revisions r ON r.root_id=d.root_id AND r.revision=d.revision WHERE d.status='PENDING' AND d.due<=? ORDER BY d.due,d.id LIMIT 1",(time.time(),)).fetchone()
+            row=c.execute("SELECT d.id,d.root_id,d.revision,d.wire,d.wire_digest,d.attempts,r.payload,r.financial_digest FROM vpnl_deliveries d JOIN vpnl_revisions r ON r.root_id=d.root_id AND r.revision=d.revision WHERE d.status='PENDING' AND d.due<=? AND CASE WHEN json_valid(r.payload)=0 THEN 1 WHEN json_extract(r.payload,'$.financial_receipt.body.generation_id') IS NULL THEN 1 ELSE EXISTS(SELECT 1 FROM vpnl_history_consumer_edges e WHERE e.root_id=d.root_id AND e.revision=d.revision) AND (SELECT complete FROM vpnl_consumer_scan WHERE id=1)=1 AND NOT EXISTS(SELECT 1 FROM vpnl_history_invalidations i WHERE i.generation_id=json_extract(r.payload,'$.financial_receipt.body.generation_id')) AND NOT EXISTS(SELECT 1 FROM vpnl_history_heads h JOIN vpnl_history_generations g ON g.scope=h.scope WHERE g.id=json_extract(r.payload,'$.financial_receipt.body.generation_id') AND h.reconciling=1) AND NOT EXISTS(SELECT 1 FROM vpnl_consumer_reviews q WHERE q.resolved=0 AND (q.scope IS NULL OR q.scope=(SELECT scope FROM vpnl_history_generations WHERE id=json_extract(r.payload,'$.financial_receipt.body.generation_id')))) END ORDER BY d.due,d.id LIMIT 1",(time.time(),)).fetchone()
             if not row:return None
             did,rid,rev,wire,wd,epoch,encoded,fd=row
             if not c.execute('SELECT 1 FROM vpnl_root_bindings WHERE root_id=?',(rid,)).fetchone():
@@ -370,6 +375,7 @@ class NotificationOutboxStore:
     def prune_completed(self,max_age_seconds=7*86400):
         cutoff=time.time()-max_age_seconds;count=0
         with self._connect() as c:
+            if not c.execute('SELECT complete FROM vpnl_consumer_scan WHERE id=1').fetchone()[0]:return 0
             c.execute('CREATE TABLE IF NOT EXISTS vpnl_job_tombstones(id TEXT PRIMARY KEY,proof_digest TEXT NOT NULL)')
             batch=c.execute("SELECT id,data,validation_digest FROM vpnl_jobs WHERE state='DONE' AND financial_state='VERIFIED_COMPLETE' AND completed<? ORDER BY completed,id LIMIT 40",(cutoff,)).fetchall()
             for key,encoded,vd in batch:
@@ -382,3 +388,86 @@ class NotificationOutboxStore:
                 if c.execute("SELECT 1 FROM vpnl_deliveries d JOIN vpnl_roots r ON r.id=d.root_id WHERE r.alias=? AND d.status NOT IN ('SENT','FAILED','SUPERSEDED_UNSENT') LIMIT 1",(alias,)).fetchone():continue
                 c.execute('INSERT OR IGNORE INTO vpnl_job_tombstones VALUES(?,?)',(key,vd));c.execute('DELETE FROM vpnl_jobs WHERE id=?',(key,));count+=1
         return count
+
+    @staticmethod
+    def producer_identity(info):
+        return str(info.get('strategy_id') or info.get('order_name') or 'default')
+    @staticmethod
+    def order_binding(scope,order,info):
+        keys=('exchange','account','subaccount','market_type','instrument','symbol','settlement','contract_size','position_side','position_cycle','book')
+        # Historical EXECUTIONs may predate explicit subaccounts; absence is a
+        # distinct scope, never an alias for a configured subaccount.
+        stable={k:scope.get(k) for k in keys}
+        if not order or any(stable[k] in (None,'') for k in keys if k!='subaccount'):raise ValueError('identity_scope_incomplete')
+        return dict(version=1,scope=stable,order_id=str(order),producer=NotificationOutboxStore.producer_identity(info))
+    @staticmethod
+    def _identity_receipt_matches(binding,receipt):
+        try:
+            if not verify(receipt,receipt['kind']) or receipt['kind'] not in ('EXECUTION','OUTCOME'):return False
+            b=receipt['body'];order=b['fill']['order_id'] if receipt['kind']=='EXECUTION' else b['order_id']
+            expected=NotificationOutboxStore.order_binding(b['scope'],order,{'strategy_id':binding['producer']})
+            return canonical(expected)==canonical(binding)
+        except (ValueError,KeyError,TypeError):return False
+    @staticmethod
+    def _register_order_identity(c,binding,receipt,job_id):
+        if not NotificationOutboxStore._identity_receipt_matches(binding,receipt):raise ValueError('identity_evidence')
+        key=digest(binding);encoded=canonical(binding)
+        row=c.execute('SELECT binding,job_id,receipt FROM vpnl_order_identities WHERE id=?',(key,)).fetchone()
+        if row:
+            if row[0]!=encoded or not NotificationOutboxStore._identity_receipt_matches(binding,strict_object(row[2])):raise ValueError('identity_review')
+            return row[1]
+        c.execute('INSERT INTO vpnl_order_identities VALUES(?,?,?,?)',(key,encoded,job_id,canonical(receipt)))
+        return job_id
+    def _authorize_order_identity(self,c,p,claim,job):
+        from .evidence import outcome_rejected
+        receipt=p.execution_receipt if payload_fill_valid(p) else p.outcome_receipt if outcome_rejected(p) else None
+        if receipt is None:
+            # Transient read failure/zero-fill is not an account contradiction.
+            # Keep polling; it cannot authorize a new execution root yet.
+            return False
+        try:
+            scope=receipt['body']['scope'];binding=self.order_binding(scope,p.order_id,job['info'])
+            if job['account']!=scope['account']:raise ValueError('identity_account')
+            owner=self._register_order_identity(c,binding,receipt,claim[0])
+            if owner!=claim[0]:
+                # Existing published duplicate consumers retain their producer and
+                # immutable roots so every one can receive a legitimate correction.
+                prior=c.execute('SELECT binding,binding_digest FROM vpnl_root_bindings b JOIN vpnl_roots r ON r.id=b.root_id WHERE r.alias=?',(p.event_id,)).fetchone()
+                if not prior or digest(strict_object(prior[0]))!=prior[1] or strict_object(prior[0]).get('producer')!={'kind':'JOB','id':claim[0]}:raise ValueError('duplicate_order_identity')
+            c.execute('DELETE FROM vpnl_identity_reviews WHERE job_id=?',(claim[0],))
+            return True
+        except (ValueError,KeyError,TypeError):
+            c.execute('INSERT INTO vpnl_identity_reviews VALUES(?,?) ON CONFLICT(job_id) DO UPDATE SET reason=excluded.reason',(claim[0],'identity_review'))
+            return False
+    def submit_job(self,key,legacy_key,data,binding_hint=None):
+        with self._connect() as c:
+            from .migrations import require_cutover
+            require_cutover(c)
+            if binding_hint is not None:
+                row=c.execute('SELECT binding,job_id,receipt FROM vpnl_order_identities WHERE id=?',(digest(binding_hint),)).fetchone()
+                if row and row[0]==canonical(binding_hint) and self._identity_receipt_matches(binding_hint,strict_object(row[2])):
+                    return False
+            # Provisional admission keys are not financial authority. They stay
+            # stable before/after bootstrap and include the producer, not its PnL.
+            scoped_key=digest(['notification-bound-input-v1',binding_hint]) if binding_hint is not None else key
+            for candidate in dict.fromkeys((key,legacy_key,scoped_key)):
+                row=c.execute('SELECT data FROM vpnl_jobs WHERE id=?',(candidate,)).fetchone()
+                if row:
+                    try:
+                        saved=c.execute('SELECT binding,receipt FROM vpnl_order_identities WHERE job_id=?',(candidate,)).fetchone()
+                        if saved and binding_hint is not None and (saved[0]!=canonical(binding_hint) or not self._identity_receipt_matches(binding_hint,strict_object(saved[1]))):continue
+                        old=self.parse_job(row[0]);new=self.parse_job(canonical(data))
+                        fields=('exchange','unified_symbol','is_futures')
+                        if old['account']==new['account'] and old['result']==new['result'] and self.producer_identity(old['info'])==self.producer_identity(new['info']) and all(old['info'].get(f)==new['info'].get(f) for f in fields):return False
+                    except (ValueError,KeyError,TypeError):pass
+            if c.execute('SELECT 1 FROM vpnl_job_tombstones WHERE id IN (?,?,?)',(key,legacy_key,scoped_key)).fetchone():return False
+            key=scoped_key
+            from .evidence import account_reference
+            mapped=account_reference(data['info']['exchange'],data.get('source_account_ref',data['account']))
+            from .bootstrap import current_bootstrap
+            known=binding_hint is not None or (current_bootstrap() is None and mapped is not None and mapped==data['account'])
+            now=time.time()
+            c.execute("INSERT INTO vpnl_jobs(id,data,state,due,created,financial_state) VALUES(?,?,?,?,?,?)",(key,canonical(data),'PENDING' if known else 'HELD',now,now,'NEW' if known else 'WAIT_IDENTITY'))
+            return True
+    def identity_review(self,key):
+        with self._connect_read() as c:return c.execute('SELECT 1 FROM vpnl_identity_reviews WHERE job_id=?',(key,)).fetchone() is not None

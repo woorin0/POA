@@ -28,6 +28,11 @@ def install(con):
     if 'job_lease' not in [x[1] for x in con.execute('PRAGMA table_info(vpnl_jobs)')]:
         con.execute('ALTER TABLE vpnl_jobs ADD COLUMN job_lease TEXT')
     con.execute('CREATE TABLE IF NOT EXISTS vpnl_job_tombstones(id TEXT PRIMARY KEY,proof_digest TEXT NOT NULL)')
+    con.execute('CREATE TABLE IF NOT EXISTS vpnl_order_identities(id TEXT PRIMARY KEY,binding TEXT NOT NULL,job_id TEXT NOT NULL,receipt TEXT NOT NULL)')
+    con.execute('CREATE TABLE IF NOT EXISTS vpnl_identity_reviews(job_id TEXT PRIMARY KEY,reason TEXT NOT NULL)')
+    for verb in ('UPDATE','DELETE'):
+        con.execute(f"CREATE TRIGGER IF NOT EXISTS vpnl_order_identity_{verb.lower()} BEFORE {verb} ON vpnl_order_identities BEGIN SELECT RAISE(ABORT,'immutable_order_identity'); END")
+
     from .history import install as install_history
     install_history(con)
     install_cutover(con)
