@@ -109,11 +109,23 @@ def dispatch_verified_alert(exchange_name, order_result, order_info, settings, b
         legacy_key=identity(exchange_name,legacy_account,"linear" if info.get("is_futures") else "spot",sym,str(order_ident))
         key=identity('notification-input-v2',legacy_account,exchange_name,"linear" if info.get("is_futures") else "spot",sym,str(order_ident),NotificationOutboxStore.producer_identity(info))
         data=dict(info=info,result=result,account=account,source_account_ref=legacy_account)
-        store=NotificationOutboxStore(settings.VERIFIED_NOTIFICATIONS_DB_PATH)
-        inserted=store.submit_job(key,legacy_key,data,_host_identity_hint(info,legacy_account,str(result.get('id') or '')))
-        if not inserted:logger.info('verified_alerts: duplicate_job_blocked')
+        from .intake import IntakeStore,replay,safe_failure
+        from .evidence import digest
+        host_hint=_host_identity_hint(info,legacy_account,str(result.get('id') or ''))
+        data['host_binding_digest']=digest(host_hint) if host_hint is not None else None
+        intake=IntakeStore(settings.VERIFIED_NOTIFICATIONS_DB_PATH)
+        intake_id=intake.record(data)
+    except Exception as exc:
+        from .intake import safe_failure
+        code=safe_failure(exc)
+        logger.error('verified_alerts: {}',code)
+        return dict(status='PERSISTENCE_FAILED',accepted=False,code=code)
+    try:
+        replay(settings,only=intake_id)
     except Exception:
-        warning("job_persistence_failed")
+        # Intake is already committed. A failed handoff must not pretend it was lost.
+        warning('INTAKE_REPLAY_DEFERRED')
+    return dict(status='DURABLE_ACCEPTED',accepted=True,intake_id=intake_id)
 
 
 def dispatch_verified_error_alert(error_message, order_info, settings):
@@ -275,6 +287,9 @@ def verification_tick(settings, client_factory):
     recover_consumers(store)
     recover_consumer_actions(store)
     _release_identity_jobs(store)
+    from .intake import replay
+    try:replay(settings,store=store)
+    except Exception:warning('INTAKE_REPLAY_DEFERRED')
     from .history import refresh_dependencies
     refresh_dependencies(store,client_factory)
     jobs=store.ready_jobs(20)
