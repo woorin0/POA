@@ -516,7 +516,7 @@ def verification_tick(settings, client_factory):
             if raw_data is None:
                 with store._connect() as con:store._quarantine_job(con,key,encoded)
                 continue
-            if now-created>=settings.FILL_VERIFICATION_TIMEOUT_SEC:
+            if publication_candidate is None and not raw_data.get("publication_pending") and now-created>=settings.FILL_VERIFICATION_TIMEOUT_SEC:
                 try:
                     if raw_data and not raw_data.get("unverified_alert_sent"):
                         raw_info = SimpleNamespace(**raw_data["info"])
