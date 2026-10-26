@@ -309,6 +309,7 @@ def verification_tick(settings, client_factory):
             warning('job_schema_invalid')
             continue
         attempts=1
+        publication_candidate=None
         try:
             info=SimpleNamespace(**data['info'])
             attempts = data.get("attempts", 0) + 1
@@ -363,6 +364,7 @@ def verification_tick(settings, client_factory):
             pnl_done=pnl_done or rejected_final
 
             def _dispatch_enqueue(p):
+                nonlocal publication_candidate
                 from .evidence import verify,payload_valid
                 from .history import correction_alias
                 # Start with the producer stream, then honor a proven consumer target.
@@ -392,8 +394,12 @@ def verification_tick(settings, client_factory):
                     try: old_integrity=digest(store._facts(NotificationPayload(**json.loads(head[2]))))==head[1]
                     except (ValueError,TypeError,KeyError):old_integrity=False
                     if head[1]!=digest(store._facts(p)) or not old_integrity:p.event_version=head[0]+1
+                publication_candidate=p
+                data['publication_pending']={'alias':p.event_id,'facts_digest':digest(store._facts(p)),'state':'REVALIDATE'}
                 enqueued=store.enqueue(p,max_attempts=settings.DISCORD_RETRY_MAX_ATTEMPTS if settings.DISCORD_RETRY_ENABLED else 1,job_claim=(key,lease))
-                record_published_withdrawal(store,p)
+                if payload_valid(p) or p.event_type=='revoked':
+                    with store._connect_read() as c:published=store.publication_reference(c,p,(key,lease))
+                    if published:record_published_withdrawal(store,p)
                 return enqueued
 
             is_canceled_terminal = raw_state in {"canceled", "cancelled", "expired", "cancel"}
@@ -402,8 +408,7 @@ def verification_tick(settings, client_factory):
                 event = identity(key, event_type, [], 2)
                 payload = make_payload(event, fill, info, pnl, entry, settings)
                 payload.event_type = event_type
-                _dispatch_enqueue(payload)
-                data["final_alert_sent"] = True
+                data["final_alert_sent"] = _dispatch_enqueue(payload)
                 if pnl.net_realized_pnl is None: logger.info("verified_alerts: pnl_unconfirmed")
             elif partial_alerts and fill.status == FillStatus.PARTIALLY_FILLED:
                 event_type = "partial"
@@ -486,8 +491,21 @@ def verification_tick(settings, client_factory):
             from .history import consumer_job_pending
             if consumer_job_pending(store,key) or store.intake_job_pending(key):next_state='PENDING';next_due=time.time();pnl_done=False
             if store.identity_review(key):next_state='HELD';pnl_done=False
-            data['completion_receipt']=(fill.outcome_receipt if rejected_final else (pnl.financial_receipt if is_close else fill.execution_receipt)) if pnl_done else None
             with store._connect() as con:
+                if publication_candidate is not None:
+                    published=store.publication_reference(con,publication_candidate,(key,lease))
+                    if published is None:
+                        if next_state not in ('HELD','MANUAL_REVIEW','REVIEW'):next_state='PENDING';next_due=time.time()
+                        pnl_done=False;data['final_alert_sent']=False
+                        if publication_candidate.event_type=='unverified':data['unverified_alert_sent']=False
+                    else:
+                        data.pop('publication_pending',None);data['publication_committed']=published
+                        if publication_candidate.event_type in ('final','revoked'):data['final_alert_sent']=True
+                if data.get('publication_pending'):
+                    if next_state not in ('HELD','MANUAL_REVIEW','REVIEW'):next_state='PENDING';next_due=time.time()
+                    pnl_done=False
+                data['accounting_verified']=1 if pnl_done else 0
+                data['completion_receipt']=(fill.outcome_receipt if rejected_final else (pnl.financial_receipt if is_close else fill.execution_receipt)) if pnl_done else None
                 con.execute("UPDATE vpnl_jobs SET state=?,due=?,data=?,financial_state=?,completed=?,validation_digest=? WHERE id=? AND job_lease=?",(
                     next_state,next_due,json.dumps(data),'VERIFIED_COMPLETE' if pnl_done else 'WAIT_EVIDENCE',now if next_state=='DONE' else None,digest(data) if pnl_done else None,key,lease))
         except Exception as exc:
@@ -612,11 +630,12 @@ def start_worker(settings, *, execution_bootstrap=None):
     if not bootstrap.activate():
         warning(execution_readiness()['execution']);return None
     stop=threading.Event()
-    def run():
+    def run_session(init_store):
+        from .intake import _BOOT_CHECKED
+        _BOOT_CHECKED.discard(init_store.db_path)
         factory=bootstrap.client_for
         # Run cleanup / recovery on startup
         try:
-            init_store = NotificationOutboxStore(settings.VERIFIED_NOTIFICATIONS_DB_PATH)
             if not init_store.cutover_ready():
                 warning("notification_cutover_required");return
             init_store.recover()
@@ -640,6 +659,12 @@ def start_worker(settings, *, execution_bootstrap=None):
                         pass
             except Exception: warning("worker_failure")
             stop.wait(1)
+    def run():
+        try:
+            session_store=NotificationOutboxStore(settings.VERIFIED_NOTIFICATIONS_DB_PATH)
+            if not session_store.cutover_ready():warning('notification_cutover_required');return
+            with session_store.worker_session():run_session(session_store)
+        except Exception:warning('notification_store_not_ready')
     thread=threading.Thread(target=run,name="verified-notifications",daemon=True)
     thread.start()
     return stop

@@ -235,4 +235,7 @@ def install_submission_lineage(c):
             c.execute(f"CREATE TRIGGER IF NOT EXISTS {table}_immutable_{verb} BEFORE {verb} ON {table} BEGIN SELECT RAISE(ABORT,'immutable_submission'); END")
     c.execute("CREATE TRIGGER IF NOT EXISTS vpnl_ack_dirty_insert AFTER INSERT ON vpnl_intake_submissions BEGIN INSERT OR IGNORE INTO vpnl_submission_dirty VALUES(NEW.intake_id); END")
     for verb in ('UPDATE','DELETE'):
-        c.execute(f"CREATE TRIGGER IF NOT EXISTS vpnl_job_submission_dirty_{verb} AFTER {verb} ON vpnl_jobs BEGIN INSERT OR IGNORE INTO vpnl_submission_job_dirty(job_id) VALUES(OLD.id); END")
+        name='vpnl_job_submission_dirty_'+verb
+        existing=c.execute("SELECT sql FROM sqlite_master WHERE type='trigger' AND name=?",(name,)).fetchone()
+        if existing and 'WHEN EXISTS' not in existing[0]:c.execute('DROP TRIGGER '+name)
+        c.execute(f"CREATE TRIGGER IF NOT EXISTS {name} AFTER {verb} ON vpnl_jobs WHEN EXISTS(SELECT 1 FROM vpnl_intake_submissions WHERE job_id=OLD.id) OR EXISTS(SELECT 1 FROM vpnl_submission_pending WHERE job_id=OLD.id) BEGIN INSERT OR IGNORE INTO vpnl_submission_job_dirty(job_id) VALUES(OLD.id); END")

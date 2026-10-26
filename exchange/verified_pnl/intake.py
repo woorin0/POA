@@ -59,23 +59,27 @@ class IntakeStore:
             install_restore_intake(c)
     @contextmanager
     def connect(self):
-        c=sqlite3.connect(self.path,timeout=self.timeout)
+        from .delivery_store import worker_connection
+        reused=worker_connection(self.path);c=reused if reused is not None else sqlite3.connect(self.path,timeout=self.timeout)
+        if reused is not None and c.in_transaction:raise ValueError('intake_nested_transaction')
         try:
-            c.execute('PRAGMA busy_timeout='+str(max(0,int(self.timeout*1000))))
-            # Changing journal mode races on a fresh sidecar. Only retry the
-            # pre-transaction WAL transition; never replay an uncertain commit.
-            deadline=time.monotonic()+self.timeout
-            while True:
-                try:
-                    if c.execute('PRAGMA journal_mode').fetchone()[0].lower()!='wal':c.execute('PRAGMA journal_mode=WAL')
-                    break
-                except sqlite3.OperationalError as exc:
-                    if safe_failure(exc)!='INTAKE_LOCKED' or time.monotonic()>=deadline:raise
-                    time.sleep(.02)
-            c.execute('PRAGMA synchronous=FULL')
+            if reused is None:
+                c.execute('PRAGMA busy_timeout='+str(max(0,int(self.timeout*1000))))
+                # Changing journal mode races on a fresh sidecar. Only retry the
+                # pre-transaction WAL transition; never replay an uncertain commit.
+                deadline=time.monotonic()+self.timeout
+                while True:
+                    try:
+                        if c.execute('PRAGMA journal_mode').fetchone()[0].lower()!='wal':c.execute('PRAGMA journal_mode=WAL')
+                        break
+                    except sqlite3.OperationalError as exc:
+                        if safe_failure(exc)!='INTAKE_LOCKED' or time.monotonic()>=deadline:raise
+                        time.sleep(.02)
+                c.execute('PRAGMA synchronous=FULL')
             c.execute('BEGIN IMMEDIATE');yield c;c.commit()
         except BaseException:c.rollback();raise
-        finally:c.close()
+        finally:
+            if reused is None:c.close()
     def record(self,data):
         request,review=normalized_request(data);encoded=canonical(request);key=digest(request)
         with self.connect() as c:
@@ -438,6 +442,19 @@ def record_post_lineage(store,c,claim):
         row=sc.execute('SELECT record FROM intake_post_lineage WHERE serial=?',(serial,)).fetchone()
         if row is None:sc.execute('INSERT INTO intake_post_lineage VALUES(?,?)',(serial,encoded))
         elif row[0]!=encoded:raise ValueError('restore_post_lineage_conflict')
+        # Advance only the exact immutable pair just appended by the validated
+        # begin_post transaction. Startup still revalidates the entire prefix.
+        # Sidecar commit before a failed v4 commit produces a detectable mismatch.
+        state,marker_raw,left,right=sc.execute('SELECT state,marker,post_cursor,post_reverse_cursor FROM intake_restore_scan WHERE id=1').fetchone()
+        marker=strict_object(marker_raw) if marker_raw else None
+        prior=c.execute('SELECT record FROM vpnl_post_lineage WHERE serial=?',(serial-1,)).fetchone()
+        prefix_digest=digest(prior[0]) if prior else None
+        if (state=='READY' and marker is not None and (left,right)==(serial-1,serial-1)
+                and (marker.get('db_id'),marker.get('cutover_id'))==(dbid,cutid)
+                and marker.get('post_serial',0)==serial-1 and marker.get('post_digest')==prefix_digest):
+            marker['post_serial']=serial;marker['post_digest']=digest(encoded)
+            sc.execute('UPDATE intake_restore_scan SET post_cursor=?,post_reverse_cursor=?,marker=? WHERE id=1',(serial,serial,canonical(marker)))
+
 
 
 def _check_post_lineage(store,c,sc,serial):

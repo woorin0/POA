@@ -1,11 +1,16 @@
 """Immutable financial revisions and leased delivery attempts; no HTTP under a DB lock."""
-import hashlib,json,sqlite3,time,uuid,secrets
+import hashlib,json,sqlite3,time,uuid,secrets,threading
 from pathlib import Path
 from contextlib import contextmanager
 from .evidence import canonical,digest,strict_object,payload_valid,payload_fill_valid,safe_code,verify
 from .models import NotificationPayload,VerificationStatus
 from .migrations import install,migrate_batch,require_cutover
 from loguru import logger
+
+_WORKER_HANDLES=threading.local()
+
+def worker_connection(path,role='write'):
+    return getattr(_WORKER_HANDLES,'paths',{}).get(str(path),{}).get(role)
 
 class NotificationOutboxStore:
     _last_done_recovery_by_db={}
@@ -27,16 +32,67 @@ class NotificationOutboxStore:
             install(c)
     @contextmanager
     def _connect(self,timeout=5):
-        c=sqlite3.connect(self.db_path,timeout=timeout)
+        reused=worker_connection(self.db_path);c=reused if reused is not None else sqlite3.connect(self.db_path,timeout=timeout)
+        if reused is not None and c.in_transaction:raise ValueError('notification_nested_transaction')
         try:
-            c.execute('PRAGMA foreign_keys=ON');c.execute('PRAGMA journal_mode=WAL');c.execute('PRAGMA busy_timeout=5000');c.execute('BEGIN IMMEDIATE');yield c;c.commit()
+            if reused is None:c.execute('PRAGMA foreign_keys=ON');c.execute('PRAGMA journal_mode=WAL');c.execute('PRAGMA busy_timeout=5000')
+            c.execute('BEGIN IMMEDIATE');yield c;c.commit()
         except BaseException:c.rollback();raise
-        finally:c.close()
+        finally:
+            if reused is None:c.close()
     @contextmanager
     def _connect_read(self,timeout=5):
-        c=sqlite3.connect('file:'+Path(self.db_path).as_posix()+'?mode=ro',uri=True,timeout=timeout)
-        try:c.execute('PRAGMA foreign_keys=ON');yield c
-        finally:c.close()
+        reused=worker_connection(self.db_path,'read');c=reused if reused is not None else sqlite3.connect('file:'+Path(self.db_path).as_posix()+'?mode=ro',uri=True,timeout=timeout)
+        try:
+            if reused is None:c.execute('PRAGMA foreign_keys=ON')
+            yield c
+        finally:
+            if reused is None:c.close()
+    @contextmanager
+    def worker_session(self):
+        """Three worker-thread handles; no cached trust or pinned read transaction.
+
+        Writer transactions still BEGIN IMMEDIATE and COMMIT with FULL. The read
+        handle is mode=ro. All actual restore/receipt checks still run. Close on
+        worker exit; offline restore must stop the worker before replacing files.
+        """
+        from .intake import IntakeStore
+        paths=getattr(_WORKER_HANDLES,'paths',{})
+        if self.db_path in paths:raise ValueError('worker_session_active')
+        side=IntakeStore(self.db_path);handles=[]
+        try:
+            for path in (self.db_path,side.path):
+                c=sqlite3.connect(path,isolation_level=None);handles.append(c)
+                c.execute('PRAGMA foreign_keys=ON');c.execute('PRAGMA busy_timeout=5000')
+                c.execute('PRAGMA journal_mode=WAL');c.execute('PRAGMA synchronous=FULL')
+            reader=sqlite3.connect('file:'+Path(self.db_path).as_posix()+'?mode=ro',uri=True,isolation_level=None);handles.append(reader)
+            reader.execute('PRAGMA foreign_keys=ON')
+            _WORKER_HANDLES.paths={**paths,self.db_path:{'write':handles[0],'read':reader},side.path:{'write':handles[1]}}
+            yield
+        finally:
+            _WORKER_HANDLES.paths=paths
+            for c in reversed(handles):c.close()
+
+    def publication_reference(self,c,payload,job_claim):
+        """A durable delivery reference, not proof of Discord receipt."""
+        row=c.execute("SELECT data FROM vpnl_jobs WHERE id=? AND job_lease=? AND state='VERIFYING'",job_claim).fetchone()
+        if row is None or c.execute('SELECT 1 FROM vpnl_identity_reviews WHERE job_id=?',(job_claim[0],)).fetchone():return None
+        p=payload.copy(deep=True)
+        if not payload_valid(p):
+            p.net_pnl=p.roi_pct=p.cost_basis=None;p.pnl_verification_status=p.roi_verification_status=VerificationStatus.UNVERIFIED;p.financial_receipt=None
+        if not payload_fill_valid(p):p.fill_verification_status=p.verification_status=VerificationStatus.UNVERIFIED
+        try:
+            binding=self._binding(p,job_claim,self.parse_job(row[0]))
+            found=c.execute('SELECT r.id,r.head,b.binding,b.binding_digest,v.payload,v.financial_digest,d.id,d.wire,d.wire_digest,d.status FROM vpnl_roots r JOIN vpnl_root_bindings b ON b.root_id=r.id JOIN vpnl_revisions v ON v.root_id=r.id AND v.revision=r.head JOIN vpnl_deliveries d ON d.root_id=r.id AND d.revision=r.head WHERE r.alias=?',(p.event_id,)).fetchone()
+            if found is None:return None
+            rid,rev,encoded,bd,raw,fd,did,wire,wd,state=found
+            if canonical(binding)!=encoded or digest(binding)!=bd or state=='QUARANTINED':return None
+            stored=NotificationPayload(**strict_object(raw))
+            if fd!=digest(self._facts(p)) or fd!=digest(self._facts(stored)) or hashlib.sha256(wire).hexdigest()!=wd or self._wire(stored)!=wire:return None
+            if stored.net_pnl is not None and not payload_valid(stored):return None
+            return dict(root_id=rid,revision=rev,delivery_id=did,wire_digest=wd,financial_digest=fd,alias=p.event_id)
+        except (ValueError,KeyError,TypeError):return None
+
     @staticmethod
     def _facts(p):
         d=p.dict();excluded={'event_type','event_id','event_version','event_timestamp','order_name','strategy_id','signal_id','verification_source','financial_receipt','execution_receipt','outcome_receipt','financial_revocation_receipt'}
@@ -324,7 +380,7 @@ class NotificationOutboxStore:
     def completion_valid(data,validation_digest):
         from .evidence import verify
         try:
-            if digest(data)!=validation_digest:return False
+            if data.get('publication_pending') or digest(data)!=validation_digest:return False
             receipt=data.get('completion_receipt')
             if not isinstance(receipt,dict) or receipt.get('kind') not in ('EXECUTION','FINANCIAL','OUTCOME'):return False
             if not verify(receipt,receipt['kind']):return False
@@ -376,6 +432,12 @@ class NotificationOutboxStore:
                         published=NotificationPayload(**strict_object(finance[0]))
                         consistent=consistent and digest(self._facts(published))==finance[1] and (payload_valid(published) if published.net_pnl is not None else (payload_fill_valid(published) or __import__(__package__+'.evidence',fromlist=['outcome_rejected']).outcome_rejected(published)))
                     except (ValueError,TypeError,KeyError):consistent=False
+                if (consistent or data.get('final_alert_sent') or data.get('publication_committed') or data.get('completion_receipt')) and (finance is None or not c.execute('SELECT 1 FROM vpnl_deliveries d JOIN vpnl_roots r ON r.id=d.root_id WHERE r.alias=? LIMIT 1',(alias,)).fetchone()):
+                    # A prior verified completion without delivery history cannot
+                    # prove non-delivery. Never replay it as a fresh notification.
+                    c.execute("UPDATE vpnl_jobs SET state='HELD',financial_state='PUBLICATION_REVIEW',completed=NULL WHERE id=?",(key,))
+                    c.execute('INSERT OR IGNORE INTO vpnl_quarantine VALUES(?,?,?,?,0)',(digest(['publication',key]),None,'publication_history_missing',digest(key)))
+                    continue
                 if not consistent:
                     c.execute("UPDATE vpnl_jobs SET state='PENDING',due=0,financial_state='WAIT_EVIDENCE',completed=NULL WHERE id=?",(key,))
             c.execute("INSERT INTO vpnl_recovery_cursor VALUES('integrity',?) ON CONFLICT(lane) DO UPDATE SET cursor=excluded.cursor",(batch[-1][0] if batch else '',))
@@ -390,6 +452,8 @@ class NotificationOutboxStore:
                 try:data=self.parse_job(encoded)
                 except (ValueError,TypeError):continue
                 if not self.completion_valid(data,vd):continue
+                alias=__import__(__package__+'.ledger',fromlist=['identity']).identity(key,'final',[],2)
+                if not c.execute('SELECT 1 FROM vpnl_deliveries d JOIN vpnl_roots r ON r.id=d.root_id WHERE r.alias=? LIMIT 1',(alias,)).fetchone():continue
                 scope=digest(data['completion_receipt']['body']['scope'])
                 if c.execute('SELECT 1 FROM vpnl_quarantine WHERE scope=? AND resolved=0 LIMIT 1',(scope,)).fetchone():continue
                 alias=__import__(__package__+'.ledger',fromlist=['identity']).identity(key,'final',[],2)
