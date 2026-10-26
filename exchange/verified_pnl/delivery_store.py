@@ -117,9 +117,11 @@ class NotificationOutboxStore:
             p.net_pnl=p.roi_pct=p.cost_basis=None;p.pnl_verification_status=p.roi_verification_status=VerificationStatus.UNVERIFIED;p.financial_receipt=None
         if not payload_fill_valid(p):
             p.fill_verification_status=p.verification_status=VerificationStatus.UNVERIFIED
+        if job_claim is not None and not self._prepare_submission(payload,job_claim):return False
         now=time.time()
         with self._connect() as c:
             require_cutover(c)
+            if not self._restore_ready(c):return False
             job=None
             if job_claim is not None:
                 owned=c.execute("SELECT data FROM vpnl_jobs WHERE id=? AND job_lease=? AND state='VERIFYING' AND due>?",(*job_claim,time.time())).fetchone()
@@ -194,6 +196,7 @@ class NotificationOutboxStore:
     def _claim_next(self):
         with self._connect() as c:
             require_cutover(c)
+            if not self._restore_ready(c):return None
             c.execute("UPDATE vpnl_deliveries SET status='FAILED',error='send_failed' WHERE id IN (SELECT id FROM vpnl_deliveries WHERE status='PENDING' AND attempts>=max_attempts ORDER BY due,id LIMIT 40)")
             row=c.execute("SELECT d.id,d.root_id,d.revision,d.wire,d.wire_digest,d.attempts,r.payload,r.financial_digest FROM vpnl_deliveries d JOIN vpnl_revisions r ON r.root_id=d.root_id AND r.revision=d.revision WHERE d.status='PENDING' AND d.due<=? AND CASE WHEN json_valid(r.payload)=0 THEN 1 WHEN json_extract(r.payload,'$.financial_receipt.body.generation_id') IS NULL THEN 1 ELSE EXISTS(SELECT 1 FROM vpnl_history_consumer_edges e WHERE e.root_id=d.root_id AND e.revision=d.revision) AND (SELECT complete FROM vpnl_consumer_scan WHERE id=1)=1 AND NOT EXISTS(SELECT 1 FROM vpnl_history_invalidations i WHERE i.generation_id=json_extract(r.payload,'$.financial_receipt.body.generation_id')) AND NOT EXISTS(SELECT 1 FROM vpnl_history_heads h JOIN vpnl_history_generations g ON g.scope=h.scope WHERE g.id=json_extract(r.payload,'$.financial_receipt.body.generation_id') AND h.reconciling=1) AND NOT EXISTS(SELECT 1 FROM vpnl_consumer_reviews q WHERE q.resolved=0 AND (q.scope IS NULL OR q.scope=(SELECT scope FROM vpnl_history_generations WHERE id=json_extract(r.payload,'$.financial_receipt.body.generation_id')))) END ORDER BY d.due,d.id LIMIT 1",(time.time(),)).fetchone()
             if not row:return None
@@ -223,12 +226,16 @@ class NotificationOutboxStore:
     def begin_post(self,claim):
         with self._connect() as c:
             require_cutover(c)
+            if not self._restore_ready(c):return False
             if not self._attempt(c,claim,'CLAIMED'):return False
             row=c.execute('SELECT head FROM vpnl_roots WHERE id=?',(claim['root_id'],)).fetchone()
             expiry=c.execute('SELECT expires FROM vpnl_delivery_attempts WHERE id=?',(claim['attempt_id'],)).fetchone()[0]
             if row[0]!=claim['revision'] or expiry<time.time():return False
             c.execute("UPDATE vpnl_deliveries SET status='POSTING',updated=? WHERE id=?",(time.time(),claim['delivery_id']))
-            c.execute("UPDATE vpnl_delivery_attempts SET phase='POSTING' WHERE id=?",(claim['attempt_id'],));return True
+            c.execute("UPDATE vpnl_delivery_attempts SET phase='POSTING' WHERE id=?",(claim['attempt_id'],))
+            from .intake import record_post_lineage
+            record_post_lineage(self,c,claim)
+            return True
     def ack(self,claim,success,message_id=None,error=None,delay=None):
         with self._connect() as c:
             if not self._attempt(c,claim,'POSTING'):
@@ -375,9 +382,10 @@ class NotificationOutboxStore:
     def prune_completed(self,max_age_seconds=7*86400):
         cutoff=time.time()-max_age_seconds;count=0
         with self._connect() as c:
+            if not self._restore_ready(c):return 0
             if not c.execute('SELECT complete FROM vpnl_consumer_scan WHERE id=1').fetchone()[0]:return 0
             c.execute('CREATE TABLE IF NOT EXISTS vpnl_job_tombstones(id TEXT PRIMARY KEY,proof_digest TEXT NOT NULL)')
-            batch=c.execute("SELECT id,data,validation_digest FROM vpnl_jobs WHERE state='DONE' AND financial_state='VERIFIED_COMPLETE' AND completed<? ORDER BY completed,id LIMIT 40",(cutoff,)).fetchall()
+            batch=c.execute("SELECT id,data,validation_digest FROM vpnl_jobs WHERE state='DONE' AND financial_state='VERIFIED_COMPLETE' AND id NOT IN (SELECT job_id FROM vpnl_intake_submissions) AND id NOT IN (SELECT job_id FROM vpnl_submission_pending) AND completed<? ORDER BY completed,id LIMIT 40",(cutoff,)).fetchall()
             for key,encoded,vd in batch:
                 try:data=self.parse_job(encoded)
                 except (ValueError,TypeError):continue
@@ -441,33 +449,89 @@ class NotificationOutboxStore:
             return False
     def submit_job(self,key,legacy_key,data,binding_hint=None):
         with self._connect() as c:
-            from .migrations import require_cutover
             require_cutover(c)
-            if binding_hint is not None:
-                row=c.execute('SELECT binding,job_id,receipt FROM vpnl_order_identities WHERE id=?',(digest(binding_hint),)).fetchone()
-                if row and row[0]==canonical(binding_hint) and self._identity_receipt_matches(binding_hint,strict_object(row[2])):
-                    return False
-            # Provisional admission keys are not financial authority. They stay
-            # stable before/after bootstrap and include the producer, not its PnL.
-            scoped_key=digest(['notification-bound-input-v1',binding_hint]) if binding_hint is not None else key
-            for candidate in dict.fromkeys((key,legacy_key,scoped_key)):
-                row=c.execute('SELECT data FROM vpnl_jobs WHERE id=?',(candidate,)).fetchone()
-                if row:
-                    try:
-                        saved=c.execute('SELECT binding,receipt FROM vpnl_order_identities WHERE job_id=?',(candidate,)).fetchone()
-                        if saved and binding_hint is not None and (saved[0]!=canonical(binding_hint) or not self._identity_receipt_matches(binding_hint,strict_object(saved[1]))):continue
-                        old=self.parse_job(row[0]);new=self.parse_job(canonical(data))
-                        fields=('exchange','unified_symbol','is_futures')
-                        if old['account']==new['account'] and old['result']==new['result'] and self.producer_identity(old['info'])==self.producer_identity(new['info']) and all(old['info'].get(f)==new['info'].get(f) for f in fields):return False
-                    except (ValueError,KeyError,TypeError):pass
-            if c.execute('SELECT 1 FROM vpnl_job_tombstones WHERE id IN (?,?,?)',(key,legacy_key,scoped_key)).fetchone():return False
-            key=scoped_key
-            from .evidence import account_reference
-            mapped=account_reference(data['info']['exchange'],data.get('source_account_ref',data['account']))
-            from .bootstrap import current_bootstrap
-            known=binding_hint is not None or (current_bootstrap() is None and mapped is not None and mapped==data['account'])
-            now=time.time()
-            c.execute("INSERT INTO vpnl_jobs(id,data,state,due,created,financial_state) VALUES(?,?,?,?,?,?)",(key,canonical(data),'PENDING' if known else 'HELD',now,now,'NEW' if known else 'WAIT_IDENTITY'))
-            return True
+            return self._submit_job_tx(c,key,legacy_key,data,binding_hint)[0]
+    def _submit_job_tx(self,c,key,legacy_key,data,binding_hint=None):
+        if binding_hint is not None:
+            row=c.execute('SELECT binding,job_id,receipt FROM vpnl_order_identities WHERE id=?',(digest(binding_hint),)).fetchone()
+            if row and row[0]==canonical(binding_hint) and self._identity_receipt_matches(binding_hint,strict_object(row[2])):
+                return False,row[1]
+        # Provisional admission keys are not financial authority. They stay
+        # stable before/after bootstrap and include the producer, not its PnL.
+        scoped_key=digest(['notification-bound-input-v1',binding_hint]) if binding_hint is not None else key
+        for candidate in dict.fromkeys((key,legacy_key,scoped_key)):
+            row=c.execute('SELECT data FROM vpnl_jobs WHERE id=?',(candidate,)).fetchone()
+            if row:
+                try:
+                    saved=c.execute('SELECT binding,receipt FROM vpnl_order_identities WHERE job_id=?',(candidate,)).fetchone()
+                    if saved and binding_hint is not None and (saved[0]!=canonical(binding_hint) or not self._identity_receipt_matches(binding_hint,strict_object(saved[1]))):continue
+                    old=self.parse_job(row[0]);new=self.parse_job(canonical(data))
+                    fields=('exchange','unified_symbol','is_futures')
+                    if old['account']==new['account'] and old['result']==new['result'] and self.producer_identity(old['info'])==self.producer_identity(new['info']) and all(old['info'].get(f)==new['info'].get(f) for f in fields):return False,candidate
+                except (ValueError,KeyError,TypeError):pass
+        if c.execute('SELECT 1 FROM vpnl_job_tombstones WHERE id IN (?,?,?)',(key,legacy_key,scoped_key)).fetchone():return False,None
+        key=scoped_key
+        from .evidence import account_reference
+        mapped=account_reference(data['info']['exchange'],data.get('source_account_ref',data['account']))
+        from .bootstrap import current_bootstrap
+        known=binding_hint is not None or (current_bootstrap() is None and mapped is not None and mapped==data['account'])
+        now=time.time()
+        c.execute("INSERT INTO vpnl_jobs(id,data,state,due,created,financial_state) VALUES(?,?,?,?,?,?)",(key,canonical(data),'PENDING' if known else 'HELD',now,now,'NEW' if known else 'WAIT_IDENTITY'))
+        return True,key
     def identity_review(self,key):
         with self._connect_read() as c:return c.execute('SELECT 1 FROM vpnl_identity_reviews WHERE job_id=?',(key,)).fetchone() is not None
+
+    def _restore_ready(self,c):
+        from .intake import restore_preflight_tx
+        return restore_preflight_tx(self,c)['ready']
+    def submit_intake(self,key,legacy_key,data,binding_hint,intake_id,request_digest,sidecar_id):
+        from .intake import IntakeStore,submission_for,make_submission,validate_submission
+        with self._connect() as c:
+            require_cutover(c)
+            intake=IntakeStore(self.db_path)
+            with intake.connect() as sc:
+                row=sc.execute('SELECT request,request_digest,status,submission_ack FROM notification_intake WHERE id=?',(intake_id,)).fetchone()
+                if row is None or row[1]!=request_digest or intake_id!=request_digest:raise ValueError('submission_request_missing')
+                intake.parse(row[0],request_digest)
+                if sc.execute('SELECT sidecar_id FROM intake_lineage WHERE id=1').fetchone()[0]!=sidecar_id:raise ValueError('submission_sidecar')
+                if c.execute('SELECT 1 FROM vpnl_restore_reviews LIMIT 1').fetchone() or sc.execute('SELECT 1 FROM intake_restore_reviews LIMIT 1').fetchone():raise ValueError('restore_review_required')
+                if row[2] in ('SUBMITTED','REVIEW') and row[3] is None:raise ValueError('unbound_submission')
+                existing=submission_for(c,intake_id)
+                if existing:
+                    if existing['request_digest']!=request_digest or existing['sidecar_id']!=sidecar_id or (binding_hint is not None and canonical(existing['binding'])!=canonical(binding_hint)) or not validate_submission(self,c,existing):raise ValueError('submission_conflict')
+                    return existing
+                inserted,job=self._submit_job_tx(c,key,legacy_key,data,binding_hint)
+                if job is None:raise ValueError('submission_job_unavailable')
+                if binding_hint is None:
+                    values=(request_digest,sidecar_id,job);old=c.execute('SELECT request_digest,sidecar_id,job_id FROM vpnl_submission_pending WHERE intake_id=?',(intake_id,)).fetchone()
+                    if old is None:c.execute('INSERT INTO vpnl_submission_pending VALUES(?,?,?,?)',(intake_id,*values))
+                    elif old!=values:raise ValueError('submission_pending_conflict')
+                    return None
+                return make_submission(self,c,intake_id,request_digest,sidecar_id,job,binding_hint)
+    def _prepare_submission(self,p,claim):
+        from .intake import IntakeStore,make_submission,_review
+        from .evidence import outcome_rejected
+        with self._connect() as c:
+            if not c.execute('SELECT 1 FROM vpnl_submission_pending WHERE job_id=? LIMIT 1',(claim[0],)).fetchone():return True
+            if not self._restore_ready(c):return False
+            row=c.execute("SELECT data FROM vpnl_jobs WHERE id=? AND job_lease=? AND state='VERIFYING' AND due>?",(*claim,time.time())).fetchone()
+            if row is None:raise ValueError('job_lease_lost')
+            data=self.parse_job(row[0])
+            if not self._authorize_order_identity(c,p,claim,data):return False
+            receipt=p.execution_receipt if payload_fill_valid(p) else p.outcome_receipt if outcome_rejected(p) else None
+            if receipt is None:return False
+            binding=self.order_binding(receipt['body']['scope'],p.order_id,data['info'])
+            # Pending refs are created by the intake transaction. No old SUBMITTED
+            # row is retrospectively given an acknowledgement here.
+            pending=c.execute('SELECT intake_id,request_digest,sidecar_id FROM vpnl_submission_pending WHERE job_id=? AND intake_id NOT IN (SELECT intake_id FROM vpnl_intake_submissions) ORDER BY intake_id LIMIT 40',(claim[0],)).fetchall()
+            intake=IntakeStore(self.db_path)
+            with intake.connect() as sc:
+                for iid,rd,sid in pending:
+                    raw=sc.execute('SELECT request,request_digest,status FROM notification_intake WHERE id=?',(iid,)).fetchone()
+                    if raw is None or raw[1]!=rd or raw[2] in ('SUBMITTED','REVIEW'):
+                        _review(c,sc,iid,'RESTORE_PENDING_INPUT_INVALID',rd);return False
+                    intake.parse(raw[0],rd)
+                    make_submission(self,c,iid,rd,sid,claim[0],binding)
+            return not c.execute('SELECT 1 FROM vpnl_submission_pending WHERE job_id=? AND intake_id NOT IN (SELECT intake_id FROM vpnl_intake_submissions) LIMIT 1',(claim[0],)).fetchone()
+    def intake_job_pending(self,job):
+        with self._connect_read() as c:return c.execute('SELECT 1 FROM vpnl_submission_pending WHERE job_id=? AND intake_id NOT IN (SELECT intake_id FROM vpnl_intake_submissions) LIMIT 1',(job,)).fetchone() is not None

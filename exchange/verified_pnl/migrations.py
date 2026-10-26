@@ -36,6 +36,7 @@ def install(con):
     from .history import install as install_history
     install_history(con)
     install_cutover(con)
+    install_submission_lineage(con)
     con.execute('INSERT OR IGNORE INTO vpnl_schema VALUES(1,4)')
     if con.execute('SELECT version FROM vpnl_schema WHERE id=1').fetchone()[0]!=4:raise ValueError('unsupported_notification_schema')
     for table,columns in [('vpnl_revisions','payload,financial_digest,root_id,revision,reason'),('vpnl_deliveries','wire,wire_digest,root_id,revision,kind,parent')]:
@@ -212,3 +213,26 @@ def _file_digest(path):
 def display_state(value):
     allowed={'NONE','PENDING','SENDING','SENT','UNKNOWN','HELD','FAILED','DONE','VERIFYING','REVIEW','QUARANTINED','POSTING','CLAIMED','CANCELED','SUPERSEDED_UNSENT','BLOCKED_PREDECESSOR'}
     return value if isinstance(value,str) and value in allowed else 'UNRECOGNIZED'
+
+
+def install_submission_lineage(c):
+    """Local submission provenance, never financial verification or send approval."""
+    import uuid
+    c.execute('CREATE TABLE IF NOT EXISTS vpnl_submission_lineage(id INTEGER PRIMARY KEY CHECK(id=1),db_id TEXT NOT NULL,cutover_id TEXT NOT NULL)')
+    dbid=uuid.uuid4().hex;manifest=c.execute('SELECT manifest FROM vpnl_cutover WHERE id=1').fetchone()[0]
+    c.execute('INSERT OR IGNORE INTO vpnl_submission_lineage VALUES(1,?,?)',(dbid,digest([dbid,manifest])))
+    c.execute('CREATE TABLE IF NOT EXISTS vpnl_post_lineage(serial INTEGER PRIMARY KEY,record TEXT NOT NULL)')
+    c.execute('CREATE TABLE IF NOT EXISTS vpnl_submission_bindings(job_id TEXT PRIMARY KEY,binding TEXT NOT NULL,binding_digest TEXT NOT NULL)')
+    c.execute('CREATE TABLE IF NOT EXISTS vpnl_intake_submissions(serial INTEGER PRIMARY KEY,intake_id TEXT UNIQUE NOT NULL,request_digest TEXT NOT NULL,sidecar_id TEXT NOT NULL,job_id TEXT NOT NULL,binding TEXT NOT NULL,nonce TEXT UNIQUE NOT NULL,db_id TEXT NOT NULL,cutover_id TEXT NOT NULL,status TEXT NOT NULL,digest TEXT NOT NULL)')
+    c.execute('CREATE INDEX IF NOT EXISTS vpnl_submission_job ON vpnl_intake_submissions(job_id,serial)')
+    c.execute('CREATE TABLE IF NOT EXISTS vpnl_submission_pending(intake_id TEXT PRIMARY KEY,request_digest TEXT NOT NULL,sidecar_id TEXT NOT NULL,job_id TEXT NOT NULL)')
+    c.execute('CREATE INDEX IF NOT EXISTS vpnl_submission_pending_job ON vpnl_submission_pending(job_id)')
+    c.execute('CREATE TABLE IF NOT EXISTS vpnl_submission_dirty(intake_id TEXT PRIMARY KEY)')
+    c.execute('CREATE TABLE IF NOT EXISTS vpnl_submission_job_dirty(job_id TEXT PRIMARY KEY,cursor INTEGER NOT NULL DEFAULT 0)')
+    c.execute('CREATE TABLE IF NOT EXISTS vpnl_restore_reviews(id TEXT PRIMARY KEY,intake_id TEXT,reason TEXT NOT NULL,expected_digest TEXT,actual_digest TEXT,created REAL NOT NULL)')
+    for table in ('vpnl_post_lineage','vpnl_submission_lineage','vpnl_submission_bindings','vpnl_intake_submissions','vpnl_submission_pending','vpnl_restore_reviews'):
+        for verb in ('UPDATE','DELETE'):
+            c.execute(f"CREATE TRIGGER IF NOT EXISTS {table}_immutable_{verb} BEFORE {verb} ON {table} BEGIN SELECT RAISE(ABORT,'immutable_submission'); END")
+    c.execute("CREATE TRIGGER IF NOT EXISTS vpnl_ack_dirty_insert AFTER INSERT ON vpnl_intake_submissions BEGIN INSERT OR IGNORE INTO vpnl_submission_dirty VALUES(NEW.intake_id); END")
+    for verb in ('UPDATE','DELETE'):
+        c.execute(f"CREATE TRIGGER IF NOT EXISTS vpnl_job_submission_dirty_{verb} AFTER {verb} ON vpnl_jobs BEGIN INSERT OR IGNORE INTO vpnl_submission_job_dirty(job_id) VALUES(OLD.id); END")

@@ -282,6 +282,11 @@ def verification_tick(settings, client_factory):
         from .verifier import configure_concurrency
         configure_concurrency(getattr(settings, "VERIFY_MAX_CONCURRENCY", 2))
     store=NotificationOutboxStore(settings.VERIFIED_NOTIFICATIONS_DB_PATH)
+    from .intake import restore_preflight,replay
+    check=restore_preflight(store)
+    if not check['ready']:
+        if not check['blocked']:replay(settings,store=store)
+        warning('RESTORE_PREFLIGHT_BLOCKED');return
     store.recover()
     from .history import recover_consumers,recover_consumer_actions
     recover_consumers(store)
@@ -479,7 +484,7 @@ def verification_tick(settings, client_factory):
 
             from .evidence import digest
             from .history import consumer_job_pending
-            if consumer_job_pending(store,key):next_state='PENDING';next_due=time.time();pnl_done=False
+            if consumer_job_pending(store,key) or store.intake_job_pending(key):next_state='PENDING';next_due=time.time();pnl_done=False
             if store.identity_review(key):next_state='HELD';pnl_done=False
             data['completion_receipt']=(fill.outcome_receipt if rejected_final else (pnl.financial_receipt if is_close else fill.execution_receipt)) if pnl_done else None
             with store._connect() as con:
@@ -550,6 +555,9 @@ def verification_tick(settings, client_factory):
 
 def flush_outbox(settings):
     store=NotificationOutboxStore(settings.VERIFIED_NOTIFICATIONS_DB_PATH)
+    from .intake import restore_preflight
+    if not restore_preflight(store)['ready']:
+        warning('RESTORE_PREFLIGHT_BLOCKED');return
     store.recover()
     for _ in range(20):
         claim=store.claim_next()
@@ -612,7 +620,8 @@ def start_worker(settings, *, execution_bootstrap=None):
             if not init_store.cutover_ready():
                 warning("notification_cutover_required");return
             init_store.recover()
-            if hasattr(init_store, "prune_completed"):
+            from .intake import restore_preflight
+            if restore_preflight(init_store)['ready'] and hasattr(init_store, "prune_completed"):
                 init_store.prune_completed()
         except Exception:
             warning("notification_store_not_ready");return
