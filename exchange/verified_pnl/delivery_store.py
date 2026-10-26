@@ -417,7 +417,7 @@ class NotificationOutboxStore:
                 if old!=(ref['financial_digest'],ref['wire_digest']) or alias!=ref['alias']:return None
             elif not c.execute('SELECT 1 FROM vpnl_deliveries WHERE root_id=? AND revision=? LIMIT 1',(rid,head)).fetchone():return None
             return payload,fd
-        except (ValueError,KeyError,TypeError):return None
+        except (ValueError,KeyError,TypeError,AttributeError,sqlite3.ProgrammingError,sqlite3.InterfaceError):return None
 
     def ready_jobs(self,limit=20):
         limit=min(limit,20);now=time.time()
