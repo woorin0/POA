@@ -73,13 +73,8 @@ async def startup():
     if getattr(settings, "VERIFIED_DISCORD_ALERTS", False) and getattr(settings, "DISCORD_OUTBOX_ENABLED", False):
         try:
             from exchange.verified_pnl.dispatcher import start_worker
-            from exchange.verified_pnl.upbit_notification_bootstrap import prepare_upbit_notification_host
-            from exchange.verified_pnl.upbit_notification_local import configure_local_upbit_sources
-            local_status = configure_local_upbit_sources()
-            if local_status == 'LOCAL_SOURCES_UNAVAILABLE':
-                from loguru import logger
-                logger.warning('upbit_notification_read: LOCAL_SOURCES_UNAVAILABLE')
-            read_host = prepare_upbit_notification_host()
+            from exchange.verified_pnl.upbit_notification_platform import prepare_platform_upbit_host
+            read_host = prepare_platform_upbit_host(settings)
             if read_host.status not in ('DISABLED', 'HOST_CONFIGURED_EXTERNAL_EVIDENCE_REQUIRED'):
                 from loguru import logger
                 logger.warning('upbit_notification_read: {}', read_host.status)

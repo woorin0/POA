@@ -125,6 +125,11 @@ class Settings(BaseSettings):
     UPBIT_PARTIAL_FILL_ALERTS: bool = False
     UPBIT_MAX_VERIFY_ATTEMPTS: int = 5
     UPBIT_VERIFY_BACKOFF_ENABLED: bool = True
+    # Notification read opt-in. Reusing trading keys requires a separate explicit mode.
+    POA_UPBIT_ESTIMATED_READ_ENABLED: bool = False
+    POA_UPBIT_READ_CREDENTIAL_MODE: str = "disabled"
+    POA_UPBIT_READ_BINDING_FILE: str = "/etc/poa/upbit-notification-binding.json"
+    POA_UPBIT_READ_BINDING_SHA256: str = ""
     PASSWORD: str
     WHITELIST: list[str] | None = None
     PORT: int | None = None

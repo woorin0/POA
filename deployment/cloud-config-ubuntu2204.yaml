@@ -1,5 +1,5 @@
 #cloud-config
-# Ubuntu 22.04 amd64 fresh server. Matched to POA-app-full-v2.zip.
+# Ubuntu 22.04 amd64 fresh server. GitHub main + pinned release manifest.
 # Fill the JSON inputs. Keep completed user-data private.
 package_update: true
 timezone: UTC
@@ -31,7 +31,17 @@ write_files:
           "BITGET_SECRET": "",
           "BITGET_PASSPHRASE": ""
         },
-        "release_manifest_sha256": "a15ecab35256761ae2a86695a2c859efcd333b41c4af39c26bec600281505386"
+        "upbit_estimated_read": {
+          "enabled": false,
+          "credential_mode": "poa_settings",
+          "account_uuid": "",
+          "pocket_uuid": "",
+          "strategy": "",
+          "permissions": ["order_query", "order"],
+          "allowed_ips": [],
+          "evidence": {"source": "", "reference": "", "digest": "", "expires_at": 0}
+        },
+        "release_manifest_sha256": "6959bf3b7c9d6a6d5b1de1ca01df2267f7697fa4a3d1ea0320f8b3dd826cd4d1"
       }
   - path: "/usr/local/lib/poa/fix_alerts.py"
     owner: "root:root"
@@ -194,7 +204,7 @@ write_files:
       from urllib.error import HTTPError, URLError
       from urllib.request import Request, urlopen
       import zipfile
-      
+
       INPUT = Path('/root/poa-install-input.json')
       APP = Path('/root/POA')
       DB = Path('/root/db')
@@ -207,12 +217,83 @@ write_files:
                'NET_REALIZED_PNL_ENABLED': False, 'UPBIT_NET_PNL_ENABLED': False,
                'VERIFIED_COST_BASIS_COMPLETE': False, 'PARTIAL_FILL_ALERTS': False,
                'UPBIT_PARTIAL_FILL_ALERTS': False, 'EXCHANGE_NATIVE_TPSL_MONITOR': False}
-      
-      
+
+
       class InstallError(Exception):
           pass
-      
-      
+
+
+
+      def upbit_read_configuration(data, values):
+          """Pure config builder. Operator binding, never exchange identity certification."""
+          config = data.get('upbit_estimated_read', {'enabled': False})
+          if not isinstance(config, dict) or type(config.get('enabled', False)) is not bool:
+              raise InstallError('UPBIT_READ_CONFIG_INVALID')
+          env = {'POA_UPBIT_ESTIMATED_READ_ENABLED': False,
+                 'POA_UPBIT_READ_CREDENTIAL_MODE': 'disabled',
+                 'POA_UPBIT_READ_BINDING_FILE': '/etc/poa/upbit-notification-binding.json',
+                 'POA_UPBIT_READ_BINDING_SHA256': ''}
+          if not config.get('enabled', False):
+              return env, None
+          try:
+              import uuid
+              for field in ('account_uuid', 'pocket_uuid'):
+                  value = config[field]
+                  if type(value) is not str or str(uuid.UUID(value)) != value:
+                      raise ValueError()
+              strategy = config['strategy']
+              if (type(strategy) is not str or not 1 <= len(strategy) <= 128
+                      or strategy in ('default', '주문') or not strategy.isprintable()
+                      or re.search(r'(?i)bearer|api.?key|secret|passphrase|webhook|canary|authorization|https?://|%[0-9a-f]{2}', strategy)):
+                  raise ValueError()
+              if config.get('credential_mode') != 'poa_settings':
+                  raise ValueError()
+              permissions = config['permissions']
+              if (type(permissions) is not list or 'order_query' not in permissions
+                      or len(set(permissions)) != len(permissions)
+                      or not set(permissions).issubset({'order_query', 'order'})):
+                  raise ValueError()
+              ips = config['allowed_ips']
+              if type(ips) is not list or not 1 <= len(ips) <= 8:
+                  raise ValueError()
+              for address in ips:
+                  ipaddress.ip_address(address)
+              evidence = config['evidence']
+              if type(evidence) is not dict or set(evidence) != {'source', 'reference', 'digest', 'expires_at'}:
+                  raise ValueError()
+              for field in ('source', 'reference'):
+                  v = evidence[field]
+                  if type(v) is not str or not 1 <= len(v) <= 256 or not v.isprintable():
+                      raise ValueError()
+              if not re.fullmatch('[0-9a-f]{64}', evidence['digest']):
+                  raise ValueError()
+              expiry = evidence['expires_at']
+              if type(expiry) not in (int, float) or not time.time() < expiry < time.time() + 366 * 86400:
+                  raise ValueError()
+              key, secret = values.get('UPBIT_KEY'), values.get('UPBIT_SECRET')
+              if any(type(v) is not str or not 1 <= len(v) <= 4096 or not v.isascii() or not v.isprintable()
+                     for v in (key, secret)):
+                  raise ValueError()
+              ref = hashlib.sha256(json.dumps(('UPBIT', key), ensure_ascii=True,
+                                             separators=(',', ':')).encode()).hexdigest()
+              binding = {'format': 'POA_UPBIT_LINUX_BINDING_V1',
+                         'config': {'account_uuid': config['account_uuid'], 'pocket_uuid': config['pocket_uuid'],
+                                    'source_account_ref': ref, 'strategy': strategy,
+                                    'read_key_fingerprint': hashlib.sha256(key.encode()).hexdigest(),
+                                    'producer': 'POA_MAIN_LOG_V1'},
+                         'evidence': evidence, 'permissions': permissions,
+                         'key_usage': 'POA_SETTINGS_SHARED_TRADING_KEY', 'allowed_ips': ips}
+              content = json.dumps(binding, ensure_ascii=False, separators=(',', ':'))
+              if len(content.encode()) > 8192:
+                  raise ValueError()
+              env.update(POA_UPBIT_ESTIMATED_READ_ENABLED=True,
+                         POA_UPBIT_READ_CREDENTIAL_MODE='poa_settings',
+                         POA_UPBIT_READ_BINDING_SHA256=hashlib.sha256(content.encode()).hexdigest())
+              return env, content
+          except Exception:
+              raise InstallError('UPBIT_READ_BINDING_REQUIRED_OR_INVALID') from None
+
+
       def validate(data):
           domain = data.get('domain', '')
           if (not isinstance(domain, str) or not re.fullmatch(r'[a-zA-Z0-9](?:[a-zA-Z0-9.-]{0,251}[a-zA-Z0-9])?', domain)
@@ -266,31 +347,32 @@ write_files:
           expected = data.get('release_manifest_sha256')
           if expected is not None and (not isinstance(expected, str) or not re.fullmatch(r'[0-9a-fA-F]{64}', expected)):
               raise InstallError('INVALID_RELEASE_MANIFEST_DIGEST')
+          upbit_read_configuration(data, values)
           return values
-      
-      
+
+
       def run(args, code, cwd=None, timeout=300):
           # Captured command output is not printed: API tokens must never enter logs.
           result = subprocess.run(args, cwd=cwd, capture_output=True, timeout=timeout)
           if result.returncode:
               raise InstallError(code)
           return result.stdout
-      
-      
+
+
       def write_private(path, content):
           fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
           with os.fdopen(fd, 'w', encoding='utf-8') as f:
               f.write(content)
-      
-      
+
+
       def api(path, data=None, token=None):
           request = Request('http://127.0.0.1:8090' + path,
                             data=json.dumps(data).encode() if data is not None else None,
                             headers={'Content-Type': 'application/json', **({'Authorization': token} if token else {})})
           with urlopen(request, timeout=10) as response:
               return json.load(response)
-      
-      
+
+
       def bootstrap_db(email, password, request=api):
           # v0.16.6 permits first-admin creation only while there are no admins.
           request('/api/admins', {'email': email, 'password': password, 'passwordConfirm': password})
@@ -307,8 +389,8 @@ write_files:
           check = request('/api/collections/kimp', token=token)
           if {f['name']: f['type'] for f in check['schema']} != {f['name']: f['type'] for f in fields}:
               raise InstallError('DB_SCHEMA_CHECK_FAILED')
-      
-      
+
+
       def wait_ready(check, code, seconds=90):
           deadline = time.monotonic() + seconds
           while time.monotonic() < deadline:
@@ -319,16 +401,16 @@ write_files:
                   pass
               time.sleep(1)
           raise InstallError(code)
-      
-      
+
+
       def local_https(domain):
           # Verify the actual local Caddy certificate; never POST a trading webhook.
           with socket.create_connection(('127.0.0.1', 443), timeout=5) as sock:
               with ssl.create_default_context().wrap_socket(sock, server_hostname=domain) as tls:
                   tls.sendall(('GET / HTTP/1.1\r\nHost: ' + domain + '\r\nConnection: close\r\n\r\n').encode())
                   return tls.recv(128).startswith(b'HTTP/1.1 403')
-      
-      
+
+
       def verify_source(expected_manifest=None):
           path = APP / 'release_manifest_sha256.json'
           if not path.is_file():
@@ -353,8 +435,8 @@ write_files:
                   raise InstallError('SOURCE_HASH_MISMATCH:' + name)
           if expected_manifest and not {'main.py', 'run.py', 'requirements.txt'}.issubset(seen):
               raise InstallError('SOURCE_MANIFEST_MISSING_APP_FILES')
-      
-      
+
+
       def runtime_for_os(content):
           fields = dict(line.split('=', 1) for line in content.splitlines() if '=' in line)
           identity = (fields.get('ID', '').strip('"'), fields.get('VERSION_ID', '').strip('"'))
@@ -362,8 +444,8 @@ write_files:
           if identity not in supported:
               raise InstallError('SUPPORTED_OS_REQUIRED_DEBIAN12_OR_UBUNTU2204')
           return supported[identity]
-      
-      
+
+
       def install(data):
           values = validate(data)
           if os.geteuid() != 0 or APP.exists() or DB.exists():
@@ -390,8 +472,15 @@ write_files:
               run([python, '-m', 'pip', 'check'], 'PIP_CHECK_FAILED')
               password = secrets.token_urlsafe(32)
               email = data.get('db_admin_email', 'poa-admin@example.com')
+              read_env, binding = upbit_read_configuration(data, values)
+              if binding is not None:
+                  parent = Path('/etc/poa')
+                  parent.mkdir(mode=0o700, exist_ok=True)
+                  if parent.is_symlink() or parent.stat().st_mode & 0o077 or parent.stat().st_uid != 0:
+                      raise InstallError('UPBIT_BINDING_DIRECTORY_INSECURE')
+                  write_private(parent / 'upbit-notification-binding.json', binding)
               env = {**{key: values.get(key, '') for key in ENV_KEYS}, 'DB_ID': email, 'DB_PASSWORD': password,
-                     'PORT': 8000, 'WHITELIST': ['127.0.0.1'], **FLAGS,
+                     'PORT': 8000, 'WHITELIST': ['127.0.0.1'], **FLAGS, **read_env,
                      'VERIFIED_NOTIFICATIONS_DB_PATH': str(APP / 'notifications.sqlite3')}
               write_private(APP / '.env', ''.join(key + '=' + (json.dumps(value, ensure_ascii=False) if isinstance(value, str)
                             else json.dumps(value)) + '\n' for key, value in env.items()))
@@ -457,8 +546,8 @@ write_files:
                           print('POA_INSTALL_CLEANUP_REQUIRES_REVIEW', flush=True)
                   (APP / 'ENABLE_LIVE_SERVICE').unlink(missing_ok=True)
               raise
-      
-      
+
+
       if __name__ == '__main__':
           os.umask(0o077)
           try:
@@ -470,6 +559,7 @@ write_files:
           except Exception:
               print('POA_INSTALL_FAILED=UNEXPECTED_FAILURE', file=sys.stderr)
               sys.exit(1)
+
   - path: "/usr/local/lib/poa/prepare_ubuntu.py"
     owner: "root:root"
     permissions: "0600"
