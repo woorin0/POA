@@ -5,7 +5,7 @@ No normalized DTO or completion flag grants history authority.
 from dataclasses import dataclass,replace
 from decimal import Decimal,localcontext
 from types import SimpleNamespace
-import hashlib,json
+import hashlib,json,sqlite3
 from . import evidence as E
 from .bootstrap import current_bootstrap
 
@@ -360,6 +360,7 @@ def reconcile(store,gid,context):
         new=c.execute('SELECT scope,candidate FROM vpnl_history_generations WHERE id=?',(gid,)).fetchone()
         head=c.execute('SELECT generation_id,cursor,reconciling FROM vpnl_history_heads WHERE scope=?',(new[0],)).fetchone()
         if head[0]!=gid or not head[2]:return
+        _reconcile_uncertain(store,c,gid,context,new)
         batch=c.execute('SELECT e.id,e.job_id,e.root_id,p.generation_id,p.financial FROM vpnl_history_consumer_edges e JOIN vpnl_history_proofs p ON p.id=e.proof_id WHERE e.scope=? AND e.id>? ORDER BY e.id LIMIT 40',(new[0],head[1])).fetchall()
         for key,job,root,oldid,encoded in batch:
             if oldid==gid:continue
@@ -383,6 +384,7 @@ def reconcile(store,gid,context):
             withdrawal=context.authority._attest('HISTORY',dict(scope=b['scope'],complete=False,generation_id=oldid,successor_generation=gid,consumer_root=root,consumer_alias=current[0],withdrawals=[item]))
             state='PENDING' if E.verify(prior,'FINANCIAL') and prior['key_id']==withdrawal['key_id'] else 'KEY_REVIEW'
             if E.canonical(revoked)==E.canonical(withdrawal):state='PUBLISHED'
+            if c.execute('SELECT 1 FROM vpnl_uncertain_publications WHERE root_id=? LIMIT 1',(root,)).fetchone():state='REVIEW_REQUIRED'
             action=E.digest([key,gid])
             row=c.execute('SELECT edge_id,successor,receipt FROM vpnl_consumer_actions WHERE id=?',(action,)).fetchone()
             values=(key,gid,E.canonical(withdrawal))
@@ -485,6 +487,8 @@ def _trade_cache_valid(c,candidate,fill):
 
 
 def install_consumers(c):
+    from .reconciliation import install as install_reconciliation
+    install_reconciliation(c)
     for sql in (
         'CREATE TABLE IF NOT EXISTS vpnl_history_proofs(id TEXT PRIMARY KEY,scope TEXT NOT NULL,generation_id TEXT NOT NULL,financial TEXT NOT NULL)',
         'CREATE TABLE IF NOT EXISTS vpnl_history_consumer_edges(id TEXT PRIMARY KEY,proof_id TEXT NOT NULL,scope TEXT NOT NULL,job_id TEXT NOT NULL,root_id TEXT NOT NULL,revision INTEGER NOT NULL,UNIQUE(proof_id,job_id,root_id,revision))',
@@ -493,6 +497,12 @@ def install_consumers(c):
         'CREATE TABLE IF NOT EXISTS vpnl_consumer_reviews(root_id TEXT PRIMARY KEY,scope TEXT,reason TEXT NOT NULL,resolved INTEGER NOT NULL DEFAULT 0)',
         'CREATE TABLE IF NOT EXISTS vpnl_consumer_scan(id INTEGER PRIMARY KEY CHECK(id=1),cursor INTEGER NOT NULL,highwater INTEGER NOT NULL,complete INTEGER NOT NULL)'):
         c.execute(sql)
+    c.execute('CREATE TABLE IF NOT EXISTS vpnl_uncertain_publications(id TEXT PRIMARY KEY,root_id TEXT NOT NULL,revision INTEGER NOT NULL,scope TEXT NOT NULL,generation_id TEXT NOT NULL,job_id TEXT NOT NULL,financial TEXT NOT NULL,evidence TEXT NOT NULL,UNIQUE(root_id,revision))')
+    c.execute('CREATE INDEX IF NOT EXISTS vpnl_uncertain_scope ON vpnl_uncertain_publications(scope,id)')
+    c.execute('CREATE TABLE IF NOT EXISTS vpnl_uncertain_obligations(id TEXT PRIMARY KEY,publication_id TEXT NOT NULL,successor TEXT NOT NULL,change_receipt TEXT,state TEXT NOT NULL,UNIQUE(publication_id,successor))')
+    for table in ('vpnl_uncertain_publications','vpnl_uncertain_obligations'):
+        for verb in ('UPDATE','DELETE'):
+            c.execute(f"CREATE TRIGGER IF NOT EXISTS {table}_immutable_{verb.lower()} BEFORE {verb} ON {table} BEGIN SELECT RAISE(ABORT,'retained_uncertain_responsibility'); END")
     if c.execute('SELECT 1 FROM vpnl_consumer_scan WHERE id=1').fetchone() is None:
         highwater=c.execute('SELECT coalesce(max(rowid),0) FROM vpnl_revisions').fetchone()[0]
         c.execute('INSERT INTO vpnl_consumer_scan VALUES(1,0,?,?)',(highwater,int(highwater==0)))
@@ -521,7 +531,7 @@ def _consumer_review(c,root,scope):
     c.execute("INSERT OR IGNORE INTO vpnl_quarantine VALUES(?,?,?,?,0)",(E.digest(['consumer-review',root]),scope,'consumer_binding_review',E.digest(root)))
 
 
-def record_consumer(store,c,p,root,revision,binding):
+def _consumer_identity(store,c,p,root,binding):
     if p.financial_receipt is None or 'generation_id' not in p.financial_receipt['body']:return
     from .models import NotificationPayload
     from .ledger import identity
@@ -537,6 +547,12 @@ def record_consumer(store,c,p,root,revision,binding):
     if p.event_id not in aliases and not c.execute('SELECT 1 FROM vpnl_history_consumer_edges WHERE root_id=? AND job_id=?',(root,job)).fetchone():raise ValueError('consumer_alias_review')
     actual=c.execute('SELECT alias FROM vpnl_roots WHERE id=?',(root,)).fetchone()
     if actual is None or actual[0]!=p.event_id:raise ValueError('consumer_root')
+    return fin,b,gid,scope,job,data,order
+
+
+def record_consumer(store,c,p,root,revision,binding):
+    if p.financial_receipt is None or 'generation_id' not in p.financial_receipt['body']:return
+    fin,b,gid,scope,job,data,order=_consumer_identity(store,c,p,root,binding)
     proof=E.digest([fin['key_id'],b]);_put(c,'vpnl_history_proofs',('id','scope','generation_id','financial'),(proof,scope,gid,E.canonical(fin)))
     edge=E.digest([proof,job,root,revision])
     created=_put(c,'vpnl_history_consumer_edges',('id','proof_id','scope','job_id','root_id','revision'),(edge,proof,scope,job,root,revision))
@@ -567,13 +583,20 @@ def recover_consumers(store):
                 if not bound or E.digest(E.strict_object(bound[0]))!=bound[1]:raise ValueError('consumer_binding')
                 if E.digest(store._facts(p))!=fd:raise ValueError('consumer_digest')
                 delivery=c.execute('SELECT wire,wire_digest,status FROM vpnl_deliveries WHERE root_id=? AND revision=?',(root,rev)).fetchone()
-                if delivery is None or hashlib.sha256(delivery[0]).hexdigest()!=delivery[1] or store._wire(p)!=delivery[0]:raise ValueError('consumer_wire')
-                if delivery[2]=='SENT' and not c.execute("SELECT 1 FROM vpnl_delivery_attempts WHERE delivery_id=(SELECT id FROM vpnl_deliveries WHERE root_id=? AND revision=?) AND revision=? AND wire_digest=? AND phase='SENT' LIMIT 1",(root,rev,rev,delivery[1])).fetchone():raise ValueError('consumer_delivery_receipt')
+                if delivery is None:raise ValueError('consumer_wire')
+                if delivery[2] in ('UNKNOWN','HELD'):
+                    _record_uncertain(store,c,p,root,rev,E.strict_object(bound[0]))
+                    continue
+                if hashlib.sha256(delivery[0]).hexdigest()!=delivery[1]:raise ValueError('consumer_wire')
+                if delivery[2]=='SENT':
+                    from .historical_delivery import validate_sent
+                    validate_sent(store,c,p,root,rev,E.strict_object(bound[0]))
+                elif store._wire(p)!=delivery[0]:raise ValueError('consumer_wire')
                 c.execute('SAVEPOINT consumer_row')
                 try:record_consumer(store,c,p,root,rev,E.strict_object(bound[0]))
                 except Exception:c.execute('ROLLBACK TO consumer_row');c.execute('RELEASE consumer_row');raise
                 c.execute('RELEASE consumer_row')
-            except (ValueError,KeyError,TypeError):_consumer_review(c,root,scope)
+            except (ValueError,KeyError,TypeError,ArithmeticError,sqlite3.Error):_consumer_review(c,root,scope)
         last=batch[-1][0] if batch else highwater
         c.execute('UPDATE vpnl_consumer_scan SET cursor=?,complete=? WHERE id=1',(last,int(last>=highwater)))
         return len(batch)
@@ -629,3 +652,65 @@ def recover_consumer_actions(store):
                 _consumer_review(c,root,None)
         c.execute("INSERT INTO vpnl_recovery_cursor VALUES('consumer-actions',?) ON CONFLICT(lane) DO UPDATE SET cursor=excluded.cursor",(batch[-1][0] if batch else '',))
         return len(batch)
+
+
+def _record_uncertain(store,c,p,root,revision,binding):
+    # A verified financial reference is not proof of publication or permission.
+    fin,b,gid,scope,job,data,order=_consumer_identity(store,c,p,root,binding)
+    from .historical_delivery import inspect_uncertain_success
+    evidence=inspect_uncertain_success(store,c,p,root,revision,binding)
+    key=E.digest(['uncertain-publication',root,revision])
+    _put(c,'vpnl_uncertain_publications',('id','root_id','revision','scope','generation_id','job_id','financial','evidence'),(key,root,revision,scope,gid,job,E.canonical(fin),evidence))
+    _retain_proof_job(c,fin,scope,gid,job)
+    _consumer_review(c,root,scope)
+    c.execute("UPDATE vpnl_jobs SET financial_state='REVIEW_UNCERTAIN' WHERE id=?",(job,))
+
+
+def _reconcile_uncertain(store,c,gid,context,new):
+    """Bounded review-only invalidation obligations, never delivery intents."""
+    fresh=c.execute('SELECT body,receipt FROM vpnl_history_generations WHERE id=?',(gid,)).fetchone()
+    if not fresh or not E.verify(E.strict_object(fresh[1]),'HISTORY',E.strict_object(fresh[0])):return
+    body=E.strict_object(fresh[0])
+    if E.canonical(body['scope'])!=context.scope_json or E.strict_object(fresh[1])['key_id']!=context.authority.key_id:return
+    lane='uncertain:'+E.digest([new[0],gid]);row=c.execute('SELECT cursor FROM vpnl_recovery_cursor WHERE lane=?',(lane,)).fetchone();after=row[0] if row else ''
+    batch=c.execute('SELECT id,root_id,generation_id,job_id,financial FROM vpnl_uncertain_publications WHERE scope=? AND id>? ORDER BY id LIMIT 40',(new[0],after)).fetchall()
+    if not batch:
+        c.execute("INSERT INTO vpnl_recovery_cursor VALUES(?,'') ON CONFLICT(lane) DO UPDATE SET cursor=''",(lane,));return
+    for key,root,oldid,job,encoded in batch:
+        if oldid==gid:continue
+        old=c.execute('SELECT candidate,body FROM vpnl_history_generations WHERE id=?',(oldid,)).fetchone()
+        if not old or not _generation_check(store,oldid,historical=True):continue
+        if not _conflicts(c,old[0],new[1],E.strict_object(old[1])['through']):continue
+        prior=E.strict_object(encoded)
+        if not E.verify(prior,'FINANCIAL') or E.canonical(prior['body']['scope'])!=context.scope_json:continue
+        proof=None;state='KEY_REVIEW'
+        if prior['key_id']==context.authority.key_id:
+            proof=context.authority._attest('HISTORY_CHANGE',dict(scope=body['scope'],invalidated_generation=oldid,successor_generation=gid))
+            if not E.verify(proof,'HISTORY_CHANGE') or proof['key_id']!=prior['key_id']:raise ValueError('uncertain_history_signer')
+            if not c.execute('SELECT 1 FROM vpnl_history_invalidations WHERE generation_id=?',(oldid,)).fetchone():
+                c.execute('INSERT INTO vpnl_history_invalidations VALUES(?,?,?)',(oldid,gid,E.canonical(proof)))
+            state='REVIEW_REQUIRED'
+        action=E.digest(['uncertain-correction',key,gid])
+        _put(c,'vpnl_uncertain_obligations',('id','publication_id','successor','change_receipt','state'),(action,key,gid,E.canonical(proof) if proof else None,state))
+        _consumer_review(c,root,new[0])
+        c.execute("UPDATE vpnl_jobs SET financial_state=? WHERE id=?",('REVIEW_INVALIDATED' if proof else 'REVIEW_KEY',job))
+    c.execute('INSERT INTO vpnl_recovery_cursor VALUES(?,?) ON CONFLICT(lane) DO UPDATE SET cursor=excluded.cursor',(lane,batch[-1][0]))
+
+
+def uncertain_delivery_status(store,root,revision):
+    """Bounded diagnostic projection; historical +8 is not a current approval."""
+    with store._connect_read() as c:
+        row=c.execute('SELECT id,generation_id,financial,evidence FROM vpnl_uncertain_publications WHERE root_id=? AND revision=?',(root,revision)).fetchone()
+        if row is None:return None
+        key,gid,encoded,evidence=row;prior=E.strict_object(encoded)
+        invalid=c.execute('SELECT proof FROM vpnl_history_invalidations WHERE generation_id=?',(gid,)).fetchone()
+        current='REVALIDATION_REQUIRED'
+        if not E.verify(prior,'FINANCIAL'):current='KEY_REVIEW'
+        elif invalid:
+            change=E.strict_object(invalid[0])
+            if (E.verify(change,'HISTORY_CHANGE') and change['key_id']==prior['key_id'] and change['body']['invalidated_generation']==gid
+                    and E.canonical(change['body']['scope'])==E.canonical(prior['body']['scope'])):current='INVALIDATED'
+        delivery=c.execute('SELECT status FROM vpnl_deliveries WHERE root_id=? AND revision=?',(root,revision)).fetchone()
+        obligations=c.execute('SELECT id,successor,state FROM vpnl_uncertain_obligations WHERE publication_id=? ORDER BY id LIMIT 40',(key,)).fetchall()
+        return dict(historical_net=prior['body']['result']['net_realized_pnl'],financial_current=current,publication_evidence=evidence,
+                    delivery_state=delivery[0] if delivery else 'MISSING',correction_delivery='UNCONFIRMED',automatic_send_authorized=False,obligations=obligations)

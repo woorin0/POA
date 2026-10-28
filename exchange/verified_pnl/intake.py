@@ -57,6 +57,8 @@ class IntakeStore:
             c.execute('CREATE TABLE IF NOT EXISTS intake_checkpoint(id INTEGER PRIMARY KEY CHECK(id=1),cursor INTEGER NOT NULL)')
             c.execute('INSERT OR IGNORE INTO intake_checkpoint VALUES(1,0)')
             install_restore_intake(c)
+            c.execute('CREATE TABLE IF NOT EXISTS notification_observation_admissions(request_id TEXT PRIMARY KEY,observation_digest TEXT NOT NULL,scope_digest TEXT NOT NULL,sidecar_id TEXT NOT NULL,producer TEXT NOT NULL)')
+            for action in ('UPDATE','DELETE'):c.execute("CREATE TRIGGER IF NOT EXISTS notice_admission_%s BEFORE %s ON notification_observation_admissions BEGIN SELECT RAISE(ABORT,'immutable_producer_admission'); END"%(action,action))
     @contextmanager
     def connect(self):
         from .delivery_store import worker_connection
@@ -80,13 +82,25 @@ class IntakeStore:
         except BaseException:c.rollback();raise
         finally:
             if reused is None:c.close()
-    def record(self,data):
-        request,review=normalized_request(data);encoded=canonical(request);key=digest(request)
+    def record(self,data,*,observation=None,producer=None):
+        request,review=normalized_request(data)
+        if observation is not None:
+            from .estimated_pnl import producer_allowed,validate_snapshot
+            if not producer_allowed(producer):raise ValueError('unregistered_notification_producer')
+            observation=validate_snapshot(observation)
+            if observation['source_ref']!=request['source_account_ref'] or observation['exchange']!=request['info']['exchange'] or observation['symbol']!=request['info']['unified_symbol'] or observation['order_id']!=request['result'].get('id') or observation['strategy']!=(request['info'].get('strategy_id') or request['info'].get('order_name') or 'default'):raise ValueError('observation_request_binding')
+            request.update(version=2,event_kind='POA_OBSERVATION',observation=observation)
+        encoded=canonical(request);key=digest(request)
         with self.connect() as c:
             old=c.execute('SELECT request,request_digest FROM notification_intake WHERE id=?',(key,)).fetchone()
             if old:
                 if old!=(encoded,digest(request)):raise ValueError('intake_identity_conflict')
             else:c.execute('INSERT INTO notification_intake(id,request,request_digest,status,due,created) VALUES(?,?,?,?,?,?)',(key,encoded,digest(request),'REVIEW' if review else 'STORED_WAIT_CUTOVER',0,time.time()))
+            if observation is not None:
+                row=(digest(observation),digest([observation['exchange'],observation['source_ref'],observation['symbol'],observation['strategy']]),c.execute('SELECT sidecar_id FROM intake_lineage WHERE id=1').fetchone()[0],'POA_MAIN_LOG_V1')
+                old=c.execute('SELECT observation_digest,scope_digest,sidecar_id,producer FROM notification_observation_admissions WHERE request_id=?',(key,)).fetchone()
+                if old is None:c.execute('INSERT INTO notification_observation_admissions VALUES(?,?,?,?,?)',(key,*row))
+                elif old!=row:raise ValueError('producer_admission_conflict')
         return key
     def rows(self,limit=40,only=None):
         with self.connect() as c:
@@ -110,6 +124,13 @@ class IntakeStore:
     def parse(encoded,expected):
         if len(encoded)>16384:raise ValueError('intake_schema')
         r=strict_object(encoded)
+        if r.get('version')==2:
+            from .estimated_pnl import validate_snapshot
+            if digest(r)!=expected or r.get('event_kind')!='POA_OBSERVATION':raise ValueError('intake_schema')
+            safe,review=normalized_request(r);obs=validate_snapshot(r.get('observation'))
+            safe.update(version=2,event_kind='POA_OBSERVATION',observation=obs)
+            if review or canonical(safe)!=canonical(r) or obs['source_ref']!=r['source_account_ref'] or obs['order_id']!=r['result'].get('id') or obs['symbol']!=r['info']['unified_symbol'] or obs['strategy']!=(r['info'].get('strategy_id') or r['info'].get('order_name') or 'default'):raise ValueError('observation_schema')
+            return r
         if digest(r)!=expected or r.get('version')!=1 or r.get('event_kind')!='REQUERY' or not isinstance(r.get('info'),dict) or not isinstance(r.get('result'),dict):raise ValueError('intake_schema')
         safe,review=normalized_request(r)
         if review or canonical(safe)!=canonical(r):raise ValueError('intake_schema')
@@ -157,6 +178,11 @@ def replay(settings,*,store=None,only=None):
         if store is None:intake.mark(key,'STORED_WAIT_CUTOVER');continue
         info=r['info'];ref=r['source_account_ref'];exchange=info['exchange'];order=r['result']['id']
         try:
+            if r['version']==2:
+                with intake.connect() as sc:validate_observed_admission(sc,r,key)
+                ack=store.submit_observed(intake,key,expected,r,seq)
+                intake.mark(key,'SUBMITTED',reference=ack['job_id'],ack=ack);count+=1
+                continue
             boot=current_bootstrap();account=account_reference(exchange,ref)
             if _PROVIDER is None or (boot is not None and not boot._key_ready()):intake.mark(key,'WAIT_PROVIDER');continue
             hint=_host_identity_hint(info,ref,order)
@@ -210,7 +236,11 @@ def submission_for(c,iid):
 def _job_matches(store,c,job,binding):
     row=c.execute('SELECT data FROM vpnl_jobs WHERE id=?',(job,)).fetchone()
     if row is None:return False
-    data=store.parse_job(row[0]);scope=binding['scope'];order=str(data['result'].get('id') or data['result'].get('uuid') or '')
+    data=store.parse_job(row[0])
+    if data.get('notice_intake'):
+        from .estimated_pnl import job_matches
+        return job_matches(store,c,job,binding)
+    scope=binding['scope'];order=str(data['result'].get('id') or data['result'].get('uuid') or '')
     return data['account']==scope['account'] and data['info']['exchange']==scope['exchange'] and data['info']['unified_symbol']==scope['symbol'] and bool(data['info']['is_futures'])==(scope['market_type']!='spot') and canonical(store.order_binding(scope,order,data['info']))==canonical(binding)
 
 def make_submission(store,c,iid,rd,sid,job,binding):
@@ -245,7 +275,10 @@ def validate_submission(store,c,ack):
             b=strict_object(encoded)
             if digest(b)!=bd or b.get('producer')!={'kind':'JOB','id':ack['job_id']} or b.get('order_id')!=ack['binding']['order_id']:return False
             data=store.parse_job(c.execute('SELECT data FROM vpnl_jobs WHERE id=?',(ack['job_id'],)).fetchone()[0])
-            if canonical(store.order_binding(b['scope'],b['order_id'],data['info']))!=canonical(ack['binding']):return False
+            if data.get('notice_intake'):
+                from .estimated_pnl import bound_root_matches
+                if not bound_root_matches(store,c,b,data):return False
+            elif canonical(store.order_binding(b['scope'],b['order_id'],data['info']))!=canonical(ack['binding']):return False
         return True
     except (ValueError,KeyError,TypeError):return False
 
@@ -268,6 +301,7 @@ def _check_intake(store,c,sc,iid):
     try:
         request=IntakeStore.parse(raw,rd)
         if iid!=rd:raise ValueError('intake_identity')
+        if request.get('version')==2:validate_observed_admission(sc,request,iid)
     except (ValueError,KeyError,TypeError):
         if status=='SUBMITTED' or encoded is not None or ack is not None:_review(c,sc,iid,'RESTORE_REQUEST_INVALID',rd,digest(raw))
         else:sc.execute("UPDATE notification_intake SET status='REVIEW',error='INTAKE_SCHEMA' WHERE id=?",(iid,))
@@ -470,3 +504,10 @@ def _check_post_lineage(store,c,sc,serial):
         if row is None or row[:7]!=expected or hashlib.sha256(row[7]).hexdigest()!=body['wire_digest']:raise ValueError('post_lineage_delivery')
     except (ValueError,KeyError,TypeError):
         _review(c,sc,'post:'+str(serial),'RESTORE_POST_LINEAGE_MISMATCH',right[0] if right else None,left[0] if left else None)
+
+
+def validate_observed_admission(sc,request,key):
+    obs=request['observation']
+    expected=(digest(obs),digest([obs['exchange'],obs['source_ref'],obs['symbol'],obs['strategy']]),sc.execute('SELECT sidecar_id FROM intake_lineage WHERE id=1').fetchone()[0],'POA_MAIN_LOG_V1')
+    if sc.execute('SELECT observation_digest,scope_digest,sidecar_id,producer FROM notification_observation_admissions WHERE request_id=?',(key,)).fetchone()!=expected:raise ValueError('producer_admission_missing')
+    return True

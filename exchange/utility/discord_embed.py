@@ -1073,8 +1073,10 @@ def build_notification_details(payload: NotificationPayload) -> List[Dict[str, A
         price_name = "실제 평균 체결가" if fill_verified else "보고된 체결가 (미검증)"
         details.append({"name": price_name, "value": sanitize_discord_text(payload.exit_price, max_len=64), "inline": True})
 
-    if payload.entry_price:
-        details.append({"name": "평균 진입가", "value": sanitize_discord_text(payload.entry_price, max_len=64), "inline": True})
+    from exchange.verified_pnl.evidence import payload_acquisition_price
+    acquisition_price = payload_acquisition_price(payload)
+    if is_sell_or_close_side(payload.side) or payload.entry_price is not None:
+        details.append({"name": "평균 진입가", "value": format_price_display(acquisition_price, currency=currency) if acquisition_price is not None else "미확정", "inline": True})
 
     if payload.filled_qty:
         qty_name = "실제 체결 수량" if fill_verified else "보고된 체결 수량 (미검증)"
@@ -1119,6 +1121,9 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
     Does NOT populate redundant Embed.fields on the Discord wire payload (P2-2) and strictly
     separates fill verification from Net PnL and ROI verification (P1-3, P2-3).
     """
+    from exchange.verified_pnl.evidence import payload_valid as financial_valid
+    if getattr(payload,'notification_type',None)=='ESTIMATED' and not financial_valid(payload):
+        return build_estimated_order_embed(payload)
     exchange = sanitize_discord_text(payload.exchange or "UNKNOWN", max_len=24).upper()
     display_symbol = normalize_display_symbol(payload.symbol)
     base_asset = extract_base_asset(display_symbol)
@@ -1295,8 +1300,9 @@ def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
             lines.append("수익률: 미확정")
 
         lines.append("")
-        entry_d = _to_finite_decimal(payload.entry_price, expected_currency=currency)
-        if entry_d is not None and entry_d > 0:
+        from exchange.verified_pnl.evidence import payload_acquisition_price
+        entry_d = payload_acquisition_price(payload)
+        if entry_d is not None:
             lines.append(f"매수가: {format_price_display(entry_d, currency=currency)}")
         else:
             lines.append("매수가: 미확정")
@@ -1702,3 +1708,23 @@ def build_error_embed(
 
     embed = Embed(title=title[:256], description=desc[:4096], color=color)
     return enforce_embed_bounds(embed)
+
+
+def build_estimated_order_embed(payload):
+    """Unsigned notification estimate; never labels financial verification."""
+    e=payload.estimated_pnl or {};ccy=e.get('currency')
+    if ccy not in ('KRW','USDT'):ccy='KRW' if payload.exchange=='UPBIT' else 'USDT'
+    symbol=normalize_display_symbol(payload.symbol);base=extract_base_asset(symbol)
+    fmt=lambda v,signed=False:format_price_display(v,currency=ccy,signed=signed)
+    # Validate only printable numeric outputs here; durable authority is Outbox admission.
+    qty=_to_finite_decimal(e.get('quantity'));entry=_to_finite_decimal(e.get('entry_price'));exit_price=_to_finite_decimal(e.get('exit_price'));amount=_to_finite_decimal(e.get('amount'));roi=_to_finite_decimal(e.get('roi'))
+    lines=['거래소: '+sanitize_discord_text(payload.exchange,max_len=24),'종목: '+sanitize_discord_text(symbol,max_len=32),'매도수량: '+format_quantity_display(qty,base),'평균 매수가: '+(fmt(entry) if entry is not None else '미확인'),'평균 매도가: '+(fmt(exit_price) if exit_price is not None else '미확인')]
+    if e.get('status')=='ESTIMATED' and entry is not None and entry>0 and qty is not None and qty>0 and amount is not None:
+        mode=e.get('fee_mode');label='수수료 미반영 추정 차익' if mode=='MISSING' else '추정 실현손익'
+        lines.append(label+': '+fmt(amount,True)+((' ('+format_roi_display(roi)+')') if roi is not None else ''))
+        lines.append('수수료: '+('확인된 귀속 수수료 반영' if mode=='COMPLETE' else '일부 수수료 미반영' if mode=='PARTIAL' else '수수료 정보 미확인 — 실제 순손익과 다를 수 있음'))
+        if e.get('ignored_assets'):lines.append('환산 근거 없는 자산 수수료 미반영')
+    else:lines.append('추정 손익: 계산 불가')
+    lines.append('손익 기준: POA에 귀속된 매수·매도 체결/완료 주문 관측 기록')
+    lines.append('안내: 추정치이며 실제 정산손익과 차이가 있을 수 있음')
+    return enforce_embed_bounds(Embed(title='현물 매도 · 추정 알림',description='\n'.join(lines),color=COLOR_ORDER_AMBIGUOUS))

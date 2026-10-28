@@ -66,6 +66,7 @@ class SpotReadAdapter:
 class ObservedExecution:
     data:dict
     rejection_codes:dict
+    fee_evidence:Optional[dict]=None
 
 class SpotExecutionBootstrap:
     def __init__(self,scope,adapter,authority,public_keys,pin_fingerprints,*,revoked_keys=()):
@@ -84,7 +85,11 @@ class SpotExecutionBootstrap:
         return isinstance(s,SpotScope) and s.exchange in {'BINANCE','BYBIT','OKX','UPBIT'} and all(isinstance(x,str) and 0<len(x)<=128 for x in vars(s).values()) and s.symbol.endswith('/'+s.settlement) and ':' not in s.symbol
     def _identity_ready(self):
         a=self.adapter;s=self.scope
-        if not isinstance(a,SpotReadAdapter) or not a.contract_id or a.fee_contract!='ORDER_LIFETIME_QUOTE_V1':return False
+        if not isinstance(a,SpotReadAdapter) or not a.contract_id:return False
+        if a.fee_contract==E.KRW_PROFILE:
+            from .upbit_spot_read import UpbitSpotReads
+            if not isinstance(a.client,UpbitSpotReads) or not a.client.krw_contract_ready(s) or a.contract_id!=E.KRW_PROFILE:return False
+        elif a.fee_contract!='ORDER_LIFETIME_QUOTE_V1':return False
         if getattr(a.client,'verbose',False) is True:return False
         if not all(callable(f) for f in (a.read_identity,a.read_order,a.read_page)):return False
         actual=a.read_identity(a.client)
@@ -98,6 +103,8 @@ class SpotExecutionBootstrap:
             self.state='READ_CLIENT_UNVERIFIED';return False
         try:
             E.configure_provider(self,self.public_keys)
+            if self.adapter.fee_contract==E.KRW_PROFILE:
+                E.register_krw_profile(self.scope_facts(),self.authority.key_id,self.adapter.client.audit_source_digest())
             challenge=self.authority._attest('BOOTSTRAP',{'contract':self.adapter.contract_id,'account':self.scope.account})
             if not E.verify(challenge,'BOOTSTRAP'):raise ValueError('key_unavailable')
             self.state='EXECUTION_EVIDENCE_INCOMPLETE';return True
@@ -122,9 +129,10 @@ class SpotExecutionBootstrap:
         try:
             if not self._identity_ready():self.state='READ_CLIENT_UNVERIFIED';return None
         except Exception:self.state='READ_CLIENT_UNVERIFIED';return None
+        return E.ObservationContext(self.authority,client,E.canonical(self.scope_facts()),execution_reader=self)
+    def scope_facts(self):
         s=self.scope
-        scope=dict(exchange=s.exchange,account=s.account,subaccount=s.subaccount,market_type='spot',symbol=s.symbol,instrument=s.instrument,settlement=s.settlement,contract_size='1',position_side='LONG',position_cycle=s.position_cycle,book=s.book,read_contract_id=self.adapter.contract_id)
-        return E.ObservationContext(self.authority,client,E.canonical(scope),execution_reader=self)
+        return dict(exchange=s.exchange,account=s.account,subaccount=s.subaccount,market_type='spot',symbol=s.symbol,instrument=s.instrument,settlement=s.settlement,contract_size='1',position_side='LONG',position_cycle=s.position_cycle,book=s.book,read_contract_id=self.adapter.contract_id)
     def _snapshot(self,oid):
         snap=self.adapter.read_order(self.adapter.client,oid,self.scope.symbol)
         if not isinstance(snap,OrderSnapshot) or (snap.account,snap.subaccount)!=(self.scope.account,self.scope.subaccount) or not isinstance(snap.snapshot_id,str) or not snap.snapshot_id:raise ValueError('observation_scope')
@@ -162,6 +170,9 @@ class SpotExecutionBootstrap:
             if client is not self.adapter.client or not oid or not self._identity_ready():raise ValueError('read_identity')
             market=client.market(self.scope.symbol)
             if not isinstance(market,dict) or market.get('id')!=self.scope.instrument or market.get('symbol')!=self.scope.symbol or market.get('spot') is not True or market.get('contract') is True or market.get('quote')!=self.scope.settlement:raise ValueError('market_scope')
+            if self.adapter.fee_contract==E.KRW_PROFILE:
+                data,proof=client.observe_krw_execution(oid,self.scope_facts())
+                return ObservedExecution(data,{},proof)
             first=self._snapshot(oid);cursor=None;seen=set();trades=[];ids=set()
             for _ in range(40):
                 page=self.adapter.read_page(client,oid,self.scope.symbol,cursor,first.snapshot_id)

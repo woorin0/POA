@@ -38,7 +38,7 @@ class FillVerifier:
                 with _VERIFY_SEMAPHORE:
                     observed=reader.observe(oid,bot.client)
                 if observed is not None:
-                    evidence_context=replace(evidence_context,rejection_codes=observed.rejection_codes)
+                    evidence_context=replace(evidence_context,rejection_codes=observed.rejection_codes,fee_evidence=observed.fee_evidence)
                     fetched=self._parse_order_dict(exchange_name,symbol,observed.data,order_info)
                     fetched.source='EXCHANGE_REST_QUERY'
             else:
@@ -360,7 +360,16 @@ class FillVerifier:
             fill.fees_complete=True
             fill.execution_role='CLOSE' if (getattr(info,'is_close',False) or (not getattr(info,'is_futures',False) and getattr(info,'is_sell',False))) else 'ENTRY'
             fill.scope_data=scope
-            fill.execution_receipt=context.authority._attest('EXECUTION',{'scope':scope,'fill':fill_facts(fill)})
+            body={'scope':scope,'fill':fill_facts(fill)}
+            from . import evidence as E
+            if scope.get('read_contract_id')==E.KRW_PROFILE:
+                from .bootstrap import current_bootstrap
+                reader=context.execution_reader
+                if reader is None or reader is not current_bootstrap() or reader.authority is not context.authority or reader.adapter.client is not client or E.canonical(reader.scope_facts())!=E.canonical(scope):return
+                body['fee_evidence']=context.fee_evidence
+                if not E.krw_execution_body_valid(body,context.authority.key_id):return
+            elif context.fee_evidence is not None:return
+            fill.execution_receipt=context.authority._attest('EXECUTION',body)
         except (ValueError,TypeError,KeyError,ArithmeticError):
             return
 

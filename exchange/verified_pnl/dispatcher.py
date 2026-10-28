@@ -162,6 +162,7 @@ def make_payload(key, fill, info, pnl, entry_price, settings):
     return NotificationPayload(
         event_id=key,
         financial_receipt=pnl.financial_receipt,
+        accounting_receipt=fill.accounting_receipt,
         execution_receipt=fill.execution_receipt,
         outcome_receipt=fill.outcome_receipt,
         exchange=fill.exchange,
@@ -297,6 +298,14 @@ def verification_tick(settings, client_factory):
     except Exception:warning('INTAKE_REPLAY_DEFERRED')
     from .history import refresh_dependencies
     refresh_dependencies(store,client_factory)
+    from .bootstrap import current_bootstrap
+    if current_bootstrap() is not None:
+        with store._connect() as c:
+            c.execute("UPDATE vpnl_jobs SET state='PENDING',due=? WHERE id IN (SELECT id FROM vpnl_jobs WHERE state='OBSERVED_WAIT_PROVIDER' ORDER BY created,id LIMIT 40)",(time.time(),))
+    from .upbit_spot_read import current_upbit_notification_host
+    upbit_host=current_upbit_notification_host()
+    if upbit_host is not None:
+        with store._connect() as c:c.execute("UPDATE vpnl_jobs SET state='PENDING',due=? WHERE id IN (SELECT id FROM vpnl_jobs WHERE state='OBSERVED_WAIT_PROVIDER' AND CASE WHEN json_valid(data) THEN json_extract(data,'$.info.exchange') END='UPBIT' ORDER BY created,id LIMIT 40)",(time.time(),))
     jobs=store.ready_jobs(20)
     for key,encoded,created in jobs:
         lease=uuid.uuid4().hex
@@ -314,16 +323,60 @@ def verification_tick(settings, client_factory):
             info=SimpleNamespace(**data['info'])
             attempts = data.get("attempts", 0) + 1
             data["attempts"] = attempts
-            client=client_factory(info.exchange,info)
-            # Independent client market metadata, never mutate the trading bot.
-            market=client.market(info.unified_symbol)
-            if info.exchange=="OKX" and info.is_futures:
-                info.contract_size=market.get("contractSize")
-            from .evidence import context_for
-            evidence_context=context_for(info.exchange,data["account"],info,client)
-            # No authenticated order query until the provider has bound this job account.
+            from .bootstrap import current_bootstrap
+            observed=data.get('notice_intake') is not None
+            if observed and data['notice_snapshot']['price_source']=='SCOPE_REJECTED':
+                with store._connect() as c:c.execute("UPDATE vpnl_jobs SET state='OBSERVED_REVIEW',job_lease=NULL WHERE id=? AND job_lease=?",(key,lease))
+                continue
+            boot=current_bootstrap()
+            local_upbit=observed and info.exchange=='UPBIT' and upbit_host is not None and not data['notice_snapshot']['confirmed']
+            local_only=local_upbit and (boot is None or boot.scope.exchange!='UPBIT' or boot.scope.legacy_account_reference!=data.get('source_account_ref'))
+            if observed and (boot is None or local_only):
+                client=None;evidence_context=None
+            else:
+                client=client_factory(info.exchange,info)
+                # Independent client market metadata, never mutate the trading bot.
+                market=client.market(info.unified_symbol)
+                if info.exchange=="OKX" and info.is_futures:info.contract_size=market.get("contractSize")
+                from .evidence import context_for
+                evidence_context=context_for(info.exchange,data["account"],info,client)
             read_bot=SimpleNamespace(client=client) if evidence_context is not None else None
-            fill=FillVerifier().verify_order_result(read_bot,info.exchange,info.unified_symbol,data["result"],info,evidence_context)
+            result_data=data['result']
+            if observed and evidence_context is None:
+                snap=data['notice_snapshot']
+                result_data=dict(id=snap['order_id'],symbol=snap['symbol'],status='closed' if snap['confirmed'] else 'open',side=snap['side'],filled=snap['quantity'],amount=snap['quantity'],remaining='0',average=snap['average'])
+            local_observed=False
+            if local_upbit and evidence_context is None:
+                from .upbit_spot_read import UpbitNotificationWait
+                try:
+                    observation=upbit_host.observe(data['notice_intake'],info,data['source_account_ref'],data['result']['id'])
+                    if not store.record_upbit_observation(key,lease,data,observation):raise ValueError('upbit_observation_not_admitted')
+                    result_data=observation.facts;local_observed=True
+                except UpbitNotificationWait:
+                    expired=time.time()-created>=settings.FILL_VERIFICATION_TIMEOUT_SEC
+                    with store._connect() as c:c.execute("UPDATE vpnl_jobs SET state=?,due=?,job_lease=NULL WHERE id=? AND job_lease=?",('OBSERVED_REVIEW' if expired else 'PENDING',time.time()+max(1,settings.VERIFY_STAGED_DELAYS[min(attempts-1,len(settings.VERIFY_STAGED_DELAYS)-1)]),key,lease))
+                    continue
+                except Exception:
+                    warning('UPBIT_OBSERVATION_REVIEW')
+                    with store._connect() as c:c.execute("UPDATE vpnl_jobs SET state='OBSERVED_REVIEW',job_lease=NULL WHERE id=? AND job_lease=?",(key,lease))
+                    continue
+            fill=FillVerifier().verify_order_result(read_bot,info.exchange,info.unified_symbol,result_data,info,evidence_context)
+            if local_observed and data['notice_snapshot']['side']=='buy':
+                with store._connect() as c:c.execute("UPDATE vpnl_jobs SET state='OBSERVED_RECORDED',financial_state='OBSERVATION_ONLY',job_lease=NULL WHERE id=? AND job_lease=?",(key,lease))
+                continue
+            if observed and evidence_context is None and not local_observed and (data['notice_snapshot']['side']=='buy' or not data['notice_snapshot']['confirmed']):
+                with store._connect() as c:c.execute("UPDATE vpnl_jobs SET state=?,financial_state='OBSERVATION_ONLY',job_lease=NULL WHERE id=? AND job_lease=?",('OBSERVED_RECORDED' if data['notice_snapshot']['confirmed'] else 'OBSERVED_REVIEW' if boot is not None else 'OBSERVED_WAIT_PROVIDER',key,lease))
+                continue
+            if observed and evidence_context is not None:
+                from .evidence import execution_valid
+                if execution_valid(fill,fill.scope_data) and fill.filled_quantity>0 and fill.status in {FillStatus.FILLED,FillStatus.CANCELED}:
+                    if not store.record_notice_successor(key,lease,data,fill,evidence_context):
+                        with store._connect() as c:c.execute("UPDATE vpnl_jobs SET state='OBSERVED_REVIEW',job_lease=NULL WHERE id=? AND job_lease=?",(key,lease))
+                        continue
+                elif not data['notice_snapshot']['confirmed']:
+                    expired=time.time()-created>=settings.FILL_VERIFICATION_TIMEOUT_SEC
+                    with store._connect() as c:c.execute("UPDATE vpnl_jobs SET state=?,due=?,job_lease=NULL WHERE id=? AND job_lease=?",('OBSERVED_REVIEW' if expired else 'PENDING',time.time()+max(1,settings.VERIFY_STAGED_DELAYS[min(attempts-1,len(settings.VERIFY_STAGED_DELAYS)-1)]),key,lease))
+                    continue
             from .history import attach_history,register_dependency,record_published_withdrawal
             evidence_context=attach_history(store,fill,info,evidence_context,job_id=key)
             is_upbit = (info.exchange == "UPBIT")
@@ -368,7 +421,7 @@ def verification_tick(settings, client_factory):
                 from .evidence import verify,payload_valid
                 from .history import correction_alias
                 # Start with the producer stream, then honor a proven consumer target.
-                p.event_id=identity(key,'final',[],2)
+                p.event_id=identity(key,'estimated' if p.notification_type=='ESTIMATED' else 'final',[],2)
                 history=evidence_context.history_receipt if evidence_context is not None else None
                 if verify(history,'HISTORY') and history['body'].get('complete') is False and history['body'].get('consumer_alias'):
                     p.event_id=history['body']['consumer_alias']
@@ -408,7 +461,18 @@ def verification_tick(settings, client_factory):
                 event = identity(key, event_type, [], 2)
                 payload = make_payload(event, fill, info, pnl, entry, settings)
                 payload.event_type = event_type
+                from .evidence import payload_valid,verify
+                withdrawing=evidence_context is not None and verify(evidence_context.history_receipt,'HISTORY') and evidence_context.history_receipt['body'].get('complete') is False
+                if data.get('notice_intake') and info.is_sell and not payload_valid(payload) and not withdrawing:
+                    from .estimated_pnl import attach
+                    payload=attach(payload,store,data)
                 data["final_alert_sent"] = _dispatch_enqueue(payload)
+                if payload.notification_type=='ESTIMATED' or (data.get('notice_intake') and store.notice_decided(key) and not data['final_alert_sent']):
+                    with store._connect() as c:
+                        # A notification-only outcome is never VERIFIED_COMPLETE.
+                        data.pop('publication_pending',None)
+                        c.execute("UPDATE vpnl_jobs SET data=?,state=?,financial_state='OBSERVATION_ONLY',job_lease=NULL WHERE id=? AND job_lease=?",(json.dumps(data),'OBSERVED_NOTIFIED' if data['final_alert_sent'] else 'OBSERVED_REVIEW',key,lease))
+                    continue
                 if pnl.net_realized_pnl is None: logger.info("verified_alerts: pnl_unconfirmed")
             elif partial_alerts and fill.status == FillStatus.PARTIALLY_FILLED:
                 event_type = "partial"
@@ -616,7 +680,7 @@ class ReadClients:
         return self.clients[key]
 
 
-def start_worker(settings, *, execution_bootstrap=None):
+def start_worker(settings, *, execution_bootstrap=None, upbit_observation_host=None):
     if not config_valid(settings): warning("configuration_incomplete"); return None
     if settings.EXCHANGE_NATIVE_TPSL_MONITOR:
         warning("native_tpsl_monitor_not_implemented")
@@ -624,16 +688,20 @@ def start_worker(settings, *, execution_bootstrap=None):
     if execution_bootstrap is not None:
         if not configure_execution_bootstrap(execution_bootstrap):
             warning(execution_readiness()['execution']);return None
+    if upbit_observation_host is not None:
+        from .upbit_spot_read import configure_upbit_notification_host
+        if not configure_upbit_notification_host(upbit_observation_host):warning('UPBIT_OBSERVATION_HOST_REJECTED');return None
     bootstrap=current_bootstrap()
     if bootstrap is None:
-        warning('PROVIDER_NOT_CONFIGURED');return None
-    if not bootstrap.activate():
+        warning('PROVIDER_NOT_CONFIGURED_OBSERVATION_ONLY')
+    if bootstrap is not None and not bootstrap.activate():
         warning(execution_readiness()['execution']);return None
     stop=threading.Event()
     def run_session(init_store):
         from .intake import _BOOT_CHECKED
         _BOOT_CHECKED.discard(init_store.db_path)
-        factory=bootstrap.client_for
+        def unavailable_client(*args):raise ValueError('PROVIDER_NOT_CONFIGURED')
+        factory=bootstrap.client_for if bootstrap is not None else unavailable_client
         # Run cleanup / recovery on startup
         try:
             if not init_store.cutover_ready():
@@ -668,3 +736,33 @@ def start_worker(settings, *, execution_bootstrap=None):
     thread=threading.Thread(target=run,name="verified-notifications",daemon=True)
     thread.start()
     return stop
+
+
+def dispatch_order_observation(exchange_name,order_result,order_info,settings,*,producer_entry):
+    """Registered POA notification boundary: persists typed observations, no HTTP."""
+    from . import estimated_pnl as N
+    from .intake import IntakeStore,normalized_request,replay,safe_failure
+    from .evidence import account_reference
+    if not config_valid(settings) or exchange_name not in SUPPORTED:return dict(accepted=False,status='CONFIGURATION_BLOCKED')
+    if exchange_name=='UPBIT' and not getattr(settings,'UPBIT_VERIFIED_ALERTS',False):return dict(accepted=False,status='CONFIGURATION_BLOCKED')
+    try:
+        token=N.producer_token(producer_entry)
+        info={k:getattr(order_info,k,None) for k in INFO_FIELDS}
+        info={k:v if isinstance(v,(str,int,float,bool,type(None))) else None for k,v in info.items()}
+        for flag in ('is_buy','is_sell','is_close','is_futures'):
+            if info.get(flag) is None:info[flag]=False
+        raw=order_result if isinstance(order_result,dict) else {}
+        oid=raw.get('id') or raw.get('uuid')
+        if oid is None:return dispatch_verified_alert(exchange_name,order_result,order_info,settings)
+        ref=identity(exchange_name,getattr(settings,exchange_name+'_KEY',None) or 'unconfigured')
+        data=dict(info=info,result={'id':str(oid)},source_account_ref=ref,host_binding_digest=None)
+        clean,review=normalized_request(data)
+        configured=bool(getattr(settings,exchange_name+'_KEY',None)) or account_reference(exchange_name,ref) is not None
+        observation=N.capture(exchange_name,raw,clean['info'],ref,configured)
+        intake=IntakeStore(settings.VERIFIED_NOTIFICATIONS_DB_PATH)
+        iid=intake.record(data,observation=observation,producer=token)
+    except Exception as exc:
+        logger.error('observed_alerts: {}',safe_failure(exc));return dict(accepted=False,status='PERSISTENCE_FAILED',code=safe_failure(exc))
+    try:replay(settings,only=iid)
+    except Exception:warning('INTAKE_REPLAY_DEFERRED')
+    return dict(accepted=True,status='DURABLE_ACCEPTED',intake_id=iid)

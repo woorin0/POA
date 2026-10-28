@@ -98,7 +98,7 @@ class NotificationOutboxStore:
 
     @staticmethod
     def _facts(p):
-        d=p.dict();excluded={'event_type','event_id','event_version','event_timestamp','order_name','strategy_id','signal_id','verification_source','financial_receipt','execution_receipt','outcome_receipt','financial_revocation_receipt'}
+        d=p.dict();excluded={'event_type','event_id','event_version','event_timestamp','order_name','strategy_id','signal_id','verification_source','financial_receipt','accounting_receipt','execution_receipt','outcome_receipt','financial_revocation_receipt'}
         facts={k:v for k,v in d.items() if k not in excluded}
         from .evidence import outcome_rejected
         financial=None
@@ -113,6 +113,9 @@ class NotificationOutboxStore:
         return facts
     @staticmethod
     def _scope(p):
+        if getattr(p,'notification_type',None)=='ESTIMATED':
+            value=p.estimated_pnl
+            return value.get('scope') if isinstance(value,dict) and value.get('status') in ('ESTIMATED','UNAVAILABLE') else None
         if not payload_fill_valid(p):return None
         scope=p.execution_receipt['body']['scope']
         required={'exchange','account','market_type','instrument','symbol','settlement','contract_size','position_side','position_cycle','book'}
@@ -154,8 +157,13 @@ class NotificationOutboxStore:
             info=job['info'];result=job['result']
             order=str(result.get('id') or result.get('uuid') or '')
             if not order or (p.exchange,p.symbol,p.order_id)!=(info['exchange'],info['unified_symbol'],order):raise ValueError('producer_order_binding')
-            if scope is not None and scope['account']!=job['account']:raise ValueError('producer_account_binding')
-        return {'version':1,'scope':scope,'exchange':p.exchange,'symbol':p.symbol,'order_id':p.order_id,'producer':producer}
+            account=job.get('source_account_ref') if getattr(p,'notification_type',None)=='ESTIMATED' else job['account']
+            if scope is not None and scope['account']!=account:raise ValueError('producer_account_binding')
+        binding={'version':1,'scope':scope,'exchange':p.exchange,'symbol':p.symbol,'order_id':p.order_id,'producer':producer}
+        if job is not None and job.get('notice_intake'):
+            from .estimated_pnl import case_key
+            binding['notice_case']=case_key(job['notice_snapshot'])
+        return binding
     @staticmethod
     def _review_root(c,rid):
         c.execute('INSERT OR IGNORE INTO vpnl_quarantine VALUES(?,?,?,?,0)',(digest(['root_binding',rid]),None,'root_binding_review',rid))
@@ -172,6 +180,8 @@ class NotificationOutboxStore:
         return canonical({'embeds':[data],'allowed_mentions':{'parse':[]}}).encode()
     def enqueue(self,payload,max_attempts=5,*,job_claim=None):
         p=payload.copy(deep=True);valid=payload_valid(p)
+        if getattr(p,'notification_type',None) not in (None,'ESTIMATED'):return False
+        if p.notification_type=='ESTIMATED' and job_claim is None:return False
         if not valid:
             p.net_pnl=p.roi_pct=p.cost_basis=None;p.pnl_verification_status=p.roi_verification_status=VerificationStatus.UNVERIFIED;p.financial_receipt=None
         if not payload_fill_valid(p):
@@ -186,7 +196,10 @@ class NotificationOutboxStore:
                 owned=c.execute("SELECT data FROM vpnl_jobs WHERE id=? AND job_lease=? AND state='VERIFYING' AND due>?",(*job_claim,time.time())).fetchone()
                 if not owned:raise ValueError('job_lease_lost')
                 job=self.parse_job(owned[0])
-            if job_claim is not None and not self._authorize_order_identity(c,p,job_claim,job):return False
+            if p.notification_type=='ESTIMATED':
+                if not self._estimated_authority(c,p,job_claim[0],job):return False
+            elif job_claim is not None and not self._authorize_order_identity(c,p,job_claim,job):return False
+            if job is not None and not self._notice_gate(c,p,job):return False
             try:binding=self._binding(p,job_claim,job)
             except ValueError:return False
             if valid and binding['scope'] is None:return False
@@ -240,6 +253,11 @@ class NotificationOutboxStore:
             legacy=c.execute('SELECT status FROM verified_outbox WHERE event_id=?',(p.event_id,)).fetchone()
             if legacy and legacy[0] in ('SENT','SENDING','UNKNOWN','HELD'):status='HELD'
             c.execute('INSERT INTO vpnl_deliveries(id,root_id,revision,kind,parent,wire,wire_digest,status,due,updated,max_attempts) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(uuid.uuid4().hex,rid,revision,('REVOKE' if p.event_type=='revoked' else 'CORRECTION') if previous else 'INITIAL',parent,wire,wd,status,now,now,max_attempts))
+            from .estimated_pnl import case_for_job
+            notice_case=case_for_job(job) if job is not None else None
+            if notice_case is not None and c.execute('SELECT 1 FROM vpnl_notice_inputs WHERE case_id=? LIMIT 1',(notice_case,)).fetchone():
+                did=c.execute('SELECT id FROM vpnl_deliveries WHERE root_id=? AND revision=?',(rid,revision)).fetchone()[0]
+                c.execute('INSERT INTO vpnl_notice_members VALUES(?,?,?)',(did,notice_case,'ESTIMATED' if p.notification_type=='ESTIMATED' else 'FINANCIAL'))
             from .history import record_consumer
             record_consumer(self,c,p,rid,revision,binding)
         logger.info('verified_alerts: financial_revision_recorded');return True
@@ -273,6 +291,14 @@ class NotificationOutboxStore:
                     if prior is None or not self._withdrawal_valid(p,NotificationPayload(**strict_object(prior[0]))):raise ValueError('withdrawal_binding')
                 if digest(self._facts(p))!=fd or self._wire(p)!=wire or hashlib.sha256(wire).hexdigest()!=wd:raise ValueError('wire_binding')
                 if p.net_pnl is not None and not payload_valid(p):raise ValueError('financial_binding')
+                if p.notification_type=='ESTIMATED':
+                    from .upbit_spot_read import current_upbit_notification_host
+                    iid=(p.estimated_pnl or {}).get('intake_id')
+                    if iid and c.execute('SELECT 1 FROM vpnl_notice_upbit_observations WHERE intake_id=?',(iid,)).fetchone() and current_upbit_notification_host() is None:
+                        # Missing host configuration is not corrupt evidence. Keep durable PENDING.
+                        c.execute("UPDATE vpnl_deliveries SET due=? WHERE id=?",(time.time()+5,did));return False
+                    owner=bound['producer']['id'];job=self.parse_job(c.execute('SELECT data FROM vpnl_jobs WHERE id=?',(owner,)).fetchone()[0])
+                    if not self._estimated_authority(c,p,owner,job):raise ValueError('estimated_admission')
             except (ValueError,TypeError,KeyError):
                 c.execute("UPDATE vpnl_deliveries SET status='QUARANTINED',error='evidence_invalid' WHERE id=?",(did,));return False
             token=secrets.token_hex(32);aid=uuid.uuid4().hex;epoch+=1
@@ -631,3 +657,159 @@ class NotificationOutboxStore:
             return not c.execute('SELECT 1 FROM vpnl_submission_pending WHERE job_id=? AND intake_id NOT IN (SELECT intake_id FROM vpnl_intake_submissions) LIMIT 1',(claim[0],)).fetchone()
     def intake_job_pending(self,job):
         with self._connect_read() as c:return c.execute('SELECT 1 FROM vpnl_submission_pending WHERE job_id=? AND intake_id NOT IN (SELECT intake_id FROM vpnl_intake_submissions) LIMIT 1',(job,)).fetchone() is not None
+
+
+    def submit_observed(self,intake,iid,rd,request,sequence):
+        from .estimated_pnl import validate_snapshot,case_key,notification_scope,notice_input
+        from .intake import validate_observed_admission,submission_for,make_submission,validate_submission
+        snap=validate_snapshot(request['observation']);case=case_key(snap);key=digest(['poa-observed-job-v1',case])
+        binding=self.order_binding(notification_scope(snap),snap['order_id'],request['info'])
+        with self._connect() as c:
+            require_cutover(c)
+            with intake.connect() as sc:
+                row=sc.execute('SELECT request,request_digest FROM notification_intake WHERE id=?',(iid,)).fetchone()
+                if row!=(canonical(request),rd) or iid!=rd:raise ValueError('observed_request')
+                intake.parse(row[0],rd);validate_observed_admission(sc,request,iid)
+                sid=sc.execute('SELECT sidecar_id FROM intake_lineage WHERE id=1').fetchone()[0]
+            oldack=submission_for(c,iid)
+            if oldack:
+                if not validate_submission(self,c,oldack):raise ValueError('observed_ack')
+                return oldack
+            # A pre-upgrade producer may already have published this event. Do not
+            # remap its root or infer delivery success: preserve the new input for REVIEW.
+            from .ledger import identity
+            oldkeys={identity(snap['exchange'],snap['source_ref'],'spot',snap['symbol'],snap['order_id']),identity('notification-input-v2',snap['source_ref'],snap['exchange'],'spot',snap['symbol'],snap['order_id'],self.producer_identity(request['info']))}
+            from .dispatcher import _host_identity_hint
+            hint=_host_identity_hint(request['info'],snap['source_ref'],snap['order_id'])
+            if hint is not None:
+                prior_identity=c.execute('SELECT job_id FROM vpnl_order_identities WHERE id=? AND binding=?',(digest(hint),canonical(hint))).fetchone()
+                if prior_identity:oldkeys.add(prior_identity[0])
+                oldkeys.add(digest(['notification-bound-input-v1',hint]))
+            for prior_job in oldkeys:
+                if c.execute("SELECT 1 FROM vpnl_root_bindings WHERE json_extract(binding,'$.producer.kind')='JOB' AND json_extract(binding,'$.producer.id')=? LIMIT 1",(prior_job,)).fetchone():
+                    c.execute('INSERT OR IGNORE INTO vpnl_notice_reviews VALUES(?,?)',(case,'existing_notification_review'))
+            prior=c.execute('SELECT snapshot FROM vpnl_notice_inputs WHERE case_id=? ORDER BY sequence DESC LIMIT 1',(case,)).fetchone()
+            if prior:
+                before=validate_snapshot(strict_object(prior[0]))
+                if before['confirmed'] and snap['confirmed'] and canonical(before)!=canonical(snap):
+                    c.execute('INSERT OR IGNORE INTO vpnl_notice_reviews VALUES(?,?)',(case,'observation_conflict'))
+            c.execute('INSERT INTO vpnl_notice_inputs VALUES(?,?,?,?,?,?,?,?)',(iid,case,key,sequence,canonical(snap),digest(snap),canonical(notification_scope(snap)),sid))
+            data=dict(info=request['info'],result=request['result'],account=request['source_account_ref'],source_account_ref=request['source_account_ref'],notice_intake=iid,notice_snapshot=snap)
+            old=c.execute('SELECT data FROM vpnl_jobs WHERE id=?',(key,)).fetchone()
+            if old is None:
+                c.execute("INSERT INTO vpnl_jobs(id,data,state,due,created,financial_state) VALUES(?,?,'PENDING',?,?,'OBSERVATION_NEW')",(key,canonical(data),time.time(),time.time()))
+            else:
+                held=c.execute("SELECT 1 FROM vpnl_notice_members m JOIN vpnl_deliveries d ON d.id=m.delivery_id WHERE m.case_id=? AND d.status IN ('SENT','UNKNOWN','HELD','POSTING','CLAIMED') LIMIT 1",(case,)).fetchone()
+                if not held and not c.execute('SELECT 1 FROM vpnl_notice_reviews WHERE case_id=?',(case,)).fetchone():
+                    c.execute("UPDATE vpnl_jobs SET data=?,state='PENDING',due=?,financial_state='OBSERVATION_NEW' WHERE id=? AND state!='VERIFYING'",(canonical(data),time.time(),key))
+            return make_submission(self,c,iid,rd,sid,key,binding)
+
+    def _estimated_authority(self,c,p,key,job):
+        from .estimated_pnl import notice_input,calculate,bound_root_matches
+        from .intake import submission_for,validate_submission
+        try:
+            if p.notification_type!='ESTIMATED' or p.financial_receipt is not None or p.execution_receipt is not None or p.accounting_receipt is not None or p.outcome_receipt is not None or p.financial_revocation_receipt is not None:return False
+            if any(getattr(p,n) is not None for n in ('net_pnl','cost_basis','roi_pct')) or p.event_type!='estimated':return False
+            result=p.estimated_pnl
+            if not isinstance(result,dict):return False
+            n=notice_input(c,result['intake_id']);snap=n['snapshot']
+            if n['job']!=key or snap['side']!='sell' or not snap['confirmed'] or not snap['account_configured']:return False
+            if c.execute('SELECT 1 FROM vpnl_notice_reviews WHERE case_id=?',(n['case'],)).fetchone():return False
+            if (p.exchange,p.symbol,p.order_id)!=(snap['exchange'],snap['symbol'],snap['order_id']):return False
+            if p.side!='매도' or (p.strategy_id or p.order_name or 'default')!=snap['strategy']:return False
+            if job.get('notice_intake')!=result['intake_id']:return False
+            if canonical(calculate(c,result['intake_id']))!=canonical(result):return False
+            ack=submission_for(c,result['intake_id'])
+            return ack is not None and validate_submission(self,c,ack)
+        except (ValueError,TypeError,KeyError,AttributeError):return False
+
+    def _notice_gate(self,c,p,job):
+        from .estimated_pnl import case_for_job
+        case=case_for_job(job)
+        if case is None:return True
+        rows=c.execute('SELECT d.status,m.mode FROM vpnl_notice_members m JOIN vpnl_deliveries d ON d.id=m.delivery_id WHERE m.case_id=? LIMIT 40',(case,)).fetchall()
+        if p.notification_type=='ESTIMATED':
+            return not any(mode=='FINANCIAL' or status in ('SENT','UNKNOWN','HELD','POSTING') for status,mode in rows)
+        if payload_valid(p) or payload_fill_valid(p):
+            if any(mode=='ESTIMATED' and state in ('SENT','UNKNOWN','HELD','POSTING') for state,mode in rows):return False
+            c.execute("UPDATE vpnl_deliveries SET status='SUPERSEDED_UNSENT',updated=? WHERE id IN (SELECT delivery_id FROM vpnl_notice_members WHERE case_id=? AND mode='ESTIMATED') AND status IN ('PENDING','CLAIMED')",(time.time(),case))
+        return True
+
+    def notice_decided(self,key):
+        with self._connect_read() as c:
+            row=c.execute('SELECT data FROM vpnl_jobs WHERE id=?',(key,)).fetchone()
+            if not row:return False
+            data=self.parse_job(row[0])
+            if not data.get('notice_intake'):return False
+            from .estimated_pnl import case_key
+            return bool(c.execute("SELECT 1 FROM vpnl_notice_members m JOIN vpnl_deliveries d ON d.id=m.delivery_id WHERE m.case_id=? AND d.status IN ('SENT','UNKNOWN','HELD','POSTING') LIMIT 1",(case_key(data['notice_snapshot']),)).fetchone())
+
+
+    def record_notice_successor(self,key,lease,data,fill,context):
+        """Append only a trusted execution-derived notification observation.
+
+        Shares the v4 transaction; the original sidecar request and ACK stay immutable.
+        It is not a FINANCIAL receipt and cannot authorize an HTTP attempt.
+        """
+        from .estimated_pnl import notice_input,successor_snapshot,validate_successor
+        from .intake import submission_for,validate_submission
+        iid=data['notice_intake']
+        with self._connect() as c:
+            if not c.execute("SELECT 1 FROM vpnl_jobs WHERE id=? AND job_lease=? AND state='VERIFYING' AND due>?",(key,lease,time.time())).fetchone():raise ValueError('job_lease_lost')
+            origin=notice_input(c,iid,effective=False)
+            old=c.execute('SELECT record,record_digest FROM vpnl_notice_successors WHERE intake_id=?',(iid,)).fetchone()
+            if origin['snapshot']['confirmed'] and old is None:return True
+            if context is None:return False
+            scope=strict_object(context.scope_json)
+            try:snapshot=successor_snapshot(origin,fill,scope)
+            except (ValueError,KeyError,TypeError):return False
+            ack=submission_for(c,iid)
+            if ack is None or not validate_submission(self,c,ack) or origin['job']!=key:raise ValueError('successor_submission')
+            facts=digest([scope,snapshot])
+            if old:
+                prior=strict_object(old[0])
+                if digest(prior)!=old[1]:raise ValueError('successor_digest')
+                validate_successor(c,origin,prior)
+                if prior['facts_digest']!=facts:
+                    c.execute('INSERT OR IGNORE INTO vpnl_notice_reviews VALUES(?,?)',(origin['case'],'successor_conflict'));return False
+                return True
+            rec=dict(version=1,intake_id=iid,origin_digest=origin['digest'],job_id=key,case_id=origin['case'],ack_digest=ack['digest'],db_id=ack['db_id'],cutover_id=ack['cutover_id'],producer=origin['snapshot']['strategy'],trusted_scope=scope,execution=fill.execution_receipt,snapshot=snapshot,facts_digest=facts)
+            validate_successor(c,origin,rec)
+            c.execute('INSERT INTO vpnl_notice_successors VALUES(?,?,?)',(iid,canonical(rec),digest(rec)))
+            return True
+
+
+    def record_upbit_observation(self,key,lease,data,observation):
+        from .upbit_spot_read import current_upbit_notification_host
+        from .estimated_pnl import notice_input,validate_upbit_observation
+        from .intake import submission_for,validate_submission
+        host=current_upbit_notification_host()
+        if host is None or not host.owns(observation):return False
+        with self._connect() as c:
+            owned=c.execute("SELECT data FROM vpnl_jobs WHERE id=? AND job_lease=? AND state='VERIFYING' AND due>?",(key,lease,time.time())).fetchone()
+            if owned is None:raise ValueError('job_lease_lost')
+            saved=self.parse_job(owned[0]);iid=saved.get('notice_intake')
+            if iid!=data.get('notice_intake') or iid!=observation.intake_id:return False
+            origin=notice_input(c,iid,effective=False)
+            if origin['job']!=key or c.execute('SELECT 1 FROM vpnl_notice_successors WHERE intake_id=?',(iid,)).fetchone():return False
+            ack=submission_for(c,iid)
+            if ack is None or not validate_submission(self,c,ack):return False
+            snapshot=host.snapshot(observation.facts)
+            rec=dict(kind='UPBIT_ESTIMATED_READ_V1',intake_id=iid,origin_digest=origin['digest'],job_id=key,case_id=origin['case'],producer=origin['snapshot']['strategy'],ack_digest=ack['digest'],db_id=ack['db_id'],cutover_id=ack['cutover_id'],host_binding=host.binding,scope=host.scope_facts(),source_digest=observation.source_digest,facts=observation.facts,facts_digest=digest(observation.facts),snapshot=snapshot,fee_source='ORDER_LIFETIME_PAID_FEE' if observation.facts['paid_fee'] is not None else 'MISSING')
+            validate_upbit_observation(c,origin,rec)
+            # Persistent trade ownership survives a new reader process/cache.
+            trade_ids=[t['id'] for t in observation.facts['trades']]
+            params=(host.reader.scope.account,host.reader.scope.subaccount,observation.facts['id'],*trade_ids)
+            conflict=c.execute("SELECT 1 FROM vpnl_notice_upbit_observations r JOIN json_each(r.record,'$.facts.trades') t WHERE json_extract(r.record,'$.scope.account')=? AND json_extract(r.record,'$.scope.subaccount')=? AND json_extract(r.record,'$.facts.id')!=? AND json_extract(t.value,'$.id') IN ("+','.join('?' for _ in trade_ids)+") LIMIT 1",params).fetchone()
+            owner_conflict=c.execute("SELECT 1 FROM vpnl_notice_upbit_observations WHERE json_extract(record,'$.scope.account')=? AND json_extract(record,'$.scope.subaccount')=? AND json_extract(record,'$.facts.id')=? AND (json_extract(record,'$.producer')!=? OR json_extract(record,'$.case_id')!=?) LIMIT 1",(host.reader.scope.account,host.reader.scope.subaccount,observation.facts['id'],host.strategy,origin['case'])).fetchone()
+            if conflict or owner_conflict:
+                c.execute('INSERT OR IGNORE INTO vpnl_notice_reviews VALUES(?,?)',(origin['case'],'upbit_trade_owner_conflict'));return False
+            old=c.execute('SELECT record,record_digest FROM vpnl_notice_upbit_observations WHERE intake_id=?',(iid,)).fetchone()
+            if old:
+                prior=strict_object(old[0])
+                if digest(prior)!=old[1]:raise ValueError('upbit_observation_digest')
+                validate_upbit_observation(c,origin,prior)
+                if (prior['facts_digest'],prior['host_binding'])!=(rec['facts_digest'],rec['host_binding']):
+                    c.execute('INSERT OR IGNORE INTO vpnl_notice_reviews VALUES(?,?)',(origin['case'],'upbit_observation_conflict'));return False
+                return True
+            c.execute('INSERT INTO vpnl_notice_upbit_observations VALUES(?,?,?)',(iid,canonical(rec),digest(rec)));return True

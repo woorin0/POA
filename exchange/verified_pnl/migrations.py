@@ -37,6 +37,8 @@ def install(con):
     install_history(con)
     install_cutover(con)
     install_submission_lineage(con)
+    from .estimated_pnl import install as install_notice
+    install_notice(con)
     con.execute('INSERT OR IGNORE INTO vpnl_schema VALUES(1,4)')
     if con.execute('SELECT version FROM vpnl_schema WHERE id=1').fetchone()[0]!=4:raise ValueError('unsupported_notification_schema')
     for table,columns in [('vpnl_revisions','payload,financial_digest,root_id,revision,reason'),('vpnl_deliveries','wire,wire_digest,root_id,revision,kind,parent')]:

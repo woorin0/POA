@@ -133,6 +133,8 @@ class PnlCalculationResult(BaseModel):
 
 
 class NotificationPayload(BaseModel):
+    # Existing signed ACCOUNTING proof, optional for legacy payloads.
+    accounting_receipt: Optional[Dict[str, Any]] = None
     financial_revocation_receipt: Optional[Dict[str, Any]] = None
     execution_receipt: Optional[Dict[str, Any]] = None
     financial_receipt: Optional[Dict[str, Any]] = None
@@ -185,6 +187,23 @@ class NotificationPayload(BaseModel):
     pnl_includes_funding: Optional[bool] = None
     cost_basis: Optional[str] = None
     cost_basis_currency: Optional[str] = None
+
+    # Notification-only observations; never included in signed fill/finance facts.
+    notification_type: Optional[str] = None
+    estimated_pnl: Optional[Dict[str, Any]] = None
+
+    def dict(self,*args,**kwargs):
+        result=super().dict(*args,**kwargs)
+        for name in ('notification_type','estimated_pnl'):
+            if getattr(self,name) is None:result.pop(name,None)
+        return result
+
+    def json(self,*args,**kwargs):
+        omitted={n for n in ('notification_type','estimated_pnl') if getattr(self,n) is None}
+        if omitted:
+            old=kwargs.get('exclude')
+            kwargs['exclude']={**old,**{n:True for n in omitted}} if isinstance(old,dict) else set(old or ())|omitted
+        return super().json(*args,**kwargs)
 
     class Config:
         arbitrary_types_allowed = True
