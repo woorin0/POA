@@ -1,0 +1,465 @@
+[
+  {
+    "error": null,
+    "exit_type_preserved": null,
+    "name": "long_entry",
+    "result": {
+      "amount": 0.01,
+      "average": 101,
+      "close_price": 101,
+      "entry_price": null,
+      "id": "fixture",
+      "price": 101
+    },
+    "sent": [
+      {
+        "color": 255,
+        "description": "\uccb4\uacb0: BINANCE BTC/USDT.P \ub871 \uc9c4\uc785 0.01",
+        "fields": [
+          {
+            "inline": false,
+            "name": "\uc77c\uc2dc",
+            "value": "fixed-time"
+          },
+          {
+            "inline": false,
+            "name": "\uac70\ub798\uc18c",
+            "value": "BINANCE"
+          },
+          {
+            "inline": false,
+            "name": "\uc2ec\ubcfc",
+            "value": "BTC/USDT.P"
+          },
+          {
+            "inline": false,
+            "name": "\uac70\ub798\uc720\ud615",
+            "value": "\ub871 \uc9c4\uc785"
+          },
+          {
+            "inline": false,
+            "name": "\uc218\ub7c9",
+            "value": "0.01"
+          },
+          {
+            "inline": false,
+            "name": "\ub808\ubc84\ub9ac\uc9c0",
+            "value": "2\ubc30"
+          },
+          {
+            "inline": false,
+            "name": "\uccb4\uacb0\uac00",
+            "value": "101"
+          }
+        ],
+        "title": "\uc8fc\ubb38"
+      }
+    ]
+  },
+  {
+    "error": null,
+    "exit_type_preserved": null,
+    "name": "long_close",
+    "result": {
+      "amount": 0.01,
+      "average": 101,
+      "close_price": 101,
+      "entry_price": 100,
+      "id": "fixture",
+      "price": 101
+    },
+    "sent": [
+      {
+        "color": 65280,
+        "description": "\uccb4\uacb0: BINANCE BTC/USDT.P \ub871 \uc885\ub8cc (\uc775\uc808 \ud83d\udfe2) 0.01",
+        "fields": [
+          {
+            "inline": false,
+            "name": "\uc77c\uc2dc",
+            "value": "fixed-time"
+          },
+          {
+            "inline": false,
+            "name": "\uac70\ub798\uc18c",
+            "value": "BINANCE"
+          },
+          {
+            "inline": false,
+            "name": "\uc2ec\ubcfc",
+            "value": "BTC/USDT.P"
+          },
+          {
+            "inline": false,
+            "name": "\uac70\ub798\uc720\ud615",
+            "value": "\ub871 \uc885\ub8cc (\uc775\uc808 \ud83d\udfe2)"
+          },
+          {
+            "inline": false,
+            "name": "\uc218\ub7c9",
+            "value": "0.01"
+          },
+          {
+            "inline": false,
+            "name": "\ub808\ubc84\ub9ac\uc9c0",
+            "value": "2\ubc30"
+          },
+          {
+            "inline": false,
+            "name": "\uc9c4\uc785\uac00",
+            "value": "100"
+          },
+          {
+            "inline": false,
+            "name": "\uccb4\uacb0\uac00",
+            "value": "101"
+          },
+          {
+            "inline": false,
+            "name": "\uc190\uc775 \uc5ec\ubd80",
+            "value": "\uc775\uc808 (+2.0%)"
+          }
+        ],
+        "title": "\uc775\uc808 \uc54c\ub9bc"
+      }
+    ]
+  },
+  {
+    "error": null,
+    "exit_type_preserved": "TP",
+    "name": "TP",
+    "result": {
+      "amount": 0.01,
+      "average": 99,
+      "close_price": 99,
+      "entry_price": 100,
+      "id": "fixture",
+      "price": 99
+    },
+    "sent": [
+      {
+        "color": 16711680,
+        "description": "\uccb4\uacb0: BINANCE BTC/USDT.P \ub871 \uc885\ub8cc (\uc190\uc808 \ud83d\udd34) 0.01",
+        "fields": [
+          {
+            "inline": false,
+            "name": "\uc77c\uc2dc",
+            "value": "fixed-time"
+          },
+          {
+            "inline": false,
+            "name": "\uac70\ub798\uc18c",
+            "value": "BINANCE"
+          },
+          {
+            "inline": false,
+            "name": "\uc2ec\ubcfc",
+            "value": "BTC/USDT.P"
+          },
+          {
+            "inline": false,
+            "name": "\uac70\ub798\uc720\ud615",
+            "value": "\ub871 \uc885\ub8cc (\uc190\uc808 \ud83d\udd34)"
+          },
+          {
+            "inline": false,
+            "name": "\uc218\ub7c9",
+            "value": "0.01"
+          },
+          {
+            "inline": false,
+            "name": "\ub808\ubc84\ub9ac\uc9c0",
+            "value": "2\ubc30"
+          },
+          {
+            "inline": false,
+            "name": "\uc9c4\uc785\uac00",
+            "value": "100"
+          },
+          {
+            "inline": false,
+            "name": "\uccb4\uacb0\uac00",
+            "value": "99"
+          },
+          {
+            "inline": false,
+            "name": "\uc190\uc775 \uc5ec\ubd80",
+            "value": "\uc190\uc808 (-2.0%)"
+          }
+        ],
+        "title": "\uc190\uc808 \uc54c\ub9bc"
+      }
+    ]
+  },
+  {
+    "error": null,
+    "exit_type_preserved": "SL",
+    "name": "SL",
+    "result": {
+      "amount": 0.01,
+      "average": 101,
+      "close_price": 101,
+      "entry_price": 100,
+      "id": "fixture",
+      "price": 101
+    },
+    "sent": [
+      {
+        "color": 65280,
+        "description": "\uccb4\uacb0: BINANCE BTC/USDT.P \ub871 \uc885\ub8cc (\uc775\uc808 \ud83d\udfe2) 0.01",
+        "fields": [
+          {
+            "inline": false,
+            "name": "\uc77c\uc2dc",
+            "value": "fixed-time"
+          },
+          {
+            "inline": false,
+            "name": "\uac70\ub798\uc18c",
+            "value": "BINANCE"
+          },
+          {
+            "inline": false,
+            "name": "\uc2ec\ubcfc",
+            "value": "BTC/USDT.P"
+          },
+          {
+            "inline": false,
+            "name": "\uac70\ub798\uc720\ud615",
+            "value": "\ub871 \uc885\ub8cc (\uc775\uc808 \ud83d\udfe2)"
+          },
+          {
+            "inline": false,
+            "name": "\uc218\ub7c9",
+            "value": "0.01"
+          },
+          {
+            "inline": false,
+            "name": "\ub808\ubc84\ub9ac\uc9c0",
+            "value": "2\ubc30"
+          },
+          {
+            "inline": false,
+            "name": "\uc9c4\uc785\uac00",
+            "value": "100"
+          },
+          {
+            "inline": false,
+            "name": "\uccb4\uacb0\uac00",
+            "value": "101"
+          },
+          {
+            "inline": false,
+            "name": "\uc190\uc775 \uc5ec\ubd80",
+            "value": "\uc775\uc808 (+2.0%)"
+          }
+        ],
+        "title": "\uc775\uc808 \uc54c\ub9bc"
+      }
+    ]
+  },
+  {
+    "error": null,
+    "exit_type_preserved": "TRAIL",
+    "name": "trailing",
+    "result": {
+      "amount": 0.01,
+      "average": 101,
+      "close_price": 101,
+      "entry_price": 100,
+      "id": "fixture",
+      "price": 101
+    },
+    "sent": [
+      {
+        "color": 65280,
+        "description": "\uccb4\uacb0: BINANCE BTC/USDT.P \ub871 \uc885\ub8cc (\uc775\uc808 \ud83d\udfe2) 0.01",
+        "fields": [
+          {
+            "inline": false,
+            "name": "\uc77c\uc2dc",
+            "value": "fixed-time"
+          },
+          {
+            "inline": false,
+            "name": "\uac70\ub798\uc18c",
+            "value": "BINANCE"
+          },
+          {
+            "inline": false,
+            "name": "\uc2ec\ubcfc",
+            "value": "BTC/USDT.P"
+          },
+          {
+            "inline": false,
+            "name": "\uac70\ub798\uc720\ud615",
+            "value": "\ub871 \uc885\ub8cc (\uc775\uc808 \ud83d\udfe2)"
+          },
+          {
+            "inline": false,
+            "name": "\uc218\ub7c9",
+            "value": "0.01"
+          },
+          {
+            "inline": false,
+            "name": "\ub808\ubc84\ub9ac\uc9c0",
+            "value": "2\ubc30"
+          },
+          {
+            "inline": false,
+            "name": "\uc9c4\uc785\uac00",
+            "value": "100"
+          },
+          {
+            "inline": false,
+            "name": "\uccb4\uacb0\uac00",
+            "value": "101"
+          },
+          {
+            "inline": false,
+            "name": "\uc190\uc775 \uc5ec\ubd80",
+            "value": "\uc775\uc808 (+2.0%)"
+          }
+        ],
+        "title": "\uc775\uc808 \uc54c\ub9bc"
+      }
+    ]
+  },
+  {
+    "error": null,
+    "exit_type_preserved": "TP",
+    "name": "missing_entry",
+    "result": {
+      "amount": 0.01,
+      "average": 101,
+      "close_price": 101,
+      "entry_price": null,
+      "id": "fixture",
+      "price": 101
+    },
+    "sent": [
+      {
+        "color": 65280,
+        "description": "\uccb4\uacb0: BINANCE BTC/USDT.P \ub871 \uc885\ub8cc (\uc775\uc808 \ud83d\udfe2) 0.01",
+        "fields": [
+          {
+            "inline": false,
+            "name": "\uc77c\uc2dc",
+            "value": "fixed-time"
+          },
+          {
+            "inline": false,
+            "name": "\uac70\ub798\uc18c",
+            "value": "BINANCE"
+          },
+          {
+            "inline": false,
+            "name": "\uc2ec\ubcfc",
+            "value": "BTC/USDT.P"
+          },
+          {
+            "inline": false,
+            "name": "\uac70\ub798\uc720\ud615",
+            "value": "\ub871 \uc885\ub8cc (\uc775\uc808 \ud83d\udfe2)"
+          },
+          {
+            "inline": false,
+            "name": "\uc218\ub7c9",
+            "value": "0.01"
+          },
+          {
+            "inline": false,
+            "name": "\ub808\ubc84\ub9ac\uc9c0",
+            "value": "2\ubc30"
+          },
+          {
+            "inline": false,
+            "name": "\uccb4\uacb0\uac00",
+            "value": "101"
+          },
+          {
+            "inline": false,
+            "name": "\uc190\uc775 \uc5ec\ubd80",
+            "value": "\uc775\uc808"
+          }
+        ],
+        "title": "\uc775\uc808 \uc54c\ub9bc"
+      }
+    ]
+  },
+  {
+    "error": null,
+    "exit_type_preserved": "SL",
+    "name": "missing_fill",
+    "result": {
+      "amount": 0.01,
+      "average": null,
+      "close_price": null,
+      "entry_price": 100,
+      "id": "fixture",
+      "price": null
+    },
+    "sent": [
+      {
+        "color": 16711680,
+        "description": "\uccb4\uacb0: BINANCE BTC/USDT.P \ub871 \uc885\ub8cc (\uc190\uc808 \ud83d\udd34) 0.01",
+        "fields": [
+          {
+            "inline": false,
+            "name": "\uc77c\uc2dc",
+            "value": "fixed-time"
+          },
+          {
+            "inline": false,
+            "name": "\uac70\ub798\uc18c",
+            "value": "BINANCE"
+          },
+          {
+            "inline": false,
+            "name": "\uc2ec\ubcfc",
+            "value": "BTC/USDT.P"
+          },
+          {
+            "inline": false,
+            "name": "\uac70\ub798\uc720\ud615",
+            "value": "\ub871 \uc885\ub8cc (\uc190\uc808 \ud83d\udd34)"
+          },
+          {
+            "inline": false,
+            "name": "\uc218\ub7c9",
+            "value": "0.01"
+          },
+          {
+            "inline": false,
+            "name": "\ub808\ubc84\ub9ac\uc9c0",
+            "value": "2\ubc30"
+          },
+          {
+            "inline": false,
+            "name": "\uc9c4\uc785\uac00",
+            "value": "100"
+          },
+          {
+            "inline": false,
+            "name": "\uc190\uc775 \uc5ec\ubd80",
+            "value": "\uc190\uc808"
+          }
+        ],
+        "title": "\uc190\uc808 \uc54c\ub9bc"
+      }
+    ]
+  },
+  {
+    "error": "RuntimeError",
+    "exit_type_preserved": "TP",
+    "name": "discord_error",
+    "result": {
+      "amount": 0.01,
+      "average": 101,
+      "close_price": 101,
+      "entry_price": 100,
+      "id": "fixture",
+      "price": 101
+    },
+    "sent": []
+  }
+]

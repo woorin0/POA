@@ -44,6 +44,8 @@ class OutboxStatus(str, Enum):
     SENDING = "SENDING"
     SENT = "SENT"
     FAILED = "FAILED"
+    UNKNOWN = "UNKNOWN"
+    HELD = "HELD"
 
 
 class VerifiedTrade(BaseModel):
@@ -54,6 +56,9 @@ class VerifiedTrade(BaseModel):
     fee: Optional[Decimal] = None
     fee_currency: Optional[str] = None
     timestamp: Optional[float] = None  # seconds or ms
+    order: Optional[str] = None
+    order_id: Optional[str] = None
+    source: Optional[str] = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -62,12 +67,19 @@ class VerifiedTrade(BaseModel):
 class VerifiedFill(BaseModel):
     account_id: str = "default"
     market_type: str = "unknown"
+    execution_role: Optional[str] = None
     fees_complete: bool = False
     accounting_basis: str = "unknown"
     pnl_includes_entry_fee: bool = False
     pnl_includes_exit_fee: bool = False
     pnl_includes_funding: bool = False
     verified_order_type: Optional[str] = None
+    execution_receipt: Optional[Dict[str, Any]] = None
+    accounting_receipt: Optional[Dict[str, Any]] = None
+    financial_receipt: Optional[Dict[str, Any]] = None
+    outcome_receipt: Optional[Dict[str, Any]] = None
+    scope_data: Optional[Dict[str, Any]] = None
+    raw_data: Optional[Dict[str, Any]] = None
     exchange: str
     symbol: str
     order_id: Optional[str] = None
@@ -81,6 +93,8 @@ class VerifiedFill(BaseModel):
     average_fill_price: Optional[Decimal] = None
     contract_size: Optional[Decimal] = None
     trades: List[VerifiedTrade] = []
+    trades_complete: Optional[bool] = None
+    trades_completeness_reason: Optional[str] = None
     fees: Dict[str, Decimal] = {}  # currency -> total fee
     realized_pnl: Optional[Decimal] = None
     pnl_currency: Optional[str] = None
@@ -88,6 +102,7 @@ class VerifiedFill(BaseModel):
     source: str = "REST_FETCH"
     verification_status: VerificationStatus = VerificationStatus.UNVERIFIED
     raw_info: Optional[Dict[str, Any]] = None
+    exchange_status: Optional[str] = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -104,14 +119,26 @@ class PnlCalculationResult(BaseModel):
     is_roi_estimated: bool = False
     pnl_currency: str = "USDT"
     verification_status: VerificationStatus = VerificationStatus.UNVERIFIED
+    financial_receipt: Optional[Dict[str, Any]] = None
     source: str = "UNVERIFIED"
     notes: List[str] = []
+    cost_basis: Optional[Decimal] = None
+    accounting_basis: Optional[str] = None
+    pnl_includes_entry_fee: Optional[bool] = None
+    pnl_includes_exit_fee: Optional[bool] = None
+    pnl_includes_funding: Optional[bool] = None
 
     class Config:
         arbitrary_types_allowed = True
 
 
 class NotificationPayload(BaseModel):
+    # Existing signed ACCOUNTING proof, optional for legacy payloads.
+    accounting_receipt: Optional[Dict[str, Any]] = None
+    financial_revocation_receipt: Optional[Dict[str, Any]] = None
+    execution_receipt: Optional[Dict[str, Any]] = None
+    financial_receipt: Optional[Dict[str, Any]] = None
+    outcome_receipt: Optional[Dict[str, Any]] = None
     event_type: str = "final"
     event_version: int = 2
     fee_breakdown: Optional[str] = None
@@ -139,13 +166,44 @@ class NotificationPayload(BaseModel):
     roi_pct: Optional[str] = None
     roi_label: str = "ROI"
     verification_status: VerificationStatus = VerificationStatus.UNVERIFIED
+    fill_verification_status: Optional[VerificationStatus] = None
+    pnl_verification_status: Optional[VerificationStatus] = None
+    roi_verification_status: Optional[VerificationStatus] = None
+    is_roi_estimated: bool = False
     verification_source: str = "거래소 실제 체결 내역"
     event_timestamp: float  # UTC timestamp
     fill_timestamp: Optional[float] = None  # UTC timestamp
+    exchange_status: Optional[str] = None
     leverage: Optional[int] = None
     amount_field_name: str = "수량"
     error_message: Optional[str] = None
     signal_id: Optional[str] = None
+    strategy_id: Optional[str] = None
+    pnl_currency: Optional[str] = None
+    notional_amount: Optional[str] = None
+    accounting_basis: Optional[str] = None
+    pnl_includes_entry_fee: Optional[bool] = None
+    pnl_includes_exit_fee: Optional[bool] = None
+    pnl_includes_funding: Optional[bool] = None
+    cost_basis: Optional[str] = None
+    cost_basis_currency: Optional[str] = None
+
+    # Notification-only observations; never included in signed fill/finance facts.
+    notification_type: Optional[str] = None
+    estimated_pnl: Optional[Dict[str, Any]] = None
+
+    def dict(self,*args,**kwargs):
+        result=super().dict(*args,**kwargs)
+        for name in ('notification_type','estimated_pnl'):
+            if getattr(self,name) is None:result.pop(name,None)
+        return result
+
+    def json(self,*args,**kwargs):
+        omitted={n for n in ('notification_type','estimated_pnl') if getattr(self,n) is None}
+        if omitted:
+            old=kwargs.get('exclude')
+            kwargs['exclude']={**old,**{n:True for n in omitted}} if isinstance(old,dict) else set(old or ())|omitted
+        return super().json(*args,**kwargs)
 
     class Config:
         arbitrary_types_allowed = True

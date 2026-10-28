@@ -1,5 +1,30 @@
 [
   {
+    "Path": "deployment/build_cloud_config.py",
+    "Bytes": 5373,
+    "SHA256": "47F38B4D2F0CA95641239BA7E17529217B326457C3DDB6B0C2C357B5FDF833A9"
+  },
+  {
+    "Path": "deployment/fix_alerts.py",
+    "Bytes": 3353,
+    "SHA256": "EC4A4B2EA44F564A1D7199C33B4A99DA028D96EECAE9A947D603EA79715D70A8"
+  },
+  {
+    "Path": "deployment/install_once.py",
+    "Bytes": 14593,
+    "SHA256": "45528D41BB17E7ECC171B7D8D8B378CD8241AACA15F12204C584DE17AFEDDE93"
+  },
+  {
+    "Path": "deployment/prepare_ubuntu.py",
+    "Bytes": 2706,
+    "SHA256": "0AA0D37A33E4F863F9981560026B9EF4867E55CA683EBCC2FB96E732E14B933B"
+  },
+  {
+    "Path": "deployment/validate_config.py",
+    "Bytes": 734,
+    "SHA256": "9ECD177B5196C9C455D54F4A03E43F9DED7C663B6EFFF7710CCA702D45736931"
+  },
+  {
     "Path": "exchange/__init__.py",
     "Bytes": 564,
     "SHA256": "55C093EF7F1AB07129AC01FDC67AE6E3ACD16F15B38D77E02D4DC1AD41E66EEF"
@@ -85,14 +110,19 @@
     "SHA256": "B61ACA019CF894C070EC7170527F572677B3DFB26830E5EDEAAB1EF4E9C8D0C7"
   },
   {
+    "Path": "exchange/utility/LogMaker.py",
+    "Bytes": 9612,
+    "SHA256": "8C9B1F4A6F8DB1C894DA319EDC11F6A083FEAED1A36F768115D4C6FA2684D51C"
+  },
+  {
     "Path": "exchange/utility/__init__.py",
     "Bytes": 260,
     "SHA256": "FBC6C209F8FF402E48B701372EE59FA6E52DAECC642F0D10A055242E78B902E6"
   },
   {
-    "Path": "exchange/utility/LogMaker.py",
-    "Bytes": 14217,
-    "SHA256": "5DF3A541560B85FAD9A85E0F278C0C3023BCF498F92C8D6A1551C81F4AA1B9B3"
+    "Path": "exchange/utility/discord_embed.py",
+    "Bytes": 77781,
+    "SHA256": "0FA6EEE0AFBCBEE6B8C33AA5C3CE18BA865CD66180E71ED91D05B4B22D49384B"
   },
   {
     "Path": "exchange/utility/setting.py",
@@ -110,9 +140,44 @@
     "SHA256": "D34FD1DDA86D9098A7DF22A5B16FF75551FACC5E52E969266F0F899F42823C0C"
   },
   {
+    "Path": "exchange/verified_pnl/binance_spot_read.py",
+    "Bytes": 15285,
+    "SHA256": "F0653EC4D4504E29463C8C97FF56CE17F643DD9D1516667ACA53FDA4B9CB0816"
+  },
+  {
+    "Path": "exchange/verified_pnl/binance_user_data_get.py",
+    "Bytes": 10556,
+    "SHA256": "7B44C0CE34DD815EFBE1D7485B52CDD0B55525B75827DBADD2A5243AF3E73327"
+  },
+  {
+    "Path": "exchange/verified_pnl/bootstrap.py",
+    "Bytes": 13376,
+    "SHA256": "E0A41A9E28B1E3FB42A8DEB0A6FE1841386F48BEB69CB4695FDCF3F44F87A087"
+  },
+  {
+    "Path": "exchange/verified_pnl/bybit_spot_read.py",
+    "Bytes": 15580,
+    "SHA256": "DFB722C664116C68835D482C07F71FA1754CF40D7747E6FCD255C57A4F4E372F"
+  },
+  {
+    "Path": "exchange/verified_pnl/delivery_store.py",
+    "Bytes": 68970,
+    "SHA256": "208BFBAC6DC67E1A4336C12261C3625A1115A8B6C6294BF97626296D7354DDAC"
+  },
+  {
     "Path": "exchange/verified_pnl/dispatcher.py",
-    "Bytes": 23266,
-    "SHA256": "79B5CBAC870563F288ABCAD79BDB0E38DC2872009AD1EDF152A85CBD1B2E0066"
+    "Bytes": 48234,
+    "SHA256": "E5C05AD028B3E1AB13C3078FF4E2963A35B590BC46E7F4A51A55A531D567D637"
+  },
+  {
+    "Path": "exchange/verified_pnl/estimated_pnl.py",
+    "Bytes": 25079,
+    "SHA256": "F1782F7B031A3CB5BA9CB4EC9ABD72B644DA070A84D2059F843103A20A7A91B2"
+  },
+  {
+    "Path": "exchange/verified_pnl/evidence.py",
+    "Bytes": 17560,
+    "SHA256": "C18115EC663E086AE5E461D40522E91424629E48644D6C3309D7C5CD072C6356"
   },
   {
     "Path": "exchange/verified_pnl/exit_reason.py",
@@ -120,34 +185,89 @@
     "SHA256": "9C6193E6D64EBDD7C73B417704AEC61268731A81E1C4D748C31647FDEA42AFF5"
   },
   {
+    "Path": "exchange/verified_pnl/historical_delivery.py",
+    "Bytes": 8592,
+    "SHA256": "CFB61BBA2179B8C795B115202BF647758864AE122DF062BCCD73811E47FCBF81"
+  },
+  {
+    "Path": "exchange/verified_pnl/history.py",
+    "Bytes": 59053,
+    "SHA256": "F7333AABC11C244ED4BDF238B75F3D257F7731BC476DA1EB1B0DAE42EF3651D2"
+  },
+  {
+    "Path": "exchange/verified_pnl/inspection.py",
+    "Bytes": 4797,
+    "SHA256": "F0664EA3BE1CD51439F2E5538279907D6C76FB335C6F481AEB41D285D20BB92A"
+  },
+  {
+    "Path": "exchange/verified_pnl/intake.py",
+    "Bytes": 42325,
+    "SHA256": "057417BFAA0CE3ECBE8661E8781152355FFE1F0A23023EE1370D1EF82C317CA7"
+  },
+  {
     "Path": "exchange/verified_pnl/ledger.py",
-    "Bytes": 2917,
-    "SHA256": "6843B2230D784137C1EF4131C4B3B57B339B5DFFE75A5E6C151DE8AB799D1F05"
+    "Bytes": 8984,
+    "SHA256": "53CDC667EAFFD08F6953F1D3160D12CDAC8031C15988AF9E3618A45A3464376C"
+  },
+  {
+    "Path": "exchange/verified_pnl/migrations.py",
+    "Bytes": 20254,
+    "SHA256": "5DAAF52E1CF66B8B5D5D2C54A34C864DEB5CA75C7E3A0171A3260918583CE302"
   },
   {
     "Path": "exchange/verified_pnl/models.py",
-    "Bytes": 4484,
-    "SHA256": "059D20646EE9B168CEA7DF2A0E360A112197FBDF653420B06312F114E940BACF"
+    "Bytes": 7178,
+    "SHA256": "41E173BD1EB8F4E44EABE8C3EFE116C3018DEFC6EADD58FA2FA06F12C8475EFD"
+  },
+  {
+    "Path": "exchange/verified_pnl/okx_spot_read.py",
+    "Bytes": 17488,
+    "SHA256": "D02579FC5C64B31C7B27836F0B2AAF8E9E333D0EDD7A261DD7FD4EA2DFE52C92"
   },
   {
     "Path": "exchange/verified_pnl/outbox.py",
-    "Bytes": 17792,
-    "SHA256": "CDB3034727F83318B55E51807D4C59974A43BB96EC8993299CB1991A75D3D068"
+    "Bytes": 6244,
+    "SHA256": "A992EF3CCB55A8C6A6ED8CE4D4D2A0BB57F3F6F75419A36F12B8904E3F5BD14B"
   },
   {
     "Path": "exchange/verified_pnl/pnl_calculator.py",
-    "Bytes": 3001,
-    "SHA256": "50BA2A0ED22AA5B87C0020CF0E2D670FE12668578F26E8D4C1EE55DE4934FBDE"
+    "Bytes": 5768,
+    "SHA256": "85DE6B5D5E35EE708624BE7EB10251443CC490D67435807E998DAB1A8E5C5392"
+  },
+  {
+    "Path": "exchange/verified_pnl/reconciliation.py",
+    "Bytes": 14163,
+    "SHA256": "D5FF25296657624BCFBED99083946725E4DB8ABEF4977F96723743CB004EECEE"
+  },
+  {
+    "Path": "exchange/verified_pnl/upbit_notification_bootstrap.py",
+    "Bytes": 5997,
+    "SHA256": "43E4C19FE1B29517C2D64E02B4472D77BC1BA2BDE7FF077D84AC16235C7DEF39"
+  },
+  {
+    "Path": "exchange/verified_pnl/upbit_notification_get.py",
+    "Bytes": 11641,
+    "SHA256": "37B09B6DF77F59D52F1BB403849290D47A3DDC58FEA93C26D3BD70B9013255BD"
+  },
+  {
+    "Path": "exchange/verified_pnl/upbit_notification_local.py",
+    "Bytes": 10055,
+    "SHA256": "6D4075C9EEB36F0FB404005FE02094694C0F2D7AB7ECD0AC99F2097F6935187B"
+  },
+  {
+    "Path": "exchange/verified_pnl/upbit_spot_read.py",
+    "Bytes": 25494,
+    "SHA256": "6E4332D67FDA048E3E4544E7E435772F075CC19B2BCA2848E3CE4E20BB9870A4"
   },
   {
     "Path": "exchange/verified_pnl/verifier.py",
-    "Bytes": 12100,
-    "SHA256": "A48E522C941997B7B4ADD1F543743A22F5DEED2D6DEF1F5A65D890743FF73643"
+    "Bytes": 24765,
+    "SHA256": "32FE998F411E18AFC46A8FF375A5D268630052189B95E9458D334F32D5AB3CFE"
   },
   {
     "Path": "main.py",
-    "Bytes": 19019,
-    "SHA256": "902632339C9DF33BEA18267D5DD28CD16AC148BF3EFFE4E2F45A9284FCD5F2CB"
+    "Bytes": 20232,
+    "SHA256": "9A16D7D0B9E4B725943B99359735829D75995B195DD7B46051BDFB77BE6A0B54"
   },
   {
     "Path": "requirements.txt",
@@ -161,8 +281,13 @@
   },
   {
     "Path": "scripts/notification_db.py",
-    "Bytes": 1890,
-    "SHA256": "07BEF701BD6EBCCDF7D7AB3B435BCB313E375690AD2BD2F7C7BABC4B1A606AE7"
+    "Bytes": 6184,
+    "SHA256": "F24FA0D30F6ECC9F1A7B85A84B20ABB7A22D7BEE41632EBC1A33D4EC42B8390F"
+  },
+  {
+    "Path": "scripts/notification_db_v4.py",
+    "Bytes": 3131,
+    "SHA256": "D13E9E185102C81FF9D9ED2A1B7E9961A2B329F9B9C7C7AF0022D1A3DAEFBD67"
   },
   {
     "Path": "scripts/run_load_test.py",
@@ -178,5 +303,10 @@
     "Path": "tools/safe_order_admin.py",
     "Bytes": 1582,
     "SHA256": "6AD0507EC56463B358B45475BFE6EDA31C02680724D435EEBA0F22BF4E3A68B4"
+  },
+  {
+    "Path": "upbit_evidence_journal.py",
+    "Bytes": 29150,
+    "SHA256": "D110C0AF2F5E3AE05B82EAA5351F3EB4DD88E0C706382298CB903E2F3022D6EB"
   }
 ]

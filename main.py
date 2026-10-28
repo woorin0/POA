@@ -73,7 +73,20 @@ async def startup():
     if getattr(settings, "VERIFIED_DISCORD_ALERTS", False) and getattr(settings, "DISCORD_OUTBOX_ENABLED", False):
         try:
             from exchange.verified_pnl.dispatcher import start_worker
-            app.state.verified_notifications_stop = start_worker(settings)
+            from exchange.verified_pnl.upbit_notification_bootstrap import prepare_upbit_notification_host
+            from exchange.verified_pnl.upbit_notification_local import configure_local_upbit_sources
+            local_status = configure_local_upbit_sources()
+            if local_status == 'LOCAL_SOURCES_UNAVAILABLE':
+                from loguru import logger
+                logger.warning('upbit_notification_read: LOCAL_SOURCES_UNAVAILABLE')
+            read_host = prepare_upbit_notification_host()
+            if read_host.status not in ('DISABLED', 'HOST_CONFIGURED_EXTERNAL_EVIDENCE_REQUIRED'):
+                from loguru import logger
+                logger.warning('upbit_notification_read: {}', read_host.status)
+            if read_host.host is None:
+                app.state.verified_notifications_stop = start_worker(settings)
+            else:
+                app.state.verified_notifications_stop = start_worker(settings, upbit_observation_host=read_host.host)
         except Exception:
             pass
     log_message(f"POABOT 실행 완료! - 버전:{VERSION}")
@@ -224,6 +237,9 @@ def is_verified_exchange(exchange_name):
 
 def log(exchange_name, result, order_info):
     if getattr(settings, "VERIFIED_DISCORD_ALERTS", False) and is_verified_exchange(exchange_name):
+        if not getattr(order_info,'is_futures',False) and exchange_name in {'BINANCE','BYBIT','OKX','UPBIT'}:
+            from exchange.verified_pnl.dispatcher import dispatch_order_observation
+            return dispatch_order_observation(exchange_name,result,order_info,settings,producer_entry=log)
         from exchange.verified_pnl import dispatch_verified_alert
         dispatch_verified_alert(exchange_name, result, order_info, settings)
     else:

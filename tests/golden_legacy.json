@@ -1,0 +1,5354 @@
+[
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "buy",
+          0.123,
+          null,
+          {}
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "BINANCE",
+      "leverage": 2,
+      "margin_mode": null,
+      "quote": "USDT",
+      "side": "buy"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BINANCE",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": null,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": null,
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 0.123,
+      "average": 100,
+      "filled": 0.123,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.123
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "buy",
+          0.123,
+          null,
+          {}
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "BINANCE",
+      "leverage": 2,
+      "margin_mode": "cross",
+      "quote": "USDT",
+      "side": "buy"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BINANCE",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": null,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "cross",
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 0.123,
+      "average": 100,
+      "filled": 0.123,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.123
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "buy",
+          0.123,
+          null,
+          {}
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "BINANCE",
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "quote": "USDT",
+      "side": "buy"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BINANCE",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": null,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 0.123,
+      "average": 100,
+      "filled": 0.123,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.123
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "buy",
+          2.45,
+          null,
+          {}
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "BINANCE",
+      "leverage": 2,
+      "margin_mode": null,
+      "percent": 25,
+      "quote": "USDT",
+      "side": "buy"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BINANCE",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": null,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": null,
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 2.45,
+      "average": 100,
+      "filled": 2.45,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.45
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "buy",
+          2.45,
+          null,
+          {}
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "BINANCE",
+      "leverage": 2,
+      "margin_mode": "cross",
+      "percent": 25,
+      "quote": "USDT",
+      "side": "buy"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BINANCE",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": null,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "cross",
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 2.45,
+      "average": 100,
+      "filled": 2.45,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.45
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "buy",
+          2.45,
+          null,
+          {}
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "BINANCE",
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "percent": 25,
+      "quote": "USDT",
+      "side": "buy"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BINANCE",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": null,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 2.45,
+      "average": 100,
+      "filled": 2.45,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.45
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "sell",
+          0.123,
+          null,
+          {}
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "BINANCE",
+      "leverage": 2,
+      "margin_mode": null,
+      "quote": "USDT",
+      "side": "sell"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BINANCE",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": true,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": null,
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 0.123,
+      "average": 100,
+      "filled": 0.123,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.123
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "sell",
+          0.123,
+          null,
+          {}
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "BINANCE",
+      "leverage": 2,
+      "margin_mode": "cross",
+      "quote": "USDT",
+      "side": "sell"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BINANCE",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": true,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "cross",
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 0.123,
+      "average": 100,
+      "filled": 0.123,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.123
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "sell",
+          0.123,
+          null,
+          {}
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "BINANCE",
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "quote": "USDT",
+      "side": "sell"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BINANCE",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": true,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 0.123,
+      "average": 100,
+      "filled": 0.123,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.123
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "sell",
+          2.5,
+          null,
+          {}
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "BINANCE",
+      "leverage": 2,
+      "margin_mode": null,
+      "percent": 25,
+      "quote": "USDT",
+      "side": "sell"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BINANCE",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": true,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": null,
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 2.5,
+      "average": 100,
+      "filled": 2.5,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.5
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "sell",
+          2.5,
+          null,
+          {}
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "BINANCE",
+      "leverage": 2,
+      "margin_mode": "cross",
+      "percent": 25,
+      "quote": "USDT",
+      "side": "sell"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BINANCE",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": true,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "cross",
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 2.5,
+      "average": 100,
+      "filled": 2.5,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.5
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "sell",
+          2.5,
+          null,
+          {}
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "BINANCE",
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "percent": 25,
+      "quote": "USDT",
+      "side": "sell"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BINANCE",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": true,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 2.5,
+      "average": 100,
+      "filled": 2.5,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.5
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "leverage",
+        [
+          2,
+          "BTC/USDT:USDT"
+        ],
+        {}
+      ],
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "buy",
+          0.123,
+          null,
+          {}
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "BINANCE",
+      "leverage": 2,
+      "margin_mode": null,
+      "quote": "USDT.P",
+      "side": "entry/buy"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BINANCE",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": true,
+      "is_futures": true,
+      "is_sell": null,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": null,
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 0.123,
+      "average": 100,
+      "filled": 0.123,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.123
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "leverage",
+        [
+          2,
+          "BTC/USDT:USDT"
+        ],
+        {}
+      ],
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "buy",
+          0.123,
+          null,
+          {}
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "BINANCE",
+      "leverage": 2,
+      "margin_mode": "cross",
+      "quote": "USDT.P",
+      "side": "entry/buy"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BINANCE",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": true,
+      "is_futures": true,
+      "is_sell": null,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "cross",
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 0.123,
+      "average": 100,
+      "filled": 0.123,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.123
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "leverage",
+        [
+          2,
+          "BTC/USDT:USDT"
+        ],
+        {}
+      ],
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "buy",
+          0.123,
+          null,
+          {}
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "BINANCE",
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "quote": "USDT.P",
+      "side": "entry/buy"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BINANCE",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": true,
+      "is_futures": true,
+      "is_sell": null,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 0.123,
+      "average": 100,
+      "filled": 0.123,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.123
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "leverage",
+        [
+          2,
+          "BTC/USDT:USDT"
+        ],
+        {}
+      ],
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "buy",
+          2.45,
+          null,
+          {}
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "BINANCE",
+      "leverage": 2,
+      "margin_mode": null,
+      "percent": 25,
+      "quote": "USDT.P",
+      "side": "entry/buy"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BINANCE",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": true,
+      "is_futures": true,
+      "is_sell": null,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": null,
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 2.45,
+      "average": 100,
+      "filled": 2.45,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.45
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "leverage",
+        [
+          2,
+          "BTC/USDT:USDT"
+        ],
+        {}
+      ],
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "buy",
+          2.45,
+          null,
+          {}
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "BINANCE",
+      "leverage": 2,
+      "margin_mode": "cross",
+      "percent": 25,
+      "quote": "USDT.P",
+      "side": "entry/buy"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BINANCE",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": true,
+      "is_futures": true,
+      "is_sell": null,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "cross",
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 2.45,
+      "average": 100,
+      "filled": 2.45,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.45
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "leverage",
+        [
+          2,
+          "BTC/USDT:USDT"
+        ],
+        {}
+      ],
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "buy",
+          2.45,
+          null,
+          {}
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "BINANCE",
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "percent": 25,
+      "quote": "USDT.P",
+      "side": "entry/buy"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BINANCE",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": true,
+      "is_futures": true,
+      "is_sell": null,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 2.45,
+      "average": 100,
+      "filled": 2.45,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.45
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "sell",
+          0.123,
+          null,
+          {
+            "reduceOnly": true
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "BINANCE",
+      "leverage": 2,
+      "margin_mode": null,
+      "quote": "USDT.P",
+      "side": "close/sell"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BINANCE",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": true,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": true,
+      "is_sell": true,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": null,
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 0.123,
+      "average": 100,
+      "close_price": 100,
+      "entry_price": 90.0,
+      "filled": 0.123,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.123
+      },
+      "pos_leverage": 2.0,
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "sell",
+          0.123,
+          null,
+          {
+            "reduceOnly": true
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "BINANCE",
+      "leverage": 2,
+      "margin_mode": "cross",
+      "quote": "USDT.P",
+      "side": "close/sell"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BINANCE",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": true,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": true,
+      "is_sell": true,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "cross",
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 0.123,
+      "average": 100,
+      "close_price": 100,
+      "entry_price": 90.0,
+      "filled": 0.123,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.123
+      },
+      "pos_leverage": 2.0,
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "sell",
+          0.123,
+          null,
+          {
+            "reduceOnly": true
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "BINANCE",
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "quote": "USDT.P",
+      "side": "close/sell"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BINANCE",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": true,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": true,
+      "is_sell": true,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 0.123,
+      "average": 100,
+      "close_price": 100,
+      "entry_price": 90.0,
+      "filled": 0.123,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.123
+      },
+      "pos_leverage": 2.0,
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "sell",
+          2.5,
+          null,
+          {
+            "reduceOnly": true
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "BINANCE",
+      "leverage": 2,
+      "margin_mode": null,
+      "percent": 25,
+      "quote": "USDT.P",
+      "side": "close/sell"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BINANCE",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": true,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": true,
+      "is_sell": true,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": null,
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 2.5,
+      "average": 100,
+      "close_price": 100,
+      "entry_price": 90.0,
+      "filled": 2.5,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.5
+      },
+      "pos_leverage": 2.0,
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "sell",
+          2.5,
+          null,
+          {
+            "reduceOnly": true
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "BINANCE",
+      "leverage": 2,
+      "margin_mode": "cross",
+      "percent": 25,
+      "quote": "USDT.P",
+      "side": "close/sell"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BINANCE",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": true,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": true,
+      "is_sell": true,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "cross",
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 2.5,
+      "average": 100,
+      "close_price": 100,
+      "entry_price": 90.0,
+      "filled": 2.5,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.5
+      },
+      "pos_leverage": 2.0,
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "sell",
+          2.5,
+          null,
+          {
+            "reduceOnly": true
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "BINANCE",
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "percent": 25,
+      "quote": "USDT.P",
+      "side": "close/sell"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BINANCE",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": true,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": true,
+      "is_sell": true,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 2.5,
+      "average": 100,
+      "close_price": 100,
+      "entry_price": 90.0,
+      "filled": 2.5,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.5
+      },
+      "pos_leverage": 2.0,
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "buy",
+          0.123,
+          100.0,
+          {}
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "BYBIT",
+      "leverage": 2,
+      "margin_mode": null,
+      "quote": "USDT",
+      "side": "buy"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BYBIT",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": null,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": null,
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 0.123,
+      "average": 100,
+      "filled": 0.123,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.123
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "buy",
+          0.123,
+          100.0,
+          {}
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "BYBIT",
+      "leverage": 2,
+      "margin_mode": "cross",
+      "quote": "USDT",
+      "side": "buy"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BYBIT",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": null,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "cross",
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 0.123,
+      "average": 100,
+      "filled": 0.123,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.123
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "buy",
+          0.123,
+          100.0,
+          {}
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "BYBIT",
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "quote": "USDT",
+      "side": "buy"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BYBIT",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": null,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 0.123,
+      "average": 100,
+      "filled": 0.123,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.123
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "buy",
+          2.45,
+          100.0,
+          {}
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "BYBIT",
+      "leverage": 2,
+      "margin_mode": null,
+      "percent": 25,
+      "quote": "USDT",
+      "side": "buy"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BYBIT",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": null,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": null,
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 2.45,
+      "average": 100,
+      "filled": 2.45,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.45
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "buy",
+          2.45,
+          100.0,
+          {}
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "BYBIT",
+      "leverage": 2,
+      "margin_mode": "cross",
+      "percent": 25,
+      "quote": "USDT",
+      "side": "buy"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BYBIT",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": null,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "cross",
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 2.45,
+      "average": 100,
+      "filled": 2.45,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.45
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "buy",
+          2.45,
+          100.0,
+          {}
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "BYBIT",
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "percent": 25,
+      "quote": "USDT",
+      "side": "buy"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BYBIT",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": null,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 2.45,
+      "average": 100,
+      "filled": 2.45,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.45
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "sell",
+          0.123,
+          null,
+          {}
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "BYBIT",
+      "leverage": 2,
+      "margin_mode": null,
+      "quote": "USDT",
+      "side": "sell"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BYBIT",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": true,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": null,
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 0.123,
+      "average": 100,
+      "filled": 0.123,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.123
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "sell",
+          0.123,
+          null,
+          {}
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "BYBIT",
+      "leverage": 2,
+      "margin_mode": "cross",
+      "quote": "USDT",
+      "side": "sell"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BYBIT",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": true,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "cross",
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 0.123,
+      "average": 100,
+      "filled": 0.123,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.123
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "sell",
+          0.123,
+          null,
+          {}
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "BYBIT",
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "quote": "USDT",
+      "side": "sell"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BYBIT",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": true,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 0.123,
+      "average": 100,
+      "filled": 0.123,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.123
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "sell",
+          2.5,
+          null,
+          {}
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "BYBIT",
+      "leverage": 2,
+      "margin_mode": null,
+      "percent": 25,
+      "quote": "USDT",
+      "side": "sell"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BYBIT",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": true,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": null,
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 2.5,
+      "average": 100,
+      "filled": 2.5,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.5
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "sell",
+          2.5,
+          null,
+          {}
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "BYBIT",
+      "leverage": 2,
+      "margin_mode": "cross",
+      "percent": 25,
+      "quote": "USDT",
+      "side": "sell"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BYBIT",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": true,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "cross",
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 2.5,
+      "average": 100,
+      "filled": 2.5,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.5
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "sell",
+          2.5,
+          null,
+          {}
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "BYBIT",
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "percent": 25,
+      "quote": "USDT",
+      "side": "sell"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BYBIT",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": true,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 2.5,
+      "average": 100,
+      "filled": 2.5,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.5
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "leverage",
+        [
+          2,
+          "BTC/USDT:USDT"
+        ],
+        {}
+      ],
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "buy",
+          0.123,
+          null,
+          {
+            "position_idx": 0
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "BYBIT",
+      "leverage": 2,
+      "margin_mode": null,
+      "quote": "USDT.P",
+      "side": "entry/buy"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BYBIT",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": true,
+      "is_futures": true,
+      "is_sell": null,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": null,
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 0.123,
+      "average": 100,
+      "filled": 0.123,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.123
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "leverage",
+        [
+          2,
+          "BTC/USDT:USDT"
+        ],
+        {}
+      ],
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "buy",
+          0.123,
+          null,
+          {
+            "position_idx": 0
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "BYBIT",
+      "leverage": 2,
+      "margin_mode": "cross",
+      "quote": "USDT.P",
+      "side": "entry/buy"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BYBIT",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": true,
+      "is_futures": true,
+      "is_sell": null,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "cross",
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 0.123,
+      "average": 100,
+      "filled": 0.123,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.123
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "leverage",
+        [
+          2,
+          "BTC/USDT:USDT"
+        ],
+        {}
+      ],
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "buy",
+          0.123,
+          null,
+          {
+            "position_idx": 0
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "BYBIT",
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "quote": "USDT.P",
+      "side": "entry/buy"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BYBIT",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": true,
+      "is_futures": true,
+      "is_sell": null,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 0.123,
+      "average": 100,
+      "filled": 0.123,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.123
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "leverage",
+        [
+          2,
+          "BTC/USDT:USDT"
+        ],
+        {}
+      ],
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "buy",
+          2.45,
+          null,
+          {
+            "position_idx": 0
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "BYBIT",
+      "leverage": 2,
+      "margin_mode": null,
+      "percent": 25,
+      "quote": "USDT.P",
+      "side": "entry/buy"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BYBIT",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": true,
+      "is_futures": true,
+      "is_sell": null,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": null,
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 2.45,
+      "average": 100,
+      "filled": 2.45,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.45
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "leverage",
+        [
+          2,
+          "BTC/USDT:USDT"
+        ],
+        {}
+      ],
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "buy",
+          2.45,
+          null,
+          {
+            "position_idx": 0
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "BYBIT",
+      "leverage": 2,
+      "margin_mode": "cross",
+      "percent": 25,
+      "quote": "USDT.P",
+      "side": "entry/buy"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BYBIT",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": true,
+      "is_futures": true,
+      "is_sell": null,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "cross",
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 2.45,
+      "average": 100,
+      "filled": 2.45,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.45
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "leverage",
+        [
+          2,
+          "BTC/USDT:USDT"
+        ],
+        {}
+      ],
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "buy",
+          2.45,
+          null,
+          {
+            "position_idx": 0
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "BYBIT",
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "percent": 25,
+      "quote": "USDT.P",
+      "side": "entry/buy"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BYBIT",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": true,
+      "is_futures": true,
+      "is_sell": null,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 2.45,
+      "average": 100,
+      "filled": 2.45,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.45
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "sell",
+          0.123,
+          null,
+          {
+            "position_idx": 0,
+            "reduceOnly": true
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "BYBIT",
+      "leverage": 2,
+      "margin_mode": null,
+      "quote": "USDT.P",
+      "side": "close/sell"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BYBIT",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": true,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": true,
+      "is_sell": true,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": null,
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 0.123,
+      "average": 100,
+      "close_price": 100,
+      "entry_price": 90.0,
+      "filled": 0.123,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.123
+      },
+      "pos_leverage": 2.0,
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "sell",
+          0.123,
+          null,
+          {
+            "position_idx": 0,
+            "reduceOnly": true
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "BYBIT",
+      "leverage": 2,
+      "margin_mode": "cross",
+      "quote": "USDT.P",
+      "side": "close/sell"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BYBIT",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": true,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": true,
+      "is_sell": true,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "cross",
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 0.123,
+      "average": 100,
+      "close_price": 100,
+      "entry_price": 90.0,
+      "filled": 0.123,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.123
+      },
+      "pos_leverage": 2.0,
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "sell",
+          0.123,
+          null,
+          {
+            "position_idx": 0,
+            "reduceOnly": true
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "BYBIT",
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "quote": "USDT.P",
+      "side": "close/sell"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BYBIT",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": true,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": true,
+      "is_sell": true,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 0.123,
+      "average": 100,
+      "close_price": 100,
+      "entry_price": 90.0,
+      "filled": 0.123,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.123
+      },
+      "pos_leverage": 2.0,
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "sell",
+          2.5,
+          null,
+          {
+            "position_idx": 0,
+            "reduceOnly": true
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "BYBIT",
+      "leverage": 2,
+      "margin_mode": null,
+      "percent": 25,
+      "quote": "USDT.P",
+      "side": "close/sell"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BYBIT",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": true,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": true,
+      "is_sell": true,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": null,
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 2.5,
+      "average": 100,
+      "close_price": 100,
+      "entry_price": 90.0,
+      "filled": 2.5,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.5
+      },
+      "pos_leverage": 2.0,
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "sell",
+          2.5,
+          null,
+          {
+            "position_idx": 0,
+            "reduceOnly": true
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "BYBIT",
+      "leverage": 2,
+      "margin_mode": "cross",
+      "percent": 25,
+      "quote": "USDT.P",
+      "side": "close/sell"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BYBIT",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": true,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": true,
+      "is_sell": true,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "cross",
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 2.5,
+      "average": 100,
+      "close_price": 100,
+      "entry_price": 90.0,
+      "filled": 2.5,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.5
+      },
+      "pos_leverage": 2.0,
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "sell",
+          2.5,
+          null,
+          {
+            "position_idx": 0,
+            "reduceOnly": true
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "BYBIT",
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "percent": 25,
+      "quote": "USDT.P",
+      "side": "close/sell"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "BYBIT",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": true,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": true,
+      "is_sell": true,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 2.5,
+      "average": 100,
+      "close_price": 100,
+      "entry_price": 90.0,
+      "filled": 2.5,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.5
+      },
+      "pos_leverage": 2.0,
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "buy",
+          0.12345,
+          null,
+          {
+            "tgtCcy": "base_ccy"
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "OKX",
+      "leverage": 2,
+      "margin_mode": null,
+      "quote": "USDT",
+      "side": "buy"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "OKX",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": null,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": null,
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 0.12345,
+      "average": 100,
+      "filled": 0.12345,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.12345
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "buy",
+          0.12345,
+          null,
+          {
+            "tgtCcy": "base_ccy"
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "OKX",
+      "leverage": 2,
+      "margin_mode": "cross",
+      "quote": "USDT",
+      "side": "buy"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "OKX",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": null,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "cross",
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 0.12345,
+      "average": 100,
+      "filled": 0.12345,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.12345
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "buy",
+          0.12345,
+          null,
+          {
+            "tgtCcy": "base_ccy"
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "OKX",
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "quote": "USDT",
+      "side": "buy"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "OKX",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": null,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 0.12345,
+      "average": 100,
+      "filled": 0.12345,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.12345
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "buy",
+          2.45,
+          null,
+          {
+            "tgtCcy": "base_ccy"
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "OKX",
+      "leverage": 2,
+      "margin_mode": null,
+      "percent": 25,
+      "quote": "USDT",
+      "side": "buy"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "OKX",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": null,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": null,
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 2.45,
+      "average": 100,
+      "filled": 2.45,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.45
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "buy",
+          2.45,
+          null,
+          {
+            "tgtCcy": "base_ccy"
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "OKX",
+      "leverage": 2,
+      "margin_mode": "cross",
+      "percent": 25,
+      "quote": "USDT",
+      "side": "buy"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "OKX",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": null,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "cross",
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 2.45,
+      "average": 100,
+      "filled": 2.45,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.45
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "buy",
+          2.45,
+          null,
+          {
+            "tgtCcy": "base_ccy"
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "OKX",
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "percent": 25,
+      "quote": "USDT",
+      "side": "buy"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "OKX",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": null,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 2.45,
+      "average": 100,
+      "filled": 2.45,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.45
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "sell",
+          0.12332655000000001,
+          null,
+          {
+            "tgtCcy": "base_ccy"
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "OKX",
+      "leverage": 2,
+      "margin_mode": null,
+      "quote": "USDT",
+      "side": "sell"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "OKX",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": true,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": null,
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 0.12332655000000001,
+      "average": 100,
+      "filled": 0.12332655000000001,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.12332655000000001
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "sell",
+          0.12332655000000001,
+          null,
+          {
+            "tgtCcy": "base_ccy"
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "OKX",
+      "leverage": 2,
+      "margin_mode": "cross",
+      "quote": "USDT",
+      "side": "sell"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "OKX",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": true,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "cross",
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 0.12332655000000001,
+      "average": 100,
+      "filled": 0.12332655000000001,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.12332655000000001
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "sell",
+          0.12332655000000001,
+          null,
+          {
+            "tgtCcy": "base_ccy"
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "OKX",
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "quote": "USDT",
+      "side": "sell"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "OKX",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": true,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 0.12332655000000001,
+      "average": 100,
+      "filled": 0.12332655000000001,
+      "id": "fake1",
+      "info": {
+        "orderQty": 0.12332655000000001
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "sell",
+          2.5,
+          null,
+          {
+            "tgtCcy": "base_ccy"
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "OKX",
+      "leverage": 2,
+      "margin_mode": null,
+      "percent": 25,
+      "quote": "USDT",
+      "side": "sell"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "OKX",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": true,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": null,
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 2.5,
+      "average": 100,
+      "filled": 2.5,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.5
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "sell",
+          2.5,
+          null,
+          {
+            "tgtCcy": "base_ccy"
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "OKX",
+      "leverage": 2,
+      "margin_mode": "cross",
+      "percent": 25,
+      "quote": "USDT",
+      "side": "sell"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "OKX",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": true,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "cross",
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 2.5,
+      "average": 100,
+      "filled": 2.5,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.5
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT",
+          "market",
+          "sell",
+          2.5,
+          null,
+          {
+            "tgtCcy": "base_ccy"
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "OKX",
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "percent": 25,
+      "quote": "USDT",
+      "side": "sell"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "OKX",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": null,
+      "is_sell": true,
+      "is_spot": true,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT"
+    },
+    "result": {
+      "amount": 2.5,
+      "average": 100,
+      "filled": 2.5,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.5
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "leverage",
+        [
+          2,
+          "BTC/USDT:USDT"
+        ],
+        {
+          "params": {
+            "mgnMode": "isolated",
+            "posSide": "net"
+          }
+        }
+      ],
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "buy",
+          123.0,
+          null,
+          {
+            "tdMode": "isolated"
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "OKX",
+      "leverage": 2,
+      "margin_mode": null,
+      "quote": "USDT.P",
+      "side": "entry/buy"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "OKX",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": true,
+      "is_futures": true,
+      "is_sell": null,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": null,
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 123.0,
+      "average": 100,
+      "filled": 123.0,
+      "id": "fake1",
+      "info": {
+        "orderQty": 123.0
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "leverage",
+        [
+          2,
+          "BTC/USDT:USDT"
+        ],
+        {
+          "params": {
+            "mgnMode": "cross"
+          }
+        }
+      ],
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "buy",
+          123.0,
+          null,
+          {
+            "tdMode": "cross"
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "OKX",
+      "leverage": 2,
+      "margin_mode": "cross",
+      "quote": "USDT.P",
+      "side": "entry/buy"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "OKX",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": true,
+      "is_futures": true,
+      "is_sell": null,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "cross",
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 123.0,
+      "average": 100,
+      "filled": 123.0,
+      "id": "fake1",
+      "info": {
+        "orderQty": 123.0
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "leverage",
+        [
+          2,
+          "BTC/USDT:USDT"
+        ],
+        {
+          "params": {
+            "mgnMode": "isolated",
+            "posSide": "net"
+          }
+        }
+      ],
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "buy",
+          123.0,
+          null,
+          {
+            "tdMode": "isolated"
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "OKX",
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "quote": "USDT.P",
+      "side": "entry/buy"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "OKX",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": true,
+      "is_futures": true,
+      "is_sell": null,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 123.0,
+      "average": 100,
+      "filled": 123.0,
+      "id": "fake1",
+      "info": {
+        "orderQty": 123.0
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "leverage",
+        [
+          2,
+          "BTC/USDT:USDT"
+        ],
+        {
+          "params": {
+            "mgnMode": "isolated",
+            "posSide": "net"
+          }
+        }
+      ],
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "buy",
+          2450.0,
+          null,
+          {
+            "tdMode": "isolated"
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "OKX",
+      "leverage": 2,
+      "margin_mode": null,
+      "percent": 25,
+      "quote": "USDT.P",
+      "side": "entry/buy"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "OKX",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": true,
+      "is_futures": true,
+      "is_sell": null,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": null,
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 2450.0,
+      "average": 100,
+      "filled": 2450.0,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2450.0
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "leverage",
+        [
+          2,
+          "BTC/USDT:USDT"
+        ],
+        {
+          "params": {
+            "mgnMode": "cross"
+          }
+        }
+      ],
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "buy",
+          2450.0,
+          null,
+          {
+            "tdMode": "cross"
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "OKX",
+      "leverage": 2,
+      "margin_mode": "cross",
+      "percent": 25,
+      "quote": "USDT.P",
+      "side": "entry/buy"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "OKX",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": true,
+      "is_futures": true,
+      "is_sell": null,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "cross",
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 2450.0,
+      "average": 100,
+      "filled": 2450.0,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2450.0
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "leverage",
+        [
+          2,
+          "BTC/USDT:USDT"
+        ],
+        {
+          "params": {
+            "mgnMode": "isolated",
+            "posSide": "net"
+          }
+        }
+      ],
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "buy",
+          2450.0,
+          null,
+          {
+            "tdMode": "isolated"
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "OKX",
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "percent": 25,
+      "quote": "USDT.P",
+      "side": "entry/buy"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "OKX",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": true,
+      "is_close": null,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": true,
+      "is_futures": true,
+      "is_sell": null,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "buy",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 2450.0,
+      "average": 100,
+      "filled": 2450.0,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2450.0
+      },
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "sell",
+          123.0,
+          null,
+          {
+            "reduceOnly": true,
+            "tdMode": "isolated"
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "OKX",
+      "leverage": 2,
+      "margin_mode": null,
+      "quote": "USDT.P",
+      "side": "close/sell"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "OKX",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": true,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": true,
+      "is_sell": true,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": null,
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 123.0,
+      "average": 100,
+      "close_price": 100,
+      "entry_price": 90.0,
+      "filled": 123.0,
+      "id": "fake1",
+      "info": {
+        "orderQty": 123.0
+      },
+      "pos_leverage": 2.0,
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "sell",
+          123.0,
+          null,
+          {
+            "reduceOnly": true,
+            "tdMode": "cross"
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "OKX",
+      "leverage": 2,
+      "margin_mode": "cross",
+      "quote": "USDT.P",
+      "side": "close/sell"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "OKX",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": true,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": true,
+      "is_sell": true,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "cross",
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 123.0,
+      "average": 100,
+      "close_price": 100,
+      "entry_price": 90.0,
+      "filled": 123.0,
+      "id": "fake1",
+      "info": {
+        "orderQty": 123.0
+      },
+      "pos_leverage": 2.0,
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "sell",
+          123.0,
+          null,
+          {
+            "reduceOnly": true,
+            "tdMode": "isolated"
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "amount": 0.12345,
+      "base": "BTC",
+      "exchange": "OKX",
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "quote": "USDT.P",
+      "side": "close/sell"
+    },
+    "parsed": {
+      "amount": 0.12345,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "OKX",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": true,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": true,
+      "is_sell": true,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "order_name": "\uc8fc\ubb38",
+      "percent": null,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 123.0,
+      "average": 100,
+      "close_price": 100,
+      "entry_price": 90.0,
+      "filled": 123.0,
+      "id": "fake1",
+      "info": {
+        "orderQty": 123.0
+      },
+      "pos_leverage": 2.0,
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "sell",
+          2.5,
+          null,
+          {
+            "reduceOnly": true,
+            "tdMode": "isolated"
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "OKX",
+      "leverage": 2,
+      "margin_mode": null,
+      "percent": 25,
+      "quote": "USDT.P",
+      "side": "close/sell"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "OKX",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": true,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": true,
+      "is_sell": true,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": null,
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 2.5,
+      "average": 100,
+      "close_price": 100,
+      "entry_price": 90.0,
+      "filled": 2.5,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.5
+      },
+      "pos_leverage": 2.0,
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "sell",
+          2.5,
+          null,
+          {
+            "reduceOnly": true,
+            "tdMode": "cross"
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "OKX",
+      "leverage": 2,
+      "margin_mode": "cross",
+      "percent": 25,
+      "quote": "USDT.P",
+      "side": "close/sell"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "OKX",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": true,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": true,
+      "is_sell": true,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "cross",
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 2.5,
+      "average": 100,
+      "close_price": 100,
+      "entry_price": 90.0,
+      "filled": 2.5,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.5
+      },
+      "pos_leverage": 2.0,
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "calls": [
+      [
+        "order",
+        [
+          "BTC/USDT:USDT",
+          "market",
+          "sell",
+          2.5,
+          null,
+          {
+            "reduceOnly": true,
+            "tdMode": "isolated"
+          }
+        ]
+      ]
+    ],
+    "error": null,
+    "input": {
+      "base": "BTC",
+      "exchange": "OKX",
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "percent": 25,
+      "quote": "USDT.P",
+      "side": "close/sell"
+    },
+    "parsed": {
+      "amount": null,
+      "amount_by_percent": null,
+      "base": "BTC",
+      "contract_size": null,
+      "cost": null,
+      "exchange": "OKX",
+      "exit_type": null,
+      "hedge": null,
+      "is_buy": null,
+      "is_close": true,
+      "is_coinm": null,
+      "is_contract": null,
+      "is_crypto": true,
+      "is_entry": null,
+      "is_futures": true,
+      "is_sell": true,
+      "is_spot": null,
+      "is_stock": null,
+      "is_total": null,
+      "kis_number": 1,
+      "leverage": 2,
+      "margin_mode": "isolated",
+      "order_name": "\uc8fc\ubb38",
+      "percent": 25.0,
+      "price": null,
+      "profit_price": null,
+      "quote": "USDT",
+      "side": "sell",
+      "stop_price": null,
+      "type": "market",
+      "unified_symbol": "BTC/USDT:USDT"
+    },
+    "result": {
+      "amount": 2.5,
+      "average": 100,
+      "close_price": 100,
+      "entry_price": 90.0,
+      "filled": 2.5,
+      "id": "fake1",
+      "info": {
+        "orderQty": 2.5
+      },
+      "pos_leverage": 2.0,
+      "price": 100,
+      "status": "closed"
+    }
+  },
+  {
+    "body": {
+      "result": "success"
+    },
+    "path": "/",
+    "status": 200,
+    "type": "market"
+  },
+  {
+    "body": {
+      "detail": [
+        {
+          "ctx": {
+            "given": "limit",
+            "permitted": [
+              "market"
+            ]
+          },
+          "loc": [
+            "body",
+            "type"
+          ],
+          "msg": "unexpected value; permitted: 'market'",
+          "type": "value_error.const"
+        }
+      ]
+    },
+    "path": "/",
+    "status": 422,
+    "type": "limit"
+  },
+  {
+    "body": {
+      "result": "success"
+    },
+    "path": "/order",
+    "status": 200,
+    "type": "market"
+  },
+  {
+    "body": {
+      "detail": [
+        {
+          "ctx": {
+            "given": "limit",
+            "permitted": [
+              "market"
+            ]
+          },
+          "loc": [
+            "body",
+            "type"
+          ],
+          "msg": "unexpected value; permitted: 'market'",
+          "type": "value_error.const"
+        }
+      ]
+    },
+    "path": "/order",
+    "status": 422,
+    "type": "limit"
+  }
+]
