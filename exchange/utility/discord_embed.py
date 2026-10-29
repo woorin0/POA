@@ -1713,6 +1713,9 @@ def build_error_embed(
 def build_estimated_order_embed(payload):
     """Unsigned notification estimate; never labels financial verification."""
     e=payload.estimated_pnl or {};ccy=e.get('currency')
+    if e.get('basis')=='TRADINGVIEW_SIGNAL':
+        from exchange.verified_pnl.tradingview_signal import render
+        return render(payload)
     if ccy not in ('KRW','USDT'):ccy='KRW' if payload.exchange=='UPBIT' else 'USDT'
     symbol=normalize_display_symbol(payload.symbol);base=extract_base_asset(symbol)
     fmt=lambda v,signed=False:format_price_display(v,currency=ccy,signed=signed)

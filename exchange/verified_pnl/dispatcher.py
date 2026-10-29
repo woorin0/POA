@@ -15,7 +15,7 @@ from .ledger import identity, allocate
 
 SUPPORTED={"BINANCE","BYBIT","OKX","UPBIT"}
 INFO_FIELDS=("exchange","base","quote","unified_symbol","side","is_close","is_entry","is_buy","is_sell",
-             "is_futures","is_spot","is_coinm","contract_size","order_name","exit_type","leverage","strategy_id","signal_id")
+             "is_futures","is_spot","is_coinm","contract_size","order_name","exit_type","leverage","strategy_id","signal_id","tv_signal")
 
 
 def warning(code):
@@ -325,6 +325,10 @@ def verification_tick(settings, client_factory):
             data["attempts"] = attempts
             from .bootstrap import current_bootstrap
             observed=data.get('notice_intake') is not None
+            if observed and data['notice_snapshot'].get('version')==2:
+                from .tradingview_signal import process
+                process(store,key,lease,data,settings)
+                continue
             upbit_host=upbit_host_provider
             if observed and info.exchange=='UPBIT' and upbit_host_provider is not None and hasattr(upbit_host_provider,'select_job') and not data['notice_snapshot']['confirmed']:
                 upbit_host=upbit_host_provider.select_job(store,key,lease,data)

@@ -228,6 +228,25 @@ def parse_quote(quote: str):
 
 
 class OrderRequest(BaseModel):
+    # Notification-only; never copied into execution price/amount.
+    tv_signal: str | None = None
+
+    @validator("tv_signal", pre=True)
+    def validate_tv_signal(cls, value):
+        if value is None:return None
+        from exchange.verified_pnl.tradingview_signal import parse
+        from exchange.verified_pnl.evidence import canonical
+        return canonical(parse(value))
+
+    @root_validator(skip_on_failure=True)
+    def validate_tv_binding(cls, values):
+        if values.get('tv_signal') is not None:
+            from exchange.verified_pnl.tradingview_signal import parse
+            s=parse(values['tv_signal'])
+            if values.get('is_futures') or values.get('is_coinm') or s['strategy_id']!=values.get('strategy_id') or s['action']!=('buy' if values.get('is_buy') else 'sell'):
+                raise ValueError('tv_request_binding')
+        return values
+
     signal_id: str | None = None
     signal_time: float | None = None
     strategy_id: str | None = None

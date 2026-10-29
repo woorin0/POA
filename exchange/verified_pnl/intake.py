@@ -28,6 +28,11 @@ def normalized_request(data):
             if not value.isprintable() or not _TEXT.fullmatch(value) or _SECRET.search(value):value='ref-'+digest(value);review=True
         elif value is not None and (type(value) not in (int,float,bool) or (isinstance(value,float) and not math.isfinite(value))):value=None;review=True
         info[k]=value
+    if data['info'].get('tv_signal') is not None:
+        from .tradingview_signal import parse
+        signal=parse(data['info']['tv_signal'])
+        if signal['strategy_id']!=info.get('strategy_id') or signal['action']!=('buy' if info.get('is_buy') else 'sell') or info.get('is_futures'):raise ValueError('tv_request_binding')
+        info['tv_signal']=canonical(signal)
     info['signal_id']=None
     result={}
     for k in ('id','uuid','clientOrderId'):
@@ -57,6 +62,8 @@ class IntakeStore:
             c.execute('CREATE TABLE IF NOT EXISTS intake_checkpoint(id INTEGER PRIMARY KEY CHECK(id=1),cursor INTEGER NOT NULL)')
             c.execute('INSERT OR IGNORE INTO intake_checkpoint VALUES(1,0)')
             install_restore_intake(c)
+            c.execute('CREATE TABLE IF NOT EXISTS notification_tv_dedup(id TEXT PRIMARY KEY,facts TEXT NOT NULL,intake_id TEXT NOT NULL)')
+            for action in ('UPDATE','DELETE'):c.execute("CREATE TRIGGER IF NOT EXISTS tv_dedup_%s BEFORE %s ON notification_tv_dedup BEGIN SELECT RAISE(ABORT,'immutable_tv_event'); END"%(action,action))
             c.execute('CREATE TABLE IF NOT EXISTS notification_observation_admissions(request_id TEXT PRIMARY KEY,observation_digest TEXT NOT NULL,scope_digest TEXT NOT NULL,sidecar_id TEXT NOT NULL,producer TEXT NOT NULL)')
             for action in ('UPDATE','DELETE'):c.execute("CREATE TRIGGER IF NOT EXISTS notice_admission_%s BEFORE %s ON notification_observation_admissions BEGIN SELECT RAISE(ABORT,'immutable_producer_admission'); END"%(action,action))
     @contextmanager
@@ -92,6 +99,19 @@ class IntakeStore:
             request.update(version=2,event_kind='POA_OBSERVATION',observation=observation)
         encoded=canonical(request);key=digest(request)
         with self.connect() as c:
+            tv=None
+            if observation is not None and observation.get('version')==2:
+                tv=digest([observation['exchange'],observation['source_ref'],observation['symbol'],observation['strategy'],observation['signal']['signal_id']])
+                facts=canonical(observation['signal'])
+                prior=c.execute('SELECT facts,intake_id FROM notification_tv_dedup WHERE id=?',(tv,)).fetchone()
+                if prior:
+                    if prior[0]!=facts:raise ValueError('tv_signal_conflict')
+                    saved=c.execute('SELECT request,request_digest FROM notification_intake WHERE id=?',(prior[1],)).fetchone()
+                    if saved is None or saved[1]!=prior[1]:raise ValueError('tv_dedup_reference')
+                    original=self.parse(*saved)['observation']
+                    if any(original[k]!=observation[k] for k in ('exchange','source_ref','symbol','strategy','signal')):raise ValueError('tv_dedup_binding')
+                    return prior[1]
+                c.execute('INSERT INTO notification_tv_dedup VALUES(?,?,?)',(tv,facts,key))
             old=c.execute('SELECT request,request_digest FROM notification_intake WHERE id=?',(key,)).fetchone()
             if old:
                 if old!=(encoded,digest(request)):raise ValueError('intake_identity_conflict')

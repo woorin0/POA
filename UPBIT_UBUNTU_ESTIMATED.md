@@ -67,3 +67,7 @@ sudo systemctl restart poa
 비활성화는 POA_UPBIT_ESTIMATED_READ_ENABLED=false로 설정한 후 승인된 재시작 절차를 따른다. systemd WorkingDirectory=/root/POA, Pydantic Settings의 .env 읽기와 명시적 process flag 우선순위는 기존 Ubuntu 지원 방식이다. 비밀키를 systemd unit/명령 인자에 넣지 않는다.
 
 이번 작업은 Mock HTTP/Discord·격리 SQLite 검증과 GitHub 소스 업데이트만 수행한다. 실계정 API/주문/Discord/운영 서버/운영 DB는 사용하지 않는다. 실제 Ubuntu 22.04/Vultr 기동과 실제 조회 성공은 UNVERIFIED다.
+
+## TradingView 신호 기준 예상 손익
+
+신호 전용 필드를 추가하면 장기 보유량과 분리한 가상 포지션 예상 손익을 표시할 수 있습니다. 이 경우 XRP/KRW도 지원하며 실제 체결 조회 BTC/KRW 제한과는 별개입니다. 설정·JSON·제한은 [TRADINGVIEW_SIGNAL_PNL.md](TRADINGVIEW_SIGNAL_PNL.md)를 참조하십시오. 기존 설치 입력값은 추가되지 않습니다.

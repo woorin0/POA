@@ -50,7 +50,7 @@ def case_for_job(job):
     return case_key(dict(exchange=info['exchange'],source_ref=ref,symbol=info['unified_symbol'],strategy=info.get('strategy_id') or info.get('order_name') or 'default',order_id=str(order)))
 
 def notification_scope(s):
-    return dict(exchange=s['exchange'],account=s['source_ref'],subaccount='poa-producer-observation',market_type='spot',instrument=s['symbol'],symbol=s['symbol'],settlement=s['symbol'].split('/')[1],contract_size='1',position_side='LONG',position_cycle='notification-observed-stream',book=s['strategy'])
+    return dict(exchange=s['exchange'],account=s['source_ref'],subaccount='poa-producer-observation',market_type='spot',instrument=s['symbol'],symbol=s['symbol'],settlement=s['symbol'].split('/')[1],contract_size='1',position_side='LONG',position_cycle='tradingview-signal-stream' if s.get('version')==2 else 'notification-observed-stream',book=s['strategy'])
 
 def source_scope(exchange,raw,symbol,order):
     """Compare actual source fields; never fill them from the request."""
@@ -79,6 +79,9 @@ def source_scope(exchange,raw,symbol,order):
 
 def capture(exchange,raw,info,ref,account_configured):
     """Only extracts observed executions; request price/amount never become fills."""
+    if info.get('tv_signal') is not None:
+        from .tradingview_signal import capture as signal_capture
+        return signal_capture(exchange,raw,info,ref,account_configured)
     if not isinstance(raw,dict):raw={}
     side='buy' if info.get('is_buy') else 'sell'
     oid=raw.get('id') or raw.get('uuid') or ''
@@ -157,6 +160,9 @@ def capture(exchange,raw,info,ref,account_configured):
         return validate_snapshot(s)
 
 def validate_snapshot(s):
+    if isinstance(s,dict) and s.get('version')==2:
+        from .tradingview_signal import validate
+        return validate(s)
     if not isinstance(s,dict) or set(s)!=SNAP_KEYS or s['version']!=1:raise ValueError('snapshot_schema')
     if s['exchange'] not in ('BINANCE','BYBIT','OKX','UPBIT') or not re.fullmatch('[0-9a-f]{64}',s['source_ref']):raise ValueError('snapshot_scope')
     for k in ('symbol','strategy'):
@@ -218,6 +224,10 @@ def bound_root_matches(store,c,binding,data):
     return scope['exchange']==s['exchange'] and scope['symbol']==s['symbol'] and scope['market_type']=='spot' and scope['account'] in (s['source_ref'],mapped) and binding['producer']=={'kind':'JOB','id':n['job']}
 
 def calculate(c,iid):
+    original=notice_input(c,iid,effective=False)
+    if original['snapshot'].get('version')==2:
+        from .tradingview_signal import calculate as signal_calculate
+        return signal_calculate(c,iid)
     n=notice_input(c,iid);s=n['snapshot'];quote=s['symbol'].split('/')[1]
     result=dict(status='UNAVAILABLE',reason='ACQUISITION_UNAVAILABLE',case_id=n['case'],intake_id=iid,snapshot_digest=n['digest'],scope=n['scope'],quantity=s['quantity'],entry_price=None,exit_price=s['average'],amount=None,roi=None,currency=quote,fee_mode='MISSING',ignored_assets=[],basis='POA_OBSERVED_ORDERS')
     if not s['confirmed'] or s['side']!='sell' or not s['account_configured']:return result
