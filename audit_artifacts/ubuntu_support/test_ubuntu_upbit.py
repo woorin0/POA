@@ -130,7 +130,7 @@ def test_cloud_init_installer_and_service_settings_contract(local):
  d=yaml.safe_load((ROOT/'deployment/cloud-config-ubuntu2204.yaml').read_text(encoding='utf-8'))
  files={x['path']:x for x in d['write_files']};embedded=files['/usr/local/lib/poa/install_once.py']['content']
  assert embedded.rstrip()==(ROOT/'deployment/install_once.py').read_text(encoding='utf-8').rstrip();compile(embedded,'cloud-installer','exec')
- inp=json.loads(files['/root/poa-install-input.json']['content']);assert inp['upbit_estimated_read']['enabled'] is False and inp['repo_ref']=='main'
+ inp=json.loads(files['/root/poa-install-input.json']['content']);assert 'upbit_estimated_read' not in inp and inp['repo_ref']=='main'
  assert files['/root/poa-install-input.json']['permissions']=='0600'
  service=files['/etc/systemd/system/poa.service']['content'];assert 'WorkingDirectory=/root/POA' in service and 'User=root' in service
  assert 'UPBIT_SECRET' not in service and 'EnvironmentFile=' not in service # Pydantic reads .env; no shell JSON quoting ambiguity.

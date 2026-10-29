@@ -1,73 +1,69 @@
-# Ubuntu 22.04 Upbit ESTIMATED 활성화
+# Upbit ESTIMATED 간편 설치 — Ubuntu 22.04
 
-이 문서는 코드 설정 안내다. 이번 변경에서 서버 설치·재시작·실계정 API·Discord를 실행하지 않았다.
+## 입력은 기존 항목만
 
-## 신규 설치: Ubuntu User Data
+최신 `deployment/cloud-config-ubuntu2204.yaml`에서 다음 값만 준비한다.
 
-최신 `deployment/cloud-config-ubuntu2204.yaml`을 사용한다. 기존 GitHub main fetch/manifest 검증/Python3.10 venv/PocketBase/Caddy/systemd/주문·Safe Retry 설정은 유지된다. User Data는 실제 값을 채우면 비밀 자료이므로 공개 저장소/채팅에 올리지 않는다.
+- domain
+- credentials.PASSWORD (Webhook 비밀번호)
+- credentials.DISCORD_WEBHOOK_URL
+- 사용하는 거래소의 API Key/Secret 및 기존에 필요한 passphrase
 
-기본 `upbit_estimated_read.enabled=false`다. 키가 존재해도 자동으로 조회를 활성화하지 않는다. 기존 credentials.UPBIT_KEY/UPBIT_SECRET을 사용하려면 명시적으로 아래 등록 정보를 제공한다:
+account_uuid, pocket_uuid, strategy, allowed_ips, evidence를 **일반 설치 입력으로 요구하지 않는다**. repo_ref=main과 DB 관리 계정 기본값 등 기존 내부 설치 설정은 유지된다. 실제 값이 채워진 User Data/.env는 비밀 자료이므로 GitHub/채팅에 올리지 않는다.
 
-- enabled: true
-- credential_mode: poa_settings
-- account_uuid / pocket_uuid: 승인된 계정·포켓 매핑의 canonical UUID
-- strategy: 실제 webhook/POA strategy_id와 같은 등록 전략 한 개
-- permissions: order_query 필수. 기존 거래 키면 order가 함께 있을 수 있음
-- allowed_ips: 운영자가 Upbit 키 관리에서 확인한 실제 접속 IP 목록
-- evidence: source/reference/digest/expires_at(숫자 UTC Unix seconds)
-
-키의 주문조회 권한과 접속 IP를 운영자가 확인해야 한다. 임의 UUID를 생성하거나 이를 거래소가 인증한 계정 UUID라고 표현하지 않는다. 기존 승인 매핑이 없다면 비활성으로 남기고 매핑부터 확보한다. installer는 UUID를 생성하지 않는다. evidence.digest는 실제 운영자 검토 자료의 SHA256이며 임의 문자열을 승인 근거로 사용하지 않는다. 만료는 현재 이후·366일 미만이다.
-
-`poa_settings`는 **기존 거래용 키를 조회에 명시적으로 재사용**한다. 키 자체가 조회 전용으로 바뀌는 기능이 아니다. 이 client의 요청은 고정 HTTPS GET /v1/order로 제한되고 POST/주문/취소/출금 기능을 제공하지 않는다. 다른 키 권한이 실제 비활성인지 자동 검사했다고 주장하지 않는다. 별도 조회 전용 키 모드는 이번 Linux 최소 범위에 포함하지 않았다.
-
-installer가 추가로 수행하는 일:
-
-1. 입력 binding·권한 기록·기존 키의 형식을 검증한다. 잘못된 enabled=true 설정은 안전한 코드로 설치를 중단한다.
-2. 실제 주문 producer와 동일한 `identity('UPBIT', UPBIT_KEY)` source-account ref 및 조회 key fingerprint를 산출한다. 키·secret은 binding에 저장하지 않는다.
-3. `/etc/poa/upbit-notification-binding.json`을 root 소유0600, 상위 디렉터리0700으로 새로 생성한다. 기존 파일을 덮어쓰지 않는다.
-4. 기존 `/root/POA/.env`에 아래 네 설정을 기존 key/secret과 함께 기록한다. 금융 VERIFIED 플래그나 Safe Retry를 임의 활성화하지 않는다.
+Upbit Key/Secret 두 값이 유효한 문자열이면 installer가 다음 값을 내부 기본 설정으로 생성한다:
 
 ```dotenv
 POA_UPBIT_ESTIMATED_READ_ENABLED=true
-POA_UPBIT_READ_CREDENTIAL_MODE="poa_settings"
-POA_UPBIT_READ_BINDING_FILE="/etc/poa/upbit-notification-binding.json"
-POA_UPBIT_READ_BINDING_SHA256="<생성된 binding 원문 SHA256>"
+POA_UPBIT_READ_CREDENTIAL_MODE="simple"
 ```
 
-값을 채운 User Data를 실제로 실행하는 것은 운영 설치 작업이며 별도 승인 대상이다. 이번 작업은 템플릿만 수정한다.
+별도 binding JSON·pin·Windows Credential Manager가 필요하지 않다. 키가 없거나 읽기 client 형식에 맞지 않으면 해당 추정 조회 설정은 비활성으로 남는다. 기존 설치 프로그램의 필수 입력·거래소 credential 쌍 검증은 그대로다.
 
-## 기존 Ubuntu 설치
+## 실제 동작
 
-기존 DB/sidecar를 지우거나 새 서버용 install_once.py를 재실행하지 않는다. 먼저 별도 승인된 정지·백업·코드 갱신 절차가 필요하다. 기존 Windows BindingV1 파일을 Linux 스키마로 자동 재해석하지 않는다.
+`main.order → main.log → Intake → Worker → GET /v1/order → ESTIMATED → Outbox`를 사용한다. 주문 실행·수량·Safe Retry는 변경하지 않는다. Host를 만드는 것만으로 GET하지 않는다.
 
-현재 installer의 순수 함수 `upbit_read_configuration(data, values)`가 Linux binding JSON과 네 env 설정을 생성하는 기준 계약이다. values는 기존 POA Settings에 설정된 UPBIT_KEY/UPBIT_SECRET이며 코드·명령 인자에 키 원문을 쓰지 않는다. 이 함수를 운영에서 실행하는 준비 도구/명령을 이번에 자동 설치하지 않았다. 새 서버용 설치 또는 승인된 안전한 설정 절차로 생성한 Linux binding이 필요하다. binding pin만 임의 추가해서는 READY가 되지 않는다.
+- 계정 키는 기존 POA Settings.UPBIT_KEY/UPBIT_SECRET을 명시된 simple 모드에서 재사용한다. 키 자체를 조회 전용 키로 바꾸는 기능이 아니다.
+- 요청은 고정 HTTPS Upbit host의 GET /v1/order만 허용하는 기존 JWT client다. 주문·취소·출금·권한 변경 API는 제공하지 않는다.
+- 조회 직전에 저장된 POA job의 유효 lease, Intake 원문, submission ACK, account/source ref, 주문 UUID, 종목, 원래 strategy_id/order_name 연결을 검사한다. 임의 UUID/flag/callback으로 조회 권한을 만들지 않는다.
+- 기존 POA producer와 동일한 source_account_ref를 사용한다. 내부 account 이름은 `poa-estimated-upbit:`로 시작하며 내부 pocket 참조도 POA용이다. 실제 업비트 공식 계정/포켓 UUID 또는 금융 VERIFIED 증거라고 주장하지 않는다.
+- 원래 strategy_id가 있으면 이를 사용하고, 없으면 order_name을 사용한다. 별도 수동 전략 등록은 없다. 서로 다른 전략의 원가는 합치지 않는다.
+- 이름이 비어 있거나 `default`/`주문`처럼 귀속을 구별할 수 없는 기본 이름이면 숫자를 만들지 않고 UNAVAILABLE로 표시한다. 여러 전략은 서로 구별되는 실제 식별자를 주문에 제공해야 한다.
+- 키가 바뀌면 source_account_ref도 바뀐다. 과거 키의 원가 기록을 새 키의 계정으로 임의 병합하지 않는다.
 
-Linux binding 최상위 필드는 format/config/evidence/permissions/key_usage/allowed_ips이며 format=POA_UPBIT_LINUX_BINDING_V1, key_usage=POA_SETTINGS_SHARED_TRADING_KEY다. config는 기존 UpbitReadConfig이고 installer가 source-account ref/read key fingerprint/producer를 고정한다. 원문 hash와 file 권한이 맞아야 하며 매 조회 직전 다시 검증한다.
+## 손익 의미와 제한
 
-운영자가 승인한 편집 절차로 .env와 binding을 준비한 뒤에만 서비스를 새 설정으로 시작한다. 예시 명령은 안내이며 이번에 실행하지 않았다:
+ESTIMATED는 저장된 POA 매수/매도 관측의 추정값이다. 거래소 원가 원장이나 독립 HISTORY가 완전하다는 의미가 아니다.
+
+- 실제 완료 체결의 수량·VWAP만 사용한다. 주문 요청 가격, 시장가 매수의 KRW 총액을 체결 단가로 사용하지 않는다.
+- 확인된 매수 관측과 충분한 수량이 있을 때만 매도 수량에 해당하는 이동가중평균 원가를 배분한다. 부분매도 후 남은 원가를 중복 차감하지 않는다.
+- 매수 기록 없음, 관측 재고 초과 매도, 과거 보유분의 원가 불명, 전략 귀속 불명은 UNAVAILABLE다. 실제 외부 입출금/수동 거래/공유 재고까지 증명한 결과가 아니다.
+- paid_fee를 확인하면 주문 단위 비용으로 한 번만 반영한다. 누락은 0으로 가정하지 않고 '수수료 미반영 추정 차익'으로 표시한다.
+- 현재 native Upbit 조회 지원 범위는 기존과 같은 **KRW-BTC/BTC/KRW 현물**이다. 다른 종목을 섞거나 지원한다고 표시하지 않는다.
+- 예시 Mock: 매수100,000,000원+fee50,000원, 매도110,000,000원-fee55,000원 → 추정 +9,895,000원, 약+9.89%. 실계정 검증값이 아니다.
+
+실제 키의 주문조회 권한 및 허용 IP는 운영자가 Upbit에서 확인해야 한다. 자동으로 권한/IP가 등록됐다고 주장하지 않는다. 401/403이면 기존 client가 이후 인증 요청을 차단하며 해당 관측은 REVIEW로 남긴다. timeout/429/5xx는 기존 제한된 재시도 정책만 사용한다. 조회 실패가 주문 재실행을 유발하지 않는다.
+
+## 유지되는 안전 계약
+
+금융 VERIFIED receipt/서명/취득원가/HISTORY/FeeAudit/strict v5 scope는 변경하지 않는다. 금융 VERIFIED가 실제로 유효하면 우선한다. 간편 모드는 EXECUTION/HISTORY/ACCOUNTING/FINANCIAL 영수증을 발급하지 않는다.
+
+기존 Outbox frozen wire·lease·begin_post·ACK·CAS, SENT 불변, UNKNOWN/HELD 무승인 전송 금지, 동일 사건 중복 차단을 유지한다. 기존 수동 UNKNOWN/HELD2 예외는 이번에 변경하거나 PASS로 재분류하지 않는다.
+
+기존 Linux 고급 binding 모드(`poa_settings`)와 Windows vault 모드는 별도 경로로 보존한다. 간편 설치가 그 금융 검증 조건이나 기존 고급 입력 자료의 의미를 바꾸지 않는다.
+
+## 기존 설치의 설정 변경
+
+새 서버용 install_once.py를 기존 운영 DB 위에서 재실행하지 않는다. 승인된 정지·백업·업데이트 절차 후, 간편 모드를 사용하려는 운영자는 기존 .env에 위 두 값을 설정한다. 키는 기존 .env의 Settings에서 취득한다. 기존 binding file/pin은 simple 모드에서 사용하지 않는다.
 
 ```sh
+# 안내용. 이번 코드 작업에서는 실행하지 않았다.
 sudoedit /root/POA/.env
-# 실제 운영 승인·설정 검토 후에만:
+# 별도 운영 승인 후에만:
 sudo systemctl restart poa
 ```
 
-.env나 binding 내용을 터미널에 cat하거나 로그에 남기지 않는다. 키는 이미 로드된 Settings에서만 취득한다. Linux에서 Windows Credential Manager 또는 ctypes.WinDLL을 호출하지 않는다. Windows에서는 기존 vault 공급자 경로를 유지한다.
+비활성화는 POA_UPBIT_ESTIMATED_READ_ENABLED=false로 설정한 후 승인된 재시작 절차를 따른다. systemd WorkingDirectory=/root/POA, Pydantic Settings의 .env 읽기와 명시적 process flag 우선순위는 기존 Ubuntu 지원 방식이다. 비밀키를 systemd unit/명령 인자에 넣지 않는다.
 
-## 설정 전달 / 제한
-
-네 필드는 Pydantic Settings에 등록되어 .env가 실제로 읽힌다. systemd WorkingDirectory=/root/POA에서 기존 dotenv 경로를 사용한다. 단순히 os.environ만 읽는 구조가 아니다. 명시적 프로세스 환경의 flag/pin이 있으면 그것을 우선하고, 없으면 Settings에서 해석한 .env 값을 쓴다. systemd EnvironmentFile로 .env를 다시 해석하지 않는다. JSON 문자열/리스트의 shell 인용 혼동을 피하고 키를 unit 파일에 쓰지 않는다.
-
-단일 Host는 현재 **한 계정·한 포켓·KRW-BTC·한 등록 전략**만 지원한다. 다른 계정/전략/종목/주문은 혼합하지 않는다. 여러 전략이면 현재 지정한 전략 하나만 이 조회 Host를 사용할 수 있다. 나머지는 WAIT/REVIEW 등 기존 안전 경로로 남으며 자동 등록하지 않는다.
-
-완료 체결의 수량·VWAP·paid_fee를 기존 엔진으로 처리한다. BUY 관측 없으면 UNAVAILABLE, fee 없으면 수수료 미반영 차익이다. 미체결/응답 모순/조회 권한 오류는 금융 확정이나 강제 재전송으로 처리하지 않는다. 독립 HISTORY/FeeAudit/FINANCIAL VERIFIED를 생성하거나 우회하지 않는다. 기존 VERIFIED 우선, SENT 불변, UNKNOWN/HELD 승인 조건 및 wire/lease/CAS/ACK를 유지한다.
-
-root/서비스 사용자 소유의 regular file,0600 이하,hardlink1,8192bytes 이하 및 pinned SHA를 확인한다. 코드가 확인하는 것은 보호된 운영자 등록과 key/source-ref 일치다. 실제 계정 소속·전략 소유권·키 권한 전체·실제 egress IP의 외부 진위 확인은 운영자의 책임이며 GET 성공만으로 별도 VERIFIED identity를 주장하지 않는다.
-
-## 검증 범위
-
-Windows에서 Linux/POSIX 분기와 os.open/fstat/NOFOLLOW 정책을 Mock으로 검증했다. WSL/Ubuntu distro 및 Docker가 없어 Ubuntu22.04 실제 import/startup은 수행하지 못했다. 실제 Vultr/실계정/Discord·운영 DB·512MB VPS 부하는 모두 UNVERIFIED다. 코드의 Mock 통과와 운영 준비를 구분한다.
-
-공식 자료: [Pydantic .env 설정](https://docs.pydantic.dev/1.10/usage/settings/), [Python os.open](https://docs.python.org/3.10/library/os.html#os.open), [Upbit 주문 조회](https://docs.upbit.com/kr/reference/get-order).
-
-OPERATING_READY=NO. 실제 거래소·서버 테스트는 별도 승인 후 진행한다.
+이번 작업은 Mock HTTP/Discord·격리 SQLite 검증과 GitHub 소스 업데이트만 수행한다. 실계정 API/주문/Discord/운영 서버/운영 DB는 사용하지 않는다. 실제 Ubuntu 22.04/Vultr 기동과 실제 조회 성공은 UNVERIFIED다.

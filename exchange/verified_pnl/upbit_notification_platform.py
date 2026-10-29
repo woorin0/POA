@@ -109,6 +109,9 @@ def prepare_platform_upbit_host(settings):
             status=configure_local_upbit_sources(environment=env)
             if status=='LOCAL_SOURCES_UNAVAILABLE':raise LinuxReadConfigurationError()
         elif sys.platform.startswith('linux'):
+            if getattr(settings,'POA_UPBIT_READ_CREDENTIAL_MODE','disabled')=='simple':
+                from .upbit_notification_simple import SimpleUpbitNotificationHosts
+                return B.HostPreparation(True,'SIMPLE_ESTIMATED_HOST_READY',SimpleUpbitNotificationHosts(settings))
             if not B.configure_upbit_read_sources(_linux_sources(settings,env)):raise LinuxReadConfigurationError()
         else:raise LinuxReadConfigurationError()
         return B.prepare_upbit_notification_host(environment=env)

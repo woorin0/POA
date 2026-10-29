@@ -290,12 +290,13 @@ class UpbitNotificationHost:
     EXECUTION/HISTORY/ACCOUNTING/FINANCIAL or authorize a delivery attempt.
     """
     CONTRACT='UPBIT_ESTIMATED_ORDER_READ_V1'
-    def __init__(self,reader,*,source_account_ref,strategy):
+    def __init__(self,reader,*,source_account_ref,strategy,allow_unattributed=False):
         from .estimated_pnl import text
         if type(reader) is not UpbitSpotReads or source_account_ref!=reader.scope.legacy_account_reference or not re.fullmatch('[0-9a-f]{64}',source_account_ref):raise UpbitReadIncomplete('UPBIT_NOTIFICATION_BINDING')
         if any(type(v) is not str or not 1<=len(v)<=128 or not v.isprintable() for v in vars(reader.scope).values()):raise UpbitReadIncomplete('UPBIT_NOTIFICATION_ACCOUNT_SCOPE')
         text(strategy)
-        if strategy in ('default','주문'):raise UpbitReadIncomplete('UPBIT_STRATEGY_BINDING_REQUIRED')
+        internal=allow_unattributed is True and reader.scope.account.startswith('poa-estimated-upbit:') and reader.scope.position_cycle=='poa-estimated-internal-stream'
+        if strategy in ('default','주문') and not internal:raise UpbitReadIncomplete('UPBIT_STRATEGY_BINDING_REQUIRED')
         self.reader=reader;self.source_account_ref=source_account_ref;self.strategy=strategy;self._issued={};self._issued_lock=threading.Lock()
         self._scope_json=E.canonical(vars(reader.scope))
         self.binding=E.digest([self.CONTRACT,self._scope_json,source_account_ref,strategy])
@@ -347,10 +348,21 @@ def configure_upbit_notification_host(host):
     _UPBIT_NOTIFICATION_HOST=None
     if host is None:return True
     try:
-        if type(host) is not UpbitNotificationHost or not host.pinned():return False
-        host.reader.identity(host.reader)
+        from .upbit_notification_simple import SimpleUpbitNotificationHosts
+        if type(host) is SimpleUpbitNotificationHosts:
+            if not host.pinned():return False
+        else:
+            if type(host) is not UpbitNotificationHost or not host.pinned():return False
+            host.reader.identity(host.reader)
         _UPBIT_NOTIFICATION_HOST=host;return True
     except Exception:return False
 
 
-def current_upbit_notification_host():return _UPBIT_NOTIFICATION_HOST
+def current_upbit_notification_host(*,strategy=None,binding=None):
+    host=_UPBIT_NOTIFICATION_HOST
+    if host is None or type(host) is UpbitNotificationHost:return host
+    from .upbit_notification_simple import SimpleUpbitNotificationHosts
+    if type(host) is not SimpleUpbitNotificationHosts:return None
+    if binding is not None:return host.by_binding(binding)
+    if strategy is not None:return host.for_strategy(strategy)
+    return host

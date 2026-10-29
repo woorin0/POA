@@ -783,7 +783,7 @@ class NotificationOutboxStore:
         from .upbit_spot_read import current_upbit_notification_host
         from .estimated_pnl import notice_input,validate_upbit_observation
         from .intake import submission_for,validate_submission
-        host=current_upbit_notification_host()
+        host=current_upbit_notification_host(binding=observation.binding_digest)
         if host is None or not host.owns(observation):return False
         with self._connect() as c:
             owned=c.execute("SELECT data FROM vpnl_jobs WHERE id=? AND job_lease=? AND state='VERIFYING' AND due>?",(key,lease,time.time())).fetchone()

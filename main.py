@@ -75,7 +75,7 @@ async def startup():
             from exchange.verified_pnl.dispatcher import start_worker
             from exchange.verified_pnl.upbit_notification_platform import prepare_platform_upbit_host
             read_host = prepare_platform_upbit_host(settings)
-            if read_host.status not in ('DISABLED', 'HOST_CONFIGURED_EXTERNAL_EVIDENCE_REQUIRED'):
+            if read_host.status not in ('DISABLED', 'HOST_CONFIGURED_EXTERNAL_EVIDENCE_REQUIRED', 'SIMPLE_ESTIMATED_HOST_READY'):
                 from loguru import logger
                 logger.warning('upbit_notification_read: {}', read_host.status)
             if read_host.host is None:

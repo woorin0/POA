@@ -303,8 +303,8 @@ def verification_tick(settings, client_factory):
         with store._connect() as c:
             c.execute("UPDATE vpnl_jobs SET state='PENDING',due=? WHERE id IN (SELECT id FROM vpnl_jobs WHERE state='OBSERVED_WAIT_PROVIDER' ORDER BY created,id LIMIT 40)",(time.time(),))
     from .upbit_spot_read import current_upbit_notification_host
-    upbit_host=current_upbit_notification_host()
-    if upbit_host is not None:
+    upbit_host_provider=current_upbit_notification_host()
+    if upbit_host_provider is not None:
         with store._connect() as c:c.execute("UPDATE vpnl_jobs SET state='PENDING',due=? WHERE id IN (SELECT id FROM vpnl_jobs WHERE state='OBSERVED_WAIT_PROVIDER' AND CASE WHEN json_valid(data) THEN json_extract(data,'$.info.exchange') END='UPBIT' ORDER BY created,id LIMIT 40)",(time.time(),))
     jobs=store.ready_jobs(20)
     for key,encoded,created in jobs:
@@ -325,6 +325,9 @@ def verification_tick(settings, client_factory):
             data["attempts"] = attempts
             from .bootstrap import current_bootstrap
             observed=data.get('notice_intake') is not None
+            upbit_host=upbit_host_provider
+            if observed and info.exchange=='UPBIT' and upbit_host_provider is not None and hasattr(upbit_host_provider,'select_job') and not data['notice_snapshot']['confirmed']:
+                upbit_host=upbit_host_provider.select_job(store,key,lease,data)
             if observed and data['notice_snapshot']['price_source']=='SCOPE_REJECTED':
                 with store._connect() as c:c.execute("UPDATE vpnl_jobs SET state='OBSERVED_REVIEW',job_lease=NULL WHERE id=? AND job_lease=?",(key,lease))
                 continue

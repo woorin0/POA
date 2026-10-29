@@ -37,7 +37,7 @@ class InstallError(Exception):
 
 def upbit_read_configuration(data, values):
     """Pure config builder. Operator binding, never exchange identity certification."""
-    config = data.get('upbit_estimated_read', {'enabled': False})
+    config = data.get('upbit_estimated_read', {'enabled': True, 'credential_mode': 'simple'})
     if not isinstance(config, dict) or type(config.get('enabled', False)) is not bool:
         raise InstallError('UPBIT_READ_CONFIG_INVALID')
     env = {'POA_UPBIT_ESTIMATED_READ_ENABLED': False,
@@ -45,6 +45,14 @@ def upbit_read_configuration(data, values):
            'POA_UPBIT_READ_BINDING_FILE': '/etc/poa/upbit-notification-binding.json',
            'POA_UPBIT_READ_BINDING_SHA256': ''}
     if not config.get('enabled', False):
+        return env, None
+    if config.get('credential_mode', 'simple') == 'simple':
+        key, secret = values.get('UPBIT_KEY'), values.get('UPBIT_SECRET')
+        if any(type(v) is not str or not 1 <= len(v) <= 4096 or not v.isascii() or not v.isprintable()
+               for v in (key, secret)):
+            return env, None # Optional read feature only; no invented identity/config.
+        env.update(POA_UPBIT_ESTIMATED_READ_ENABLED=True, POA_UPBIT_READ_CREDENTIAL_MODE='simple',
+                   POA_UPBIT_READ_BINDING_FILE='', POA_UPBIT_READ_BINDING_SHA256='')
         return env, None
     try:
         import uuid

@@ -221,7 +221,7 @@ def calculate(c,iid):
     n=notice_input(c,iid);s=n['snapshot'];quote=s['symbol'].split('/')[1]
     result=dict(status='UNAVAILABLE',reason='ACQUISITION_UNAVAILABLE',case_id=n['case'],intake_id=iid,snapshot_digest=n['digest'],scope=n['scope'],quantity=s['quantity'],entry_price=None,exit_price=s['average'],amount=None,roi=None,currency=quote,fee_mode='MISSING',ignored_assets=[],basis='POA_OBSERVED_ORDERS')
     if not s['confirmed'] or s['side']!='sell' or not s['account_configured']:return result
-    if s['strategy']=='default':result['reason']='STRATEGY_UNAVAILABLE';return result
+    if s['strategy']=='default' or (s['exchange']=='UPBIT' and s['strategy']=='주문'):result['reason']='STRATEGY_UNAVAILABLE';return result
     if c.execute('SELECT 1 FROM vpnl_notice_reviews WHERE case_id=?',(n['case'],)).fetchone():return result
     qty=principal=fees=Decimal(0);complete=True;ignored=set();count=0;trusted_scope=None
     # Projection over existing notification snapshots, never an allocation ledger.
@@ -311,7 +311,7 @@ def validate_successor(c,origin,record):
 def validate_upbit_observation(c,origin,record):
     from .upbit_spot_read import current_upbit_notification_host
     from .intake import submission_for
-    host=current_upbit_notification_host()
+    host=current_upbit_notification_host(strategy=origin['snapshot']['strategy'])
     required={'kind','intake_id','origin_digest','job_id','case_id','producer','ack_digest','db_id','cutover_id','host_binding','scope','source_digest','facts','facts_digest','snapshot','fee_source'}
     if type(record) is not dict or set(record)!=required or record['kind']!='UPBIT_ESTIMATED_READ_V1':raise ValueError('upbit_observation_schema')
     if host is None or not host.pinned() or record['host_binding']!=host.binding or canonical(record['scope'])!=canonical(host.scope_facts()):raise ValueError('upbit_observation_host_unavailable')
