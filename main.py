@@ -70,20 +70,34 @@ async def startup():
         get_manager(settings)
         # Non-blocking startup: background reconciliation handles initial recovery and periodic ticks without blocking event loop
         app.state.safe_reconciliation = asyncio.create_task(reconciliation_loop(settings))
+    # Order startup and notification readiness are independent. Never report
+    # the bot greeting as proof of a running notification Worker.
+    app.state.notification_worker_status = 'DISABLED'
     if getattr(settings, "VERIFIED_DISCORD_ALERTS", False) and getattr(settings, "DISCORD_OUTBOX_ENABLED", False):
+        from loguru import logger
         try:
             from exchange.verified_pnl.dispatcher import start_worker
-            from exchange.verified_pnl.upbit_notification_platform import prepare_platform_upbit_host
-            read_host = prepare_platform_upbit_host(settings)
-            if read_host.status not in ('DISABLED', 'HOST_CONFIGURED_EXTERNAL_EVIDENCE_REQUIRED', 'SIMPLE_ESTIMATED_HOST_READY'):
-                from loguru import logger
-                logger.warning('upbit_notification_read: {}', read_host.status)
-            if read_host.host is None:
-                app.state.verified_notifications_stop = start_worker(settings)
+            read_host = None
+            try:
+                from exchange.verified_pnl.upbit_notification_platform import prepare_platform_upbit_host
+                read_host = prepare_platform_upbit_host(settings)
+            except Exception:
+                logger.warning('notification_worker: UPBIT_HOST_SETUP_FAILED')
+            if read_host is not None and read_host.status not in ('DISABLED', 'HOST_CONFIGURED_EXTERNAL_EVIDENCE_REQUIRED', 'SIMPLE_ESTIMATED_HOST_READY'):
+                logger.warning('notification_worker: UPBIT_HOST_NOT_READY')
+            if read_host is None or read_host.host is None:
+                worker = start_worker(settings)
             else:
-                app.state.verified_notifications_stop = start_worker(settings, upbit_observation_host=read_host.host)
+                worker = start_worker(settings, upbit_observation_host=read_host.host)
+            app.state.verified_notifications_stop = worker
+            app.state.notification_worker_status = 'WORKER_STARTING' if worker is not None else 'WORKER_NOT_STARTED'
+            logger.warning('notification_worker: {}', app.state.notification_worker_status)
         except Exception:
-            pass
+            app.state.notification_worker_status = 'WORKER_START_FAILED'
+            logger.error('notification_worker: WORKER_START_FAILED')
+    else:
+        from loguru import logger
+        logger.info('notification_worker: DISABLED')
     log_message(f"POABOT 실행 완료! - 버전:{VERSION}")
 
 

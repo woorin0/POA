@@ -713,6 +713,7 @@ class NotificationOutboxStore:
             result=p.estimated_pnl
             if not isinstance(result,dict):return False
             n=notice_input(c,result['intake_id']);snap=n['snapshot']
+            if snap['side']=='buy':return self._buy_notification_authority(c,p,key,job,n)
             if n['job']!=key or snap['side']!='sell' or (not snap['confirmed'] and snap.get('version')!=2) or not snap['account_configured']:return False
             if snap.get('version')==2 and (result.get('basis')!='TRADINGVIEW_SIGNAL' or p.fill_status.value!='UNVERIFIED' or p.fill_verification_status.value!='UNVERIFIED'):return False
             if c.execute('SELECT 1 FROM vpnl_notice_reviews WHERE case_id=?',(n['case'],)).fetchone():return False
@@ -723,6 +724,30 @@ class NotificationOutboxStore:
             ack=submission_for(c,result['intake_id'])
             return ack is not None and validate_submission(self,c,ack)
         except (ValueError,TypeError,KeyError,AttributeError):return False
+
+    def _buy_notification_authority(self,c,p,key,job,n):
+        """Separate buy notification admission; never grants execution/financial truth.
+
+        Called only after shared no-receipt/no-PnL checks, inside the existing
+        enqueue/claim lease transaction. Sell admission remains unchanged.
+        """
+        from .estimated_pnl import calculate,canonical
+        from .intake import submission_for,validate_submission
+        s=n['snapshot'];r=p.estimated_pnl
+        if n['job']!=key or not s['account_configured'] or s['side']!='buy':return False
+        if s.get('version')==2:
+            if r.get('basis')!='TRADINGVIEW_BUY_SIGNAL' or s['confirmed']:return False
+        elif not s['confirmed'] or r.get('basis')!='POA_BUY_OBSERVATION':return False
+        if p.side!='매수' or (p.exchange,p.symbol,p.order_id)!=(s['exchange'],s['symbol'],s['order_id']):return False
+        if (p.strategy_id or p.order_name or 'default')!=s['strategy'] or job.get('notice_intake')!=r['intake_id']:return False
+        if p.fill_status.value!='UNVERIFIED' or p.fill_verification_status.value!='UNVERIFIED':return False
+        if any(getattr(p,k).value!='UNVERIFIED' for k in ('verification_status','pnl_verification_status','roi_verification_status')):return False
+        if p.filled_qty not in (None,'0'):return False
+        if r.get('amount') is not None or r.get('roi') is not None:return False
+        if c.execute('SELECT 1 FROM vpnl_notice_reviews WHERE case_id=?',(n['case'],)).fetchone():return False
+        if canonical(calculate(c,r['intake_id']))!=canonical(r):return False
+        ack=submission_for(c,r['intake_id'])
+        return ack is not None and validate_submission(self,c,ack)
 
     def _notice_gate(self,c,p,job):
         from .estimated_pnl import case_for_job

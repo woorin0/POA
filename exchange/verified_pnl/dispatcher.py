@@ -367,10 +367,11 @@ def verification_tick(settings, client_factory):
                     warning('UPBIT_OBSERVATION_REVIEW')
                     with store._connect() as c:c.execute("UPDATE vpnl_jobs SET state='OBSERVED_REVIEW',job_lease=NULL WHERE id=? AND job_lease=?",(key,lease))
                     continue
-            fill=FillVerifier().verify_order_result(read_bot,info.exchange,info.unified_symbol,result_data,info,evidence_context)
-            if local_observed and data['notice_snapshot']['side']=='buy':
-                with store._connect() as c:c.execute("UPDATE vpnl_jobs SET state='OBSERVED_RECORDED',financial_state='OBSERVATION_ONLY',job_lease=NULL WHERE id=? AND job_lease=?",(key,lease))
+            if observed and evidence_context is None and data['notice_snapshot']['side']=='buy' and (data['notice_snapshot']['confirmed'] or local_observed):
+                from .tradingview_signal import process
+                process(store,key,lease,data,settings)
                 continue
+            fill=FillVerifier().verify_order_result(read_bot,info.exchange,info.unified_symbol,result_data,info,evidence_context)
             if observed and evidence_context is None and not local_observed and (data['notice_snapshot']['side']=='buy' or not data['notice_snapshot']['confirmed']):
                 with store._connect() as c:c.execute("UPDATE vpnl_jobs SET state=?,financial_state='OBSERVATION_ONLY',job_lease=NULL WHERE id=? AND job_lease=?",('OBSERVED_RECORDED' if data['notice_snapshot']['confirmed'] else 'OBSERVED_REVIEW' if boot is not None else 'OBSERVED_WAIT_PROVIDER',key,lease))
                 continue
@@ -704,6 +705,26 @@ def start_worker(settings, *, execution_bootstrap=None, upbit_observation_host=N
     if bootstrap is not None and not bootstrap.activate():
         warning(execution_readiness()['execution']);return None
     stop=threading.Event()
+    stop.notification_status={'state':'STARTING','code':'WORKER_STARTING','ticks':0,'last_tick':None}
+    def status(state,code):
+        prior=stop.notification_status.get('code')
+        stop.notification_status.update(state=state,code=code)
+        if prior!=code:warning(code)
+    def failed(stage,exc):
+        if isinstance(exc,ValueError) and str(exc)=='notification_migration_approval_required':
+            status('BLOCKED','WORKER_CUTOVER_REQUIRED');return
+        from .intake import safe_failure
+        import sqlite3
+        code=safe_failure(exc)
+        if isinstance(exc,sqlite3.Error) and code=='INTAKE_PERSISTENCE_FAILED':
+            # Python 3.10 may not expose sqlite_errorcode. Match only fixed
+            # engine messages; never emit exception text, SQL or parameters.
+            code={'database or disk is full':'INTAKE_DISK_FULL',
+                  'attempt to write a readonly database':'INTAKE_READONLY',
+                  'database disk image is malformed':'INTAKE_CORRUPT',
+                  'file is not a database':'INTAKE_CORRUPT',
+                  'unable to open database file':'INTAKE_UNAVAILABLE'}.get(str(exc).lower(),code)
+        status('FAILED',stage+'_'+code)
     def run_session(init_store):
         from .intake import _BOOT_CHECKED
         _BOOT_CHECKED.discard(init_store.db_path)
@@ -712,35 +733,45 @@ def start_worker(settings, *, execution_bootstrap=None, upbit_observation_host=N
         # Run cleanup / recovery on startup
         try:
             if not init_store.cutover_ready():
-                warning("notification_cutover_required");return
+                status('BLOCKED','WORKER_CUTOVER_REQUIRED');return
             init_store.recover()
             from .intake import restore_preflight
             if restore_preflight(init_store)['ready'] and hasattr(init_store, "prune_completed"):
                 init_store.prune_completed()
-        except Exception:
-            warning("notification_store_not_ready");return
+        except Exception as exc:
+            failed('WORKER_RECOVERY',exc);return
         tick_count = 0
         while not stop.is_set():
             try:
+                from .intake import restore_preflight
+                gate=restore_preflight(init_store)
+                if not gate['ready']:
+                    status('BLOCKED','WORKER_RESTORE_BLOCKED')
+                    # Existing replay can finish a bounded preflight, never bypass it.
                 verification_tick(settings,factory)
                 flush_outbox(settings)
                 tick_count += 1
+                stop.notification_status.update(ticks=tick_count,last_tick=time.time())
+                if gate['ready']:status('RUNNING','WORKER_TICK_OK')
                 if tick_count % 60 == 0:
                     try:
                         m_store = NotificationOutboxStore(settings.VERIFIED_NOTIFICATIONS_DB_PATH)
                         if hasattr(m_store, "prune_completed"):
                             m_store.prune_completed()
-                    except Exception:
-                        pass
-            except Exception: warning("worker_failure")
+                    except Exception:warning('WORKER_PRUNE_DEFERRED')
+            except Exception as exc:failed('WORKER_TICK',exc)
             stop.wait(1)
     def run():
         try:
             session_store=NotificationOutboxStore(settings.VERIFIED_NOTIFICATIONS_DB_PATH)
-            if not session_store.cutover_ready():warning('notification_cutover_required');return
+            if not session_store.cutover_ready():status('BLOCKED','WORKER_CUTOVER_REQUIRED');return
             with session_store.worker_session():run_session(session_store)
-        except Exception:warning('notification_store_not_ready')
+        except Exception as exc:failed('WORKER_STORE',exc)
+        finally:
+            if stop.is_set():status('STOPPED','WORKER_STOPPED')
+            elif stop.notification_status['state'] not in ('FAILED','BLOCKED'):status('FAILED','WORKER_EXITED')
     thread=threading.Thread(target=run,name="verified-notifications",daemon=True)
+    stop.worker_thread=thread
     thread.start()
     return stop
 

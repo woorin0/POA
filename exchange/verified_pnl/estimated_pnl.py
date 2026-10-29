@@ -229,6 +229,7 @@ def calculate(c,iid):
         from .tradingview_signal import calculate as signal_calculate
         return signal_calculate(c,iid)
     n=notice_input(c,iid);s=n['snapshot'];quote=s['symbol'].split('/')[1]
+    if s['side']=='buy':return buy_observation(c,iid)
     result=dict(status='UNAVAILABLE',reason='ACQUISITION_UNAVAILABLE',case_id=n['case'],intake_id=iid,snapshot_digest=n['digest'],scope=n['scope'],quantity=s['quantity'],entry_price=None,exit_price=s['average'],amount=None,roi=None,currency=quote,fee_mode='MISSING',ignored_assets=[],basis='POA_OBSERVED_ORDERS')
     if not s['confirmed'] or s['side']!='sell' or not s['account_configured']:return result
     if s['strategy']=='default' or (s['exchange']=='UPBIT' and s['strategy']=='주문'):result['reason']='STRATEGY_UNAVAILABLE';return result
@@ -336,3 +337,32 @@ def validate_upbit_observation(c,origin,record):
     fee_source='ORDER_LIFETIME_PAID_FEE' if facts['paid_fee'] is not None else 'MISSING'
     if digest(facts)!=record['facts_digest'] or canonical(snapshot)!=canonical(record['snapshot']) or record['fee_source']!=fee_source or not re.fullmatch('[0-9a-f]{64}',record['source_digest']):raise ValueError('upbit_observation_facts')
     return snapshot
+
+
+def buy_observation(c,iid):
+    """Notification-only position projection, no PnL/ROI and no financial proof."""
+    n=notice_input(c,iid);s=n['snapshot']
+    r=dict(status='UNAVAILABLE',reason='BUY_OBSERVED',case_id=n['case'],intake_id=iid,snapshot_digest=n['digest'],scope=n['scope'],quantity=s['quantity'],entry_price=None,exit_price=None,amount=None,roi=None,currency=s['symbol'].split('/')[1],fee_mode='MISSING',ignored_assets=[],basis='POA_BUY_OBSERVATION',strategy=s['strategy'],signal_price=s['average'],virtual_quantity=None,virtual_average=None)
+    if not s['confirmed'] or s['side']!='buy' or not s['account_configured']:return r
+    if s['strategy'] in ('default','주문'):return r
+    sql="SELECT x.intake_id FROM vpnl_notice_inputs x WHERE x.scope=? AND x.sequence<=? AND x.sequence=(SELECT max(y.sequence) FROM vpnl_notice_inputs y WHERE y.case_id=x.case_id AND y.sequence<=?) ORDER BY (SELECT min(z.sequence) FROM vpnl_notice_inputs z WHERE z.case_id=x.case_id)"
+    qty=principal=Decimal(0);count=0
+    with localcontext() as ctx:
+        ctx.prec=512;cur=c.execute(sql,(canonical(n['scope']),n['seq'],n['seq']))
+        while True:
+            rows=cur.fetchmany(40)
+            if not rows:break
+            for (other,) in rows:
+                count+=1
+                if count>4096:return r
+                item=notice_input(c,other);t=item['snapshot']
+                if not t['confirmed'] or c.execute('SELECT 1 FROM vpnl_notice_reviews WHERE case_id=?',(item['case'],)).fetchone():return r
+                q=number(t['quantity']);v=number(t['notional'])
+                if t['side']=='buy':qty+=q;principal+=v
+                elif qty and q<=qty:principal-=principal*q/qty;qty-=q
+                else:return r
+                if not qty:principal=Decimal(0)
+                if other==iid:
+                    r.update(virtual_quantity=norm(qty),virtual_average=norm(principal/qty) if qty else None)
+                    return r
+    return r
