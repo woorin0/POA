@@ -274,14 +274,15 @@ def calculate(c,iid):
                     if qty==0:principal=fees=Decimal(0);complete=True;ignored=set()
     return result
 
-def attach(p,store,data):
+def attach(p,store,data,settings=None):
     with store._connect_read() as c:r=calculate(c,data['notice_intake'])
     p.notification_type='ESTIMATED';p.estimated_pnl=r;p.event_type='estimated'
     p.financial_receipt=p.execution_receipt=p.accounting_receipt=p.outcome_receipt=None
     p.net_pnl=p.roi_pct=p.cost_basis=None
     from .models import VerificationStatus
     p.pnl_verification_status=p.roi_verification_status=VerificationStatus.ESTIMATED if r['status']=='ESTIMATED' else VerificationStatus.UNVERIFIED
-    return p
+    from .notification_origin import stamp
+    return stamp(p,settings)
 
 
 def successor_snapshot(origin,fill,scope):
@@ -322,7 +323,7 @@ def validate_successor(c,origin,record):
 def validate_upbit_observation(c,origin,record):
     from .upbit_spot_read import current_upbit_notification_host
     from .intake import submission_for
-    host=current_upbit_notification_host(strategy=origin['snapshot']['strategy'])
+    host=current_upbit_notification_host(strategy=origin['snapshot']['strategy'],symbol=origin['snapshot']['symbol'])
     required={'kind','intake_id','origin_digest','job_id','case_id','producer','ack_digest','db_id','cutover_id','host_binding','scope','source_digest','facts','facts_digest','snapshot','fee_source'}
     if type(record) is not dict or set(record)!=required or record['kind']!='UPBIT_ESTIMATED_READ_V1':raise ValueError('upbit_observation_schema')
     if host is None or not host.pinned() or record['host_binding']!=host.binding or canonical(record['scope'])!=canonical(host.scope_facts()):raise ValueError('upbit_observation_host_unavailable')

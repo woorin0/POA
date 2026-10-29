@@ -337,7 +337,7 @@ def verification_tick(settings, client_factory):
                 continue
             boot=current_bootstrap()
             local_upbit=observed and info.exchange=='UPBIT' and upbit_host is not None and not data['notice_snapshot']['confirmed']
-            local_only=local_upbit and (boot is None or boot.scope.exchange!='UPBIT' or boot.scope.legacy_account_reference!=data.get('source_account_ref'))
+            local_only=observed and (boot is None or boot.scope.exchange!=info.exchange or boot.scope.symbol!=info.unified_symbol or boot.scope.legacy_account_reference!=data.get('source_account_ref'))
             if observed and (boot is None or local_only):
                 client=None;evidence_context=None
             else:
@@ -473,7 +473,7 @@ def verification_tick(settings, client_factory):
                 withdrawing=evidence_context is not None and verify(evidence_context.history_receipt,'HISTORY') and evidence_context.history_receipt['body'].get('complete') is False
                 if data.get('notice_intake') and info.is_sell and not payload_valid(payload) and not withdrawing:
                     from .estimated_pnl import attach
-                    payload=attach(payload,store,data)
+                    payload=attach(payload,store,data,settings)
                 data["final_alert_sent"] = _dispatch_enqueue(payload)
                 if payload.notification_type=='ESTIMATED' or (data.get('notice_intake') and store.notice_decided(key) and not data['final_alert_sent']):
                     with store._connect() as c:
@@ -799,8 +799,10 @@ def dispatch_order_observation(exchange_name,order_result,order_info,settings,*,
         observation=N.capture(exchange_name,raw,clean['info'],ref,configured)
         intake=IntakeStore(settings.VERIFIED_NOTIFICATIONS_DB_PATH)
         iid=intake.record(data,observation=observation,producer=token)
+        with intake.connect() as c:intake_state=c.execute('SELECT status FROM notification_intake WHERE id=?',(iid,)).fetchone()[0]
+        if intake_state=='REVIEW':warning('NOTIFICATION_INTAKE_REVIEW')
     except Exception as exc:
         logger.error('observed_alerts: {}',safe_failure(exc));return dict(accepted=False,status='PERSISTENCE_FAILED',code=safe_failure(exc))
     try:replay(settings,only=iid)
     except Exception:warning('INTAKE_REPLAY_DEFERRED')
-    return dict(accepted=True,status='DURABLE_ACCEPTED',intake_id=iid)
+    return dict(accepted=True,status='DURABLE_REVIEW' if intake_state=='REVIEW' else 'DURABLE_ACCEPTED',intake_id=iid)

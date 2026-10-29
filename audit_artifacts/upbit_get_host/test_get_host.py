@@ -83,9 +83,12 @@ def test_host_build_no_key_no_api_and_jwt_matches_exact_wire(setup):
   expected=base64.urlsafe_b64encode(hmac.digest(r.credentials.secret_key.encode(),(a+'.'+b).encode(),'sha512')).rstrip(b'=').decode()
   assert hmac.compare_digest(expected,sig)
  assert len(set(nonces))==2
- p=payload(r);assert T.D(p['estimated_pnl']['amount'])==9895000 and T.D('9.88')<T.D(p['estimated_pnl']['roi'])<T.D('9.90')
+ with store(r)._connect_read() as c:plans=[json.loads(x[0]) for x in c.execute('SELECT payload FROM vpnl_revisions')]
+ assert len(plans)==2 and {p['side'] for p in plans}=={'매수','매도'}
+ assert next(p for p in plans if p['side']=='매수')['estimated_pnl']['amount'] is None
+ p=next(p for p in plans if p['side']=='매도');assert T.D(p['estimated_pnl']['amount'])==9895000 and T.D('9.88')<T.D(p['estimated_pnl']['roi'])<T.D('9.90')
  assert p['financial_receipt'] is None and p['execution_receipt'] is None
- assert len(send(r))==1
+ assert len(send(r))==2
 
 @pytest.mark.parametrize('fault',['none','flag','bool','account','pocket','permissions','expired'])
 def test_external_binding_required_not_self_verified_flag(setup,fault):

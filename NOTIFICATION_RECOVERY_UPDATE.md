@@ -16,7 +16,7 @@ cd /root/POA
 /root/POA/.venv/bin/python scripts/notification_pipeline_status.py --db /root/POA/notifications.sqlite3
 systemctl is-active poa
 journalctl -u poa --since '30 minutes ago' --no-pager \
-  --grep='notification_worker:|verified_alerts: WORKER_|observed_alerts: INTAKE_|verified_alerts: BUY_ADMISSION_REJECTED|verified_alerts: SIGNAL_SELL_ADMISSION_REJECTED|verified_alerts: discord_delivery_unknown|verified_alerts: RESTORE_PREFLIGHT_BLOCKED'
+  --grep='notification_worker:|verified_alerts: WORKER_|observed_alerts: INTAKE_|verified_alerts: BUY_ADMISSION_REJECTED|verified_alerts: SIGNAL_SELL_ADMISSION_REJECTED|verified_alerts: discord_delivery_unknown|verified_alerts: RESTORE_PREFLIGHT_BLOCKED|verified_alerts: NOTIFICATION_INTAKE_REVIEW'
 ```
 
 기본 User Data의 Python 경로는 `/root/POA/.venv/bin/python`입니다. 별도 설치라면 해당 `poa.service`의 실제 Python 경로를 사용하십시오. 설정 플래그만 아래처럼 확인할 수 있습니다. API 키/비밀번호/Webhook URL을 cat/print하지 마십시오.
@@ -64,7 +64,7 @@ umask 077
 backup_dir="/root/poa-backups/$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "$backup_dir"
 tar --exclude='./.git' --exclude='./.venv' --exclude='./venv' --exclude='./__pycache__' \
-    -czf "$backup_dir/poa-stopped.tar.gz" -C /root/POA .
+    -czf "$backup_dir/poa-stopped.tar.gz" -C /root/POA . || { echo BACKUP_FAILED; exit 1; }
 ```
 
 백업에는 비밀정보가 포함되므로 업로드/공유하지 마십시오. 다른 프로세스가 DB를 쓰고 있다면 중단하고 일관된 백업부터 확보합니다.
@@ -78,8 +78,8 @@ stage_dir="$(mktemp -d /root/poa-release.XXXXXX)"
 curl --fail --proto '=https' --tlsv1.2 \
   "https://codeload.github.com/woorin0/POA/tar.gz/$release_commit" -o "$stage_dir/source.tar.gz"
 tar -xzf "$stage_dir/source.tar.gz" -C "$stage_dir"
-python3 - "$stage_dir/POA-$release_commit" /root/POA "$release_manifest" <<'PY'
-import sys,json,hashlib,shutil
+python3 - "$stage_dir/POA-$release_commit" /root/POA "$release_manifest" "$release_commit" <<'PY'
+import sys,json,hashlib,shutil,re
 from pathlib import Path
 src,dst=map(lambda p:Path(p).resolve(),sys.argv[1:3]);expected=sys.argv[3]
 manifest=(src/'release_manifest_sha256.json').read_bytes()
@@ -95,6 +95,11 @@ for item in entries:
     rel=Path(item['Path']);target=dst/rel;target.parent.mkdir(parents=True,exist_ok=True)
     shutil.copy2(src/rel,target)
 shutil.copy2(src/'release_manifest_sha256.json',dst/'release_manifest_sha256.json')
+commit=sys.argv[4]
+assert re.fullmatch('[0-9a-f]{40}',commit), 'COMMIT_REQUIRED'
+record=dst/'.poa-deployment.json.new'
+record.write_bytes(json.dumps({'commit':commit,'manifest_sha256':expected},sort_keys=True).encode())
+record.chmod(0o600);record.replace(dst/'.poa-deployment.json')
 print('VERIFIED_PRODUCT_FILES_UPDATED')
 PY
 ```
@@ -117,6 +122,10 @@ TradingView 신호가 없는 ID-only 주문은 유효한 체결조회 provider�
 
 기존 테스트 중 BUY는 기록만 되고 SELL POST 1건만 기대하던 count-only 기대값은 이번 의도적 BUY 복구와 다릅니다. 기존 UNKNOWN/HELD 2건의 raw head=-2 계약 예외와는 별개이며 그 원본은 변경하지 않습니다.
 
-## 검증 결과
+## 최신 종목/신호 수정
 
-신규 직접 계약 59 PASS, 기존 금융·정정·CAS 대표 9 PASS, SAFE_RETRY 대표 7 PASS입니다. 원본 종목 혼입 검사 4건은 정상 BUY POST까지 포함해 전체 POST 0을 기대하므로 FAIL을 보존했습니다. 같은 원천 Fixture로 BUY 1건을 먼저 확인한 뒤 잘못된 SELL의 신규 Root/Delivery/POST가 0임을 별도 4건에서 검증했습니다. 이 count-only 충돌은 기존 UNKNOWN/HELD 2건의 계약 예외와 다릅니다. 초기 매수/시작 진단 반례 9 FAIL도 수정 전 증거로 별도 보존했습니다. 실제 API·주문·Discord·운영 서버 검증은 하지 않았습니다.
+Upbit Simple Host는 BTC/XRP/LINK를 포함한 KRW 현물 주문 종목으로 선택합니다. 엄격한 VERIFIED scope는 확대하지 않습니다. 기존 시각·원가를 추측하지 않고, tv_signal이 없는 기존 JSON은 ORDER_OBSERVATION으로 남습니다. LL/Close_HL에는 공통 strategy_id가 필요합니다.
+
+[203개 전략 공통 Webhook 템플릿·서버 지문 비교](UPBIT_MULTI_MARKET_SIGNAL_GUIDE.md)를 확인하십시오. 원본 종목 혼입 검사 4건은 기존 정상 BUY를 먼저 확인하고 잘못된 SELL의 추가 Root/Delivery/POST가 0임을 검사하도록 보완했습니다. 기존 안전 조건을 삭제하지 않았으며 UNKNOWN/HELD 원본 2건의 계약 예외와 별개입니다.
+
+배포 기록 `.poa-deployment.json`은 commit/manifest 참조만 포함합니다. 코드/manifest가 실제 bytes와 일치하지 않으면 배포 SHA를 확정하지 않습니다. 계정 신원이나 금융 증거를 만드는 파일이 아닙니다.

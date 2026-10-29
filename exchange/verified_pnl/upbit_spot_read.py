@@ -115,7 +115,7 @@ class UpbitSpotReads:
         # Missing asset is unknown, never manufactured as a flat opening.
         return out
     def _summary(self,r,*,allow_missing_paid_fee=False):
-        if type(r) is not dict or r.get('market')!='KRW-BTC' or r.get('side') not in ('bid','ask') or r.get('ord_type') not in ('limit','price','market','best') or r.get('state') not in ('wait','watch','done','cancel'):raise UpbitReadIncomplete('UPBIT_ORDER_SCHEMA')
+        if type(r) is not dict or r.get('market')!=self.scope.instrument or r.get('side') not in ('bid','ask') or r.get('ord_type') not in ('limit','price','market','best') or r.get('state') not in ('wait','watch','done','cancel'):raise UpbitReadIncomplete('UPBIT_ORDER_SCHEMA')
         oid=canonical_uuid(r.get('uuid'));stamp=utc_us(r.get('created_at'))
         if not 0<=stamp<=self.as_of_ms*1000:raise UpbitReadIncomplete('UPBIT_ORDER_TIME')
         count=r.get('trades_count')
@@ -139,7 +139,7 @@ class UpbitSpotReads:
         with localcontext() as arithmetic:
             arithmetic.prec=512
             if q is not None and q!=executed+remaining:raise UpbitReadIncomplete('UPBIT_QUANTITY_SUMMARY')
-        return dict(uuid=oid,market='KRW-BTC',side=side,ord_type=kind,state=r['state'],created_us=stamp,requested_volume=None if q is None else str(q),requested_quote=None if total is None else str(total),limit_price=None if limit is None else str(limit),executed_volume=str(executed),remaining_volume=str(remaining),paid_fee=None if allow_missing_paid_fee and r.get('paid_fee') is None else str(decimal(r['paid_fee'])),trades_count=count,identifier=r.get('identifier'))
+        return dict(uuid=oid,market=self.scope.instrument,side=side,ord_type=kind,state=r['state'],created_us=stamp,requested_volume=None if q is None else str(q),requested_quote=None if total is None else str(total),limit_price=None if limit is None else str(limit),executed_volume=str(executed),remaining_volume=str(remaining),paid_fee=None if allow_missing_paid_fee and r.get('paid_fee') is None else str(decimal(r['paid_fee'])),trades_count=count,identifier=r.get('identifier'))
     def read_order(self,client,oid,symbol):
         return self._read_order_normalized(client,oid,symbol)
     def read_notification_order(self,client,oid,symbol):
@@ -157,19 +157,19 @@ class UpbitSpotReads:
             arithmetic.prec=512;volume=Decimal(0);funds=Decimal(0)
             for r in rows:
                 tid=canonical_uuid(r.get('uuid'));stamp=utc_us(r.get('created_at'));p=decimal(r.get('price'));q=decimal(r.get('volume'));v=decimal(r.get('funds'))
-                if tid==oid or tid in seen or self._owners.get(tid,oid)!=oid or r.get('market')!='KRW-BTC' or r.get('side')!=s['side'] or r.get('order_uuid',oid)!=oid or not s['created_us']<=stamp<=self.as_of_ms*1000:raise UpbitReadIncomplete('UPBIT_TRADE_SCOPE_OR_UUID')
+                if tid==oid or tid in seen or self._owners.get(tid,oid)!=oid or r.get('market')!=self.scope.instrument or r.get('side')!=s['side'] or r.get('order_uuid',oid)!=oid or not s['created_us']<=stamp<=self.as_of_ms*1000:raise UpbitReadIncomplete('UPBIT_TRADE_SCOPE_OR_UUID')
                 if any(r.get(k) is not None for k in ('fee','paid_fee','ask_fee','bid_fee','trade_fee')):raise UpbitReadIncomplete('UPBIT_UNREVIEWED_TRADE_FEE_SOURCE')
                 if p<=0 or q<=0 or v!=p*q:raise UpbitReadIncomplete('UPBIT_TRADE_FUNDS_CONFLICT')
                 if s['limit_price'] is not None and ((s['side']=='bid' and p>Decimal(s['limit_price'])) or (s['side']=='ask' and p<Decimal(s['limit_price']))):raise UpbitReadIncomplete('UPBIT_LIMIT_FILL_CONFLICT')
                 seen.add(tid);volume+=q;funds+=v
-                trades.append(dict(id=tid,order=oid,symbol='BTC/KRW',price=str(p),amount=str(q),timestamp=iso_utc(stamp),funds=str(v)))
+                trades.append(dict(id=tid,order=oid,symbol=self.scope.symbol,price=str(p),amount=str(q),timestamp=iso_utc(stamp),funds=str(v)))
             if volume!=Decimal(s['executed_volume']):raise UpbitReadIncomplete('UPBIT_EXECUTED_VOLUME_CONFLICT')
             if s['requested_quote'] is not None and funds>Decimal(s['requested_quote']):raise UpbitReadIncomplete('UPBIT_QUOTE_FUNDS_CONFLICT')
             avg=funds/volume if volume else None
         if len(self._owners)+len(seen-set(self._owners))>4096:raise UpbitReadIncomplete('UPBIT_READ_CACHE_BOUND')
         for t in seen:self._owners[t]=oid
         trades.sort(key=lambda t:(utc_us(t['timestamp']),t['id']))
-        data=dict(id=oid,clientOrderId=s['identifier'],symbol='BTC/KRW',side='buy' if s['side']=='bid' else 'sell',status={'done':'closed','cancel':'canceled','wait':'open','watch':'open'}[s['state']],type=s['ord_type'],amount=s['requested_volume'],filled=s['executed_volume'],remaining=s['remaining_volume'],average=None if avg is None else str(avg),price=s['limit_price'],requested_quote=s['requested_quote'],timestamp=iso_utc(s['created_us']),lastTradeTimestamp=trades[-1]['timestamp'] if trades else None,fee=dict(cost=s['paid_fee'],currency='KRW'),paid_fee=s['paid_fee'],trades=trades,observation_summary=s)
+        data=dict(id=oid,clientOrderId=s['identifier'],symbol=self.scope.symbol,side='buy' if s['side']=='bid' else 'sell',status={'done':'closed','cancel':'canceled','wait':'open','watch':'open'}[s['state']],type=s['ord_type'],amount=s['requested_volume'],filled=s['executed_volume'],remaining=s['remaining_volume'],average=None if avg is None else str(avg),price=s['limit_price'],requested_quote=s['requested_quote'],timestamp=iso_utc(s['created_us']),lastTradeTimestamp=trades[-1]['timestamp'] if trades else None,fee=dict(cost=s['paid_fee'],currency='KRW'),paid_fee=s['paid_fee'],trades=trades,observation_summary=s)
         if s['paid_fee'] is None:data['fee']=None
         return OrderSnapshot(data,self.scope.account,self.scope.subaccount,E.digest(data))
     def closed_orders(self,start_ms,end_ms):
@@ -271,6 +271,26 @@ class UpbitSpotReads:
 # Notification host capability is separate from the financial provider/issuer.
 _UPBIT_NOTIFICATION_HOST=None
 
+class UpbitNotificationReads:
+    """Internal KRW order observation only. No financial adapter/history port.
+
+    Shares Decimal/native order validation with the BTC financial reader, whose
+    constructor, market, history and signed-evidence scope remain BTC-only.
+    """
+    PATHS=frozenset({'/v1/order'})
+    def __init__(self,scope,get,read_identity,*,pocket_uuid,as_of_ms):
+        pocket_uuid=canonical_uuid(pocket_uuid)
+        if type(scope) is not SpotScope or not re.fullmatch(r'[A-Z0-9]{1,20}/KRW',scope.symbol) or scope.exchange!='UPBIT' or scope.instrument!='KRW-'+scope.symbol.split('/')[0] or scope.settlement!='KRW' or scope.subaccount!='pocket:'+pocket_uuid:raise UpbitReadIncomplete('UPBIT_NOTIFICATION_MARKET')
+        if not scope.account.startswith('poa-estimated-upbit:') or scope.position_cycle!='poa-estimated-internal-stream':raise UpbitReadIncomplete('UPBIT_NOTIFICATION_INTERNAL_ONLY')
+        if not callable(get) or not callable(read_identity) or type(as_of_ms) is not int or as_of_ms<=0:raise UpbitReadIncomplete('UPBIT_REGISTERED_CAPABILITY_REQUIRED')
+        self.scope=scope;self.pocket_uuid=pocket_uuid;self._get=get;self._identity=read_identity;self.as_of_ms=as_of_ms;self._owners={}
+    identity=UpbitSpotReads.identity
+    _read=UpbitSpotReads._read
+    _summary=UpbitSpotReads._summary
+    _read_order_normalized=UpbitSpotReads._read_order_normalized
+    read_notification_order=UpbitSpotReads.read_notification_order
+
+
 class UpbitNotificationWait(ValueError):pass
 
 @dataclass(frozen=True)
@@ -292,7 +312,7 @@ class UpbitNotificationHost:
     CONTRACT='UPBIT_ESTIMATED_ORDER_READ_V1'
     def __init__(self,reader,*,source_account_ref,strategy,allow_unattributed=False):
         from .estimated_pnl import text
-        if type(reader) is not UpbitSpotReads or source_account_ref!=reader.scope.legacy_account_reference or not re.fullmatch('[0-9a-f]{64}',source_account_ref):raise UpbitReadIncomplete('UPBIT_NOTIFICATION_BINDING')
+        if type(reader) not in (UpbitSpotReads,UpbitNotificationReads) or source_account_ref!=reader.scope.legacy_account_reference or not re.fullmatch('[0-9a-f]{64}',source_account_ref):raise UpbitReadIncomplete('UPBIT_NOTIFICATION_BINDING')
         if any(type(v) is not str or not 1<=len(v)<=128 or not v.isprintable() for v in vars(reader.scope).values()):raise UpbitReadIncomplete('UPBIT_NOTIFICATION_ACCOUNT_SCOPE')
         text(strategy)
         internal=allow_unattributed is True and reader.scope.account.startswith('poa-estimated-upbit:') and reader.scope.position_cycle=='poa-estimated-internal-stream'
@@ -302,28 +322,28 @@ class UpbitNotificationHost:
         self.binding=E.digest([self.CONTRACT,self._scope_json,source_account_ref,strategy])
     def pinned(self):return self._scope_json==E.canonical(vars(self.reader.scope)) and self.reader.pocket_uuid==self.reader.scope.subaccount.removeprefix('pocket:')
     def accepts(self,info,ref):
-        return self.pinned() and ref==self.source_account_ref and getattr(info,'exchange',None)=='UPBIT' and getattr(info,'unified_symbol',None)=='BTC/KRW' and getattr(info,'is_futures',None) is False and not getattr(info,'is_coinm',False) and (getattr(info,'strategy_id',None) or getattr(info,'order_name',None) or 'default')==self.strategy
+        return self.pinned() and ref==self.source_account_ref and getattr(info,'exchange',None)=='UPBIT' and getattr(info,'unified_symbol',None)==self.reader.scope.symbol and getattr(info,'is_futures',None) is False and not getattr(info,'is_coinm',False) and (getattr(info,'strategy_id',None) or getattr(info,'order_name',None) or 'default')==self.strategy
     def scope_facts(self):
         s=self.reader.scope
         return dict(exchange='UPBIT',account=s.account,subaccount=s.subaccount,market_type='spot',symbol=s.symbol,instrument=s.instrument,settlement='KRW',contract_size='1',position_side='LONG',position_cycle=s.position_cycle,book=s.book,read_contract_id=self.CONTRACT)
     def snapshot(self,facts):
         from .estimated_pnl import capture
         required={'id','symbol','side','status','filled','remaining','average','type','paid_fee','trades'}
-        if type(facts) is not dict or set(facts)!=required or canonical_uuid(facts['id'])!=facts['id'] or facts['symbol']!='BTC/KRW' or facts['side'] not in ('buy','sell') or facts['status']!='closed' or facts['type'] not in ('limit','price','market','best'):raise UpbitReadIncomplete('UPBIT_NOTIFICATION_FACTS')
+        if type(facts) is not dict or set(facts)!=required or canonical_uuid(facts['id'])!=facts['id'] or facts['symbol']!=self.reader.scope.symbol or facts['side'] not in ('buy','sell') or facts['status']!='closed' or facts['type'] not in ('limit','price','market','best'):raise UpbitReadIncomplete('UPBIT_NOTIFICATION_FACTS')
         if decimal(facts['remaining'])!=0 or decimal(facts['filled'])<=0:raise UpbitReadIncomplete('UPBIT_NOTIFICATION_QUANTITY')
         if facts['paid_fee'] is not None and decimal(facts['paid_fee'])<0:raise UpbitReadIncomplete('UPBIT_NOTIFICATION_FEE')
         rows=facts['trades']
         if type(rows) is not list or not 1<=len(rows)<=40:raise UpbitReadIncomplete('UPBIT_NOTIFICATION_TRADE_BOUND')
         for t in rows:
-            if type(t) is not dict or set(t)!={'id','order','symbol','price','amount','funds','timestamp'} or canonical_uuid(t['id'])!=t['id'] or t['id']==facts['id'] or t['order']!=facts['id'] or t['symbol']!='BTC/KRW':raise UpbitReadIncomplete('UPBIT_NOTIFICATION_TRADE_SCOPE')
+            if type(t) is not dict or set(t)!={'id','order','symbol','price','amount','funds','timestamp'} or canonical_uuid(t['id'])!=t['id'] or t['id']==facts['id'] or t['order']!=facts['id'] or t['symbol']!=self.reader.scope.symbol:raise UpbitReadIncomplete('UPBIT_NOTIFICATION_TRADE_SCOPE')
             utc_us(t['timestamp'])
-        snapshot=capture('UPBIT',facts,dict(unified_symbol='BTC/KRW',strategy_id=self.strategy,is_buy=facts['side']=='buy'),self.source_account_ref,True)
+        snapshot=capture('UPBIT',facts,dict(unified_symbol=self.reader.scope.symbol,strategy_id=self.strategy,is_buy=facts['side']=='buy'),self.source_account_ref,True)
         if not snapshot['confirmed'] or Decimal(str(facts['average']))!=Decimal(snapshot['average']):raise UpbitReadIncomplete('UPBIT_NOTIFICATION_VWAP')
         return snapshot
     def observe(self,intake_id,info,ref,oid):
         if not self.accepts(info,ref):raise UpbitReadIncomplete('UPBIT_NOTIFICATION_SCOPE')
         oid=canonical_uuid(oid)
-        snap=self.reader.read_notification_order(self.reader,oid,'BTC/KRW');data=snap.order
+        snap=self.reader.read_notification_order(self.reader,oid,self.reader.scope.symbol);data=snap.order
         if not self.pinned() or (snap.account,snap.subaccount)!=(self.reader.scope.account,self.reader.scope.subaccount):raise UpbitReadIncomplete('UPBIT_NOTIFICATION_IDENTITY_CHANGED')
         if data.get('status')=='open':raise UpbitNotificationWait('UPBIT_ORDER_NOT_TERMINAL')
         if data.get('status')!='closed':raise UpbitReadIncomplete('UPBIT_NOTIFICATION_TERMINAL_REQUIRED')
@@ -358,11 +378,11 @@ def configure_upbit_notification_host(host):
     except Exception:return False
 
 
-def current_upbit_notification_host(*,strategy=None,binding=None):
+def current_upbit_notification_host(*,strategy=None,binding=None,symbol='BTC/KRW'):
     host=_UPBIT_NOTIFICATION_HOST
     if host is None or type(host) is UpbitNotificationHost:return host
     from .upbit_notification_simple import SimpleUpbitNotificationHosts
     if type(host) is not SimpleUpbitNotificationHosts:return None
     if binding is not None:return host.by_binding(binding)
-    if strategy is not None:return host.for_strategy(strategy)
+    if strategy is not None:return host.for_strategy(strategy,symbol=symbol)
     return host

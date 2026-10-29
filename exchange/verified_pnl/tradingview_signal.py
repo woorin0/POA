@@ -104,7 +104,7 @@ def process(store,key,lease,data,settings):
     if s.get('version')==2:s=validate(s)
     fill=VerifiedFill(exchange=s['exchange'],symbol=s['symbol'],order_id=s['order_id'],source='TRADINGVIEW_SIGNAL_NOT_EXECUTION' if s.get('version')==2 else 'POA_ORDER_OBSERVATION_NOT_VERIFIED')
     p=make_payload(identity(key,'estimated',[],2),fill,SimpleNamespace(**data['info']),PnlCalculationResult(),None,settings)
-    p=attach(p,store,data)
+    p=attach(p,store,data,settings)
     ok=store.enqueue(p,max_attempts=settings.DISCORD_RETRY_MAX_ATTEMPTS if settings.DISCORD_RETRY_ENABLED else 1,job_claim=(key,lease))
     if not ok and not store.notice_decided(key):
         from .dispatcher import warning
@@ -115,6 +115,39 @@ def process(store,key,lease,data,settings):
 
 
 def render(payload):
+    from .notification_origin import current_layout
+    if not current_layout(payload):return _render_v1(payload)
+    from exchange.utility.discord_embed import (format_price_display,format_quantity_display,format_roi_display,sanitize_discord_text,enforce_embed_bounds,Embed)
+    from datetime import datetime,timezone,timedelta
+    e=payload.estimated_pnl;ccy=e['currency'];base=payload.symbol.split('/')[0]
+    buy=e.get('basis') in ('TRADINGVIEW_BUY_SIGNAL','POA_BUY_OBSERVATION')
+    money=lambda n,signed=False:format_price_display(n,currency=ccy,signed=signed) if n is not None else '미확인'
+    clean=lambda value:sanitize_discord_text(value,max_len=64)
+    when=datetime.fromtimestamp(payload.event_timestamp,timezone(timedelta(hours=9))).strftime('%Y-%m-%d %H:%M:%S KST')
+    lines=['전략: '+clean(e.get('strategy') or payload.strategy_id or payload.order_name),'거래소: '+clean(payload.exchange),'종목: '+clean(payload.symbol)]
+    if buy:
+        tv=e['basis']=='TRADINGVIEW_BUY_SIGNAL'
+        lines+=['매수 신호가격: '+money(e.get('signal_price')) if tv else '매수 관측가격: '+money(e.get('signal_price')),'매수수량: '+format_quantity_display(e['quantity'],base),'전략 평균매수가: '+money(e.get('virtual_average')),'가상 전략 보유량: '+(format_quantity_display(e['virtual_quantity'],base) if e.get('virtual_quantity') is not None else '미확인'),'상태: '+('주문 결과 확인 필요 (주문 체결 확인 중)' if tv else '체결 기록 관측 · 검증 미확정'),'기준: '+('TradingView 신호가격' if tv else 'POA 주문 체결 관측 기록'),'실제 체결가격과 차이 가능','시각: '+when]
+        color=0x16A34A if e.get('signal_price') is not None else 0x64748B
+        title='🟢 '+clean(payload.exchange)+' · '+clean(payload.symbol)+' · '+('매수 신호' if tv else '매수 기록')
+    else:
+        lines+=['매수가: '+money(e.get('entry_price')),'매도가: '+money(e.get('exit_price')),'매도수량: '+format_quantity_display(e.get('quantity'),base)]
+        if e.get('status')=='ESTIMATED':lines+=['예상 손익: '+money(e['amount'],True),'예상 ROI: '+format_roi_display(e['roi'])]
+        else:
+            from .notification_origin import reason,reason_code
+            lines+=['예상 손익: 계산 불가','예상 ROI: 미확정','사유: '+reason(e.get('reason'))+' ['+reason_code(e.get('reason'))+']']
+        if Decimal(e.get('unmatched_quantity','0'))>0:lines+=['원가 미확인 수량: '+format_quantity_display(e['unmatched_quantity'],base)]
+        lines+=['실제 체결: 주문 결과 확인 필요','가격 출처: '+e['source'],'수수료 미반영','TradingView 신호 기준 예상치 · 실제 체결·정산손익 아님','시각: '+when]
+        color=0xEF4444 if e.get('status')=='ESTIMATED' else 0x64748B
+        title=('🔴 ' if color==0xEF4444 else '')+clean(payload.exchange)+' · '+clean(payload.symbol)+' · 매도 신호'
+    from .notification_origin import display
+    origin=display(payload)
+    if origin:lines.append(origin)
+    return enforce_embed_bounds(Embed(title=title,description='\n'.join(lines),color=color))
+
+
+# Immutable queued/SENT wire compatibility; no financial-policy downgrade.
+def _render_v1(payload):
     from exchange.utility.discord_embed import (format_price_display,format_quantity_display,format_roi_display,sanitize_discord_text,enforce_embed_bounds,Embed)
     from datetime import datetime,timezone,timedelta
     e=payload.estimated_pnl;ccy=e['currency'];base=payload.symbol.split('/')[0]

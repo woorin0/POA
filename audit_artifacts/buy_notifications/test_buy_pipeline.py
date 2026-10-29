@@ -174,12 +174,20 @@ def test_diagnostic_readonly_and_redacted(env,tmp_path):
 def test_order_and_crypto_contracts_unchanged():
  import subprocess
  base='c99be38640d0b1d665ca7f921612380028443771'
- for name in ('exchange/safe_retry.py','exchange/verified_pnl/verifier.py','exchange/verified_pnl/evidence.py','exchange/verified_pnl/history.py','exchange/verified_pnl/ledger.py','exchange/verified_pnl/bootstrap.py','exchange/verified_pnl/pnl_calculator.py','exchange/verified_pnl/reconciliation.py','exchange/model/schemas.py','exchange/verified_pnl/outbox.py'):
+ for name in ('exchange/safe_retry.py','exchange/verified_pnl/verifier.py','exchange/verified_pnl/evidence.py','exchange/verified_pnl/history.py','exchange/verified_pnl/ledger.py','exchange/verified_pnl/bootstrap.py','exchange/verified_pnl/pnl_calculator.py','exchange/verified_pnl/reconciliation.py','exchange/verified_pnl/outbox.py'):
   assert Path(name).read_bytes()==subprocess.check_output(['git','show',base+':'+name]),name
  before=ast.parse(subprocess.check_output(['git','show',base+':main.py']).decode('utf-8-sig'));after=ast.parse(Path('main.py').read_text(encoding='utf-8-sig'))
  for name in ('order','schedule_order_log','log','get_error'):
   node=lambda t:next(n for n in ast.walk(t) if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef)) and n.name==name)
   assert ast.dump(node(before))==ast.dump(node(after)),name
+ name='exchange/model/schemas.py';old=ast.parse(subprocess.check_output(['git','show',base+':'+name]).decode('utf-8-sig'));new=ast.parse(Path(name).read_text(encoding='utf-8-sig'))
+ for cls in ('OrderRequest','OrderBase','MarketOrder'):
+  get=lambda tree:next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name==cls)
+  assert ast.dump(get(old))==ast.dump(get(new)),cls
+ old_settings=next(n for n in old.body if isinstance(n,ast.ClassDef) and n.name=='Settings')
+ new_settings=next(n for n in new.body if isinstance(n,ast.ClassDef) and n.name=='Settings')
+ new_settings.body=[n for n in new_settings.body if not (isinstance(n,ast.AnnAssign) and isinstance(n.target,ast.Name) and n.target.id=='POA_NOTIFICATION_SERVER_ALIAS')]
+ assert ast.dump(old_settings)==ast.dump(new_settings),'non-notification settings changed'
  name='exchange/verified_pnl/delivery_store.py';before=ast.parse(subprocess.check_output(['git','show',base+':'+name]).decode('utf-8-sig'));after=ast.parse(Path(name).read_text(encoding='utf-8-sig'))
  for fn in ('_wire','_attempt','begin_post','ack','claim_next','_notice_gate'):
   node=lambda t:next(n for n in ast.walk(t) if isinstance(n,ast.FunctionDef) and n.name==fn)

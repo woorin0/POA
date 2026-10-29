@@ -1,7 +1,7 @@
 """Upbit notification-only authenticated GET. No credential discovery or order API.
 Authentication contract: https://docs.upbit.com/kr/reference/auth
 """
-import base64,hashlib,hmac,http.client,json,math,socket,ssl,threading,time,uuid
+import base64,hashlib,hmac,http.client,json,math,socket,ssl,threading,time,uuid,re
 from dataclasses import dataclass,field
 from decimal import Decimal
 from urllib.parse import urlencode
@@ -121,8 +121,9 @@ class UpbitNotificationGET:
     key_guard(fingerprint) must validate local external-registry evidence. It must
     not perform an Upbit request. Total HTTP attempts per call <=2; no auth retry.
     """
-    def __init__(self,credential_provider,key_guard,*,transport=None,monotonic=None,sleep=None):
+    def __init__(self,credential_provider,key_guard,*,transport=None,monotonic=None,sleep=None,expected_market='KRW-BTC'):
         if not callable(credential_provider) or not callable(key_guard):raise UpbitGETError('GET_CONFIGURATION_REQUIRED')
+        self._expected_market=expected_market
         self._credentials=credential_provider;self._guard=key_guard;self._transport=transport if transport is not None else HTTPSOrderGETTransport()
         if not callable(self._transport):raise UpbitGETError('GET_TRANSPORT_REQUIRED')
         self._clock=monotonic or time.monotonic;self._sleep=sleep or time.sleep;self._lock=threading.RLock();self._next=0.;self._cooldown=0.;self._auth_failed=False
@@ -130,6 +131,8 @@ class UpbitNotificationGET:
     def get(self,path,params,*,method='GET',origin=ORIGIN):
         if method!='GET' or origin!=ORIGIN or path!=PATH or type(params) is not dict or set(params)!={'uuid'}:raise UpbitGETError('GET_TARGET_REJECTED')
         oid=order_uuid(params['uuid'])
+        market=self._expected_market() if callable(self._expected_market) else self._expected_market
+        if not isinstance(market,str) or not re.fullmatch(r'KRW-[A-Z0-9]{1,20}',market):raise UpbitGETError('GET_POLICY_REJECTED')
         with self._lock:
             if self._auth_failed:raise UpbitGETError('AUTHENTICATION_DISABLED')
             if self._clock()<self._cooldown:raise UpbitGETError('RATE_LIMITED',min(60,max(0,self._cooldown-self._clock())))
@@ -177,7 +180,7 @@ class UpbitNotificationGET:
                 if str(headers.get('content-type','application/json')).split(';')[0].strip().lower()!='application/json':raise UpbitGETError('RESPONSE_TYPE_REJECTED')
                 try:
                     data=_json(response.body)
-                    if type(data) is not dict or 'error' in data or data.get('uuid')!=oid or data.get('market')!='KRW-BTC' or data.get('side') not in ('bid','ask'):raise ValueError()
+                    if type(data) is not dict or 'error' in data or data.get('uuid')!=oid or data.get('market')!=market or data.get('side') not in ('bid','ask'):raise ValueError()
                 except Exception:raise UpbitGETError('ORDER_RESPONSE_INVALID') from None
                 remaining=str(headers.get('remaining-req',''))
                 if any(p.strip()=='sec=0' for p in remaining.split(';')):self._cooldown=max(self._cooldown,self._clock()+1)

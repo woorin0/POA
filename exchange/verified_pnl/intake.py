@@ -99,7 +99,7 @@ class IntakeStore:
             request.update(version=2,event_kind='POA_OBSERVATION',observation=observation)
         encoded=canonical(request);key=digest(request)
         with self.connect() as c:
-            tv=None
+            tv=None;tv_order_conflict=False
             if observation is not None and observation.get('version')==2:
                 tv=digest([observation['exchange'],observation['source_ref'],observation['symbol'],observation['strategy'],observation['signal']['signal_id']])
                 facts=canonical(observation['signal'])
@@ -110,12 +110,16 @@ class IntakeStore:
                     if saved is None or saved[1]!=prior[1]:raise ValueError('tv_dedup_reference')
                     original=self.parse(*saved)['observation']
                     if any(original[k]!=observation[k] for k in ('exchange','source_ref','symbol','strategy','signal')):raise ValueError('tv_dedup_binding')
-                    return prior[1]
-                c.execute('INSERT INTO notification_tv_dedup VALUES(?,?,?)',(tv,facts,key))
+                    if original['order_id']==observation['order_id']:return prior[1]
+                    # A second real order is not the same durable request. Keep
+                    # it for review; do not allocate its cost or auto-send it.
+                    review=True;tv_order_conflict=True
+                else:c.execute('INSERT INTO notification_tv_dedup VALUES(?,?,?)',(tv,facts,key))
             old=c.execute('SELECT request,request_digest FROM notification_intake WHERE id=?',(key,)).fetchone()
             if old:
                 if old!=(encoded,digest(request)):raise ValueError('intake_identity_conflict')
             else:c.execute('INSERT INTO notification_intake(id,request,request_digest,status,due,created) VALUES(?,?,?,?,?,?)',(key,encoded,digest(request),'REVIEW' if review else 'STORED_WAIT_CUTOVER',0,time.time()))
+            if tv_order_conflict:c.execute("UPDATE notification_intake SET error='TV_SIGNAL_ORDER_CONFLICT' WHERE id=? AND status='REVIEW'",(key,))
             if observation is not None:
                 row=(digest(observation),digest([observation['exchange'],observation['source_ref'],observation['symbol'],observation['strategy']]),c.execute('SELECT sidecar_id FROM intake_lineage WHERE id=1').fetchone()[0],'POA_MAIN_LOG_V1')
                 old=c.execute('SELECT observation_digest,scope_digest,sidecar_id,producer FROM notification_observation_admissions WHERE request_id=?',(key,)).fetchone()

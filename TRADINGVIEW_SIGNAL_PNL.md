@@ -113,3 +113,9 @@ KRW는 원, USDT는 USDT입니다. 일반 신호 계산에는 BTC-only 제한이
 ## 매수 알림 복구
 
 승인된 매수 신호도 Outbox 알림 1건을 생성합니다. 가격·신호수량·전략 평균매수가·가상 보유량·KST 시각을 표시하며, 실제 체결 증거가 없으면 “주문 체결 확인 중”으로 표시합니다. 매수 알림에는 손익/ROI가 없습니다. 매도 가중평균·부분매도 계산은 그대로 유지합니다. 서버별 진단과 데이터 보존 업데이트는 [NOTIFICATION_RECOVERY_UPDATE.md](NOTIFICATION_RECOVERY_UPDATE.md)를 참조하십시오.
+
+## KRW 종목·공통 전략 연결
+
+최신 알림용 Upbit Simple Host는 BTC/XRP/LINK 등 KRW 현물 주문 종목으로 선택합니다. 기존 VERIFIED 금융 scope는 확대하지 않습니다. LL/Close_HL에 공통 strategy_id를 전달하는 공통 JSON은 [UPBIT_MULTI_MARKET_SIGNAL_GUIDE.md](UPBIT_MULTI_MARKET_SIGNAL_GUIDE.md)를 사용하십시오. `tv_signal` 없는 기존 JSON을 서버가 임의 변환하지 않습니다.
+
+동일 신호 ID에 서로 다른 실제 주문 UUID가 관측되면 별도 REVIEW에 보존하고 자동 합병/전송하지 않습니다. `DURABLE_REVIEW`는 저장 성공이며 알림 전달 성공이 아닙니다.

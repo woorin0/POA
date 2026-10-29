@@ -1,10 +1,10 @@
 """POA-origin-only ESTIMATED read routing; never a financial identity provider."""
-import threading,time,uuid,weakref
+import threading,time,uuid,weakref,re
 from collections import OrderedDict
 from .bootstrap import SpotScope,AuthenticatedAccount
 from .ledger import identity
 from .upbit_notification_get import ReadCredentials,UpbitNotificationGET
-from .upbit_spot_read import UpbitSpotReads,UpbitNotificationHost,canonical_uuid
+from .upbit_spot_read import UpbitSpotReads,UpbitNotificationReads,UpbitNotificationHost,canonical_uuid
 
 class SimpleUpbitNotificationHosts:
     """One existing key, separate per-strategy notification readers.
@@ -26,25 +26,28 @@ class SimpleUpbitNotificationHosts:
             return ReadCredentials(self.settings.UPBIT_KEY,self.settings.UPBIT_SECRET)
         def guard(fp):
             if fp!=self.fingerprint or not self.pinned():raise ValueError('simple_key_binding_changed')
-        self._get=UpbitNotificationGET(credentials,guard)
+        self._get=UpbitNotificationGET(credentials,guard,expected_market=lambda:getattr(self._read_authorization,'market',None))
     def pinned(self):
         try:
             cred=ReadCredentials(self.settings.UPBIT_KEY,self.settings.UPBIT_SECRET)
             return cred.fingerprint()==self.fingerprint and identity('UPBIT',cred.access_key)==self.source_account_ref
         except Exception:return False
-    def for_strategy(self,strategy):
+    def for_strategy(self,strategy,*,symbol='BTC/KRW'):
         from .estimated_pnl import text
         text(strategy)
+        if not isinstance(symbol,str) or not re.fullmatch(r'[A-Z0-9]{1,20}/KRW',symbol):raise ValueError('simple_market_scope')
+        cache_key=(strategy,symbol)
         if not self.pinned():return None
         with self._lock:
-            host=self._children.pop(strategy,None)
-            if host is None:host=next((h for h in self._known_hosts.values() if h.strategy==strategy),None)
+            host=self._children.pop(cache_key,None)
+            if host is None:host=next((h for h in self._known_hosts.values() if h.strategy==strategy and h.reader.scope.symbol==symbol),None)
             if host is None:
-                scope=SpotScope('UPBIT',self.account,'pocket:'+self.pocket_uuid,self.source_account_ref,'BTC/KRW','KRW-BTC','KRW','poa-estimated-internal-stream',strategy)
+                scope=SpotScope('UPBIT',self.account,'pocket:'+self.pocket_uuid,self.source_account_ref,symbol,'KRW-'+symbol.split('/')[0],'KRW','poa-estimated-internal-stream',strategy)
                 def read_identity(client):
                     if not self.pinned():raise ValueError('simple_key_binding_changed')
                     return AuthenticatedAccount('UPBIT',scope.account,scope.subaccount,frozenset({'read'}))
-                reader=UpbitSpotReads(scope,self._get,read_identity,pocket_uuid=self.pocket_uuid,as_of_ms=int(time.time()*1000))
+                reader_type=UpbitSpotReads if symbol=='BTC/KRW' else UpbitNotificationReads
+                reader=reader_type(scope,self._get,read_identity,pocket_uuid=self.pocket_uuid,as_of_ms=int(time.time()*1000))
                 original_get=reader._get
                 def fresh_get(path,params):
                     if path!='/v1/order' or params!={'uuid':getattr(self._read_authorization,'oid',None)}:raise ValueError('simple_poa_job_required')
@@ -60,12 +63,12 @@ class SimpleUpbitNotificationHosts:
                         permit=(iid,ref,oid)
                         if permit not in _host._poa_read_permits:raise ValueError('simple_poa_job_required')
                         _host._poa_read_permits.remove(permit)
-                    self._read_authorization.oid=oid
+                    self._read_authorization.oid=oid;self._read_authorization.market=_host.reader.scope.instrument
                     try:return _observe(iid,info,ref,oid)
-                    finally:self._read_authorization.oid=None
+                    finally:self._read_authorization.oid=None;self._read_authorization.market=None
                 host.observe=leased_observe
                 self._known_hosts[host.binding]=host
-            self._children[strategy]=host
+            self._children[cache_key]=host
             while len(self._children)>32:self._children.popitem(last=False)
             return host
     def by_binding(self,binding):
@@ -83,9 +86,11 @@ class SimpleUpbitNotificationHosts:
             if origin['job']!=key or ack is None or ack['job_id']!=key or not validate_submission(store,c,ack):raise ValueError('simple_submission_required')
             info=saved['info'];oid=canonical_uuid(str(saved['result']['id']))
             strategy=info.get('strategy_id') or info.get('order_name') or 'default'
-            if (s['exchange'],s['source_ref'],s['symbol'],s['order_id'],s['strategy'])!=('UPBIT',self.source_account_ref,'BTC/KRW',oid,strategy) or info.get('is_futures') or info.get('is_coinm'):raise ValueError('simple_origin_scope')
+            symbol=info.get('unified_symbol')
+            if not isinstance(symbol,str) or not re.fullmatch(r'[A-Z0-9]{1,20}/KRW',symbol):raise ValueError('simple_market_scope')
+            if (s['exchange'],s['source_ref'],s['symbol'],s['order_id'],s['strategy'])!=('UPBIT',self.source_account_ref,symbol,oid,strategy) or info.get('is_futures') or info.get('is_coinm'):raise ValueError('simple_origin_scope')
             if (data['source_account_ref'],str(data['result']['id']),data['info'])!=(self.source_account_ref,oid,info):raise ValueError('simple_job_scope')
-        host=self.for_strategy(strategy)
+        host=self.for_strategy(strategy,symbol=symbol)
         if host is None:raise ValueError('simple_key_binding_changed')
         with host._issued_lock:host._poa_read_permits.add((iid,self.source_account_ref,oid))
         return host

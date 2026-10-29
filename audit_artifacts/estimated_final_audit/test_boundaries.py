@@ -24,12 +24,19 @@ def evidence(e,name,records):
 @pytest.mark.parametrize('venue',T.VENUES)
 def test_completed_summary_wrong_symbol_must_not_publish(env,venue):
  T.emit(env,venue,'buy','150')
+ # BUY notifications are now intentional. Verify that positive event before
+ # asserting the invalid SELL causes no new root/delivery/POST.
+ buy=T.send(env);assert len(buy)==1 and T.plans(env)[0]['side']=='매수'
+ s=T.store(env)
+ with s._connect_read() as c:before=(c.execute('SELECT count(*) FROM vpnl_roots').fetchone()[0],c.execute('SELECT count(*) FROM vpnl_deliveries').fetchone()[0])
  def wrong(r):
   oid=r.get('id') or r.get('uuid');quote='KRW' if venue=='UPBIT' else 'USDT'
   r.clear();r.update(id=oid,status='closed',symbol='ETH/'+quote,side='sell',filled='1',amount='1',remaining='0',average='160',trades=[],fee=dict(cost='1',currency=quote))
  T.emit(env,venue,'sell','160',change=wrong)
  records=T.send(env);proof=evidence(env,'wrong_symbol_'+venue,records)
  assert records==[], 'CROSS_INSTRUMENT_SUMMARY_PUBLISHED: '+str(proof['payloads'][-1]['estimated_pnl']['amount'])
+ with s._connect_read() as c:assert before==(c.execute('SELECT count(*) FROM vpnl_roots').fetchone()[0],c.execute('SELECT count(*) FROM vpnl_deliveries').fetchone()[0])
+ assert not any(p['side']=='매도' for p in proof['payloads'])
 
 
 def test_trusted_confirmed_execution_after_create_ack_must_notify(history):
