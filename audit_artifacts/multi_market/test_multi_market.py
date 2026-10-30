@@ -134,8 +134,11 @@ def test_deployment_record_must_match_actual_bytes(tmp_path):
 
 def test_main_order_and_financial_guards_unchanged():
  base='6a84d84b6cbb740a42773f0b89adfe4454407eb3'
- for path in ('main.py','exchange/safe_retry.py','exchange/verified_pnl/bootstrap.py','exchange/verified_pnl/verifier.py','exchange/verified_pnl/evidence.py','exchange/verified_pnl/ledger.py','exchange/verified_pnl/pnl_calculator.py','exchange/verified_pnl/history.py','exchange/verified_pnl/outbox.py','exchange/verified_pnl/delivery_store.py'):
-  assert Path(path).read_bytes()==subprocess.check_output(['git','show',base+':'+path]),path
+ for path in ('main.py','exchange/safe_retry.py','exchange/verified_pnl/bootstrap.py','exchange/verified_pnl/verifier.py','exchange/verified_pnl/evidence.py','exchange/verified_pnl/ledger.py','exchange/verified_pnl/pnl_calculator.py','exchange/verified_pnl/history.py','exchange/verified_pnl/reconciliation.py','exchange/verified_pnl/outbox.py','exchange/verified_pnl/delivery_store.py'):
+  if path=='exchange/verified_pnl/delivery_store.py':
+   from notification_source_contract import assert_reviewed_notification_source
+   assert_reviewed_notification_source(path)
+  else:assert Path(path).read_bytes()==subprocess.check_output(['git','show',base+':'+path]),path
 
 
 def test_documented_templates_parse_exactly(env):

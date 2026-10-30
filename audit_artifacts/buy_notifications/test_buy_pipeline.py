@@ -180,14 +180,10 @@ def test_order_and_crypto_contracts_unchanged():
  for name in ('order','schedule_order_log','log','get_error'):
   node=lambda t:next(n for n in ast.walk(t) if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef)) and n.name==name)
   assert ast.dump(node(before))==ast.dump(node(after)),name
- name='exchange/model/schemas.py';old=ast.parse(subprocess.check_output(['git','show',base+':'+name]).decode('utf-8-sig'));new=ast.parse(Path(name).read_text(encoding='utf-8-sig'))
- for cls in ('OrderRequest','OrderBase','MarketOrder'):
-  get=lambda tree:next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name==cls)
-  assert ast.dump(get(old))==ast.dump(get(new)),cls
- old_settings=next(n for n in old.body if isinstance(n,ast.ClassDef) and n.name=='Settings')
- new_settings=next(n for n in new.body if isinstance(n,ast.ClassDef) and n.name=='Settings')
- new_settings.body=[n for n in new_settings.body if not (isinstance(n,ast.AnnAssign) and isinstance(n.target,ast.Name) and n.target.id=='POA_NOTIFICATION_SERVER_ALIAS')]
- assert ast.dump(old_settings)==ast.dump(new_settings),'non-notification settings changed'
+ # Exact approved notification spans; all remaining schema bytes stay pinned.
+ from notification_source_contract import assert_reviewed_notification_source
+ assert_reviewed_notification_source('exchange/model/schemas.py')
+ assert_reviewed_notification_source('exchange/verified_pnl/delivery_store.py')
  name='exchange/verified_pnl/delivery_store.py';before=ast.parse(subprocess.check_output(['git','show',base+':'+name]).decode('utf-8-sig'));after=ast.parse(Path(name).read_text(encoding='utf-8-sig'))
  for fn in ('_wire','_attempt','begin_post','ack','claim_next','_notice_gate'):
   node=lambda t:next(n for n in ast.walk(t) if isinstance(n,ast.FunctionDef) and n.name==fn)
