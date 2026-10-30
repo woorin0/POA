@@ -33,7 +33,13 @@ def normalized_request(data):
         signal=parse(data['info']['tv_signal'])
         if signal['strategy_id']!=info.get('strategy_id') or signal['action']!=('buy' if info.get('is_buy') else 'sell') or info.get('is_futures'):raise ValueError('tv_request_binding')
         info['tv_signal']=canonical(signal)
-    info['signal_id']=None
+    signal_id=data['info'].get('signal_id')
+    if signal_id is not None and (not isinstance(signal_id,str) or not signal_id.isprintable() or not _TEXT.fullmatch(signal_id) or _SECRET.search(signal_id)):raise ValueError('tv_signal_reference')
+    info['signal_id']=signal_id
+    if data['info'].get('signal_time') is not None:
+        value=data['info']['signal_time']
+        if type(value) not in (int,float) or not math.isfinite(value) or not 0<value<4102444800:raise ValueError('tv_signal_time')
+        info['signal_time']=value
     result={}
     for k in ('id','uuid','clientOrderId'):
         value=data['result'].get(k)
@@ -100,7 +106,7 @@ class IntakeStore:
         encoded=canonical(request);key=digest(request)
         with self.connect() as c:
             tv=None;tv_order_conflict=False
-            if observation is not None and observation.get('version')==2:
+            if observation is not None and observation.get('version') in (2,3):
                 tv=digest([observation['exchange'],observation['source_ref'],observation['symbol'],observation['strategy'],observation['signal']['signal_id']])
                 facts=canonical(observation['signal'])
                 prior=c.execute('SELECT facts,intake_id FROM notification_tv_dedup WHERE id=?',(tv,)).fetchone()

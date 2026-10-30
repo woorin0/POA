@@ -47,7 +47,7 @@ def stamp(payload,settings):
     if not isinstance(alias,str) or not re.fullmatch('[A-Za-z0-9_-]{1,24}',alias) or re.search('(?i)secret|token|bearer|apikey|password',alias):alias=None
     # Origin metadata is opt-in; layout marks new notification payloads only.
     origin=deployment() if alias is not None or (ROOT/'.poa-deployment.json').is_file() else {'commit':None}
-    value={'layout':2,'server':alias,'commit':origin['commit']}
+    value={'layout':3,'server':alias,'commit':origin['commit']}
     payload.verification_source=(payload.verification_source or '').split(PREFIX)[0]+PREFIX+json.dumps(value,sort_keys=True,separators=(',',':'))
     return payload
 
@@ -62,12 +62,35 @@ def display(payload):
         return '서버: '+(alias or '별칭 미설정')+' · 배포: '+(sha[:12] if sha else '미확인')
     except Exception:return None
 
-REASONS={'TV_ACQUISITION_UNAVAILABLE':'매수 신호/전략 평균 진입가격 없음','ACQUISITION_UNAVAILABLE':'연결된 매수 체결 기록 없음 · tv_signal/strategy_id 확인','STRATEGY_UNAVAILABLE':'공통 strategy_id 필요','ACQUISITION_QUANTITY_GAP':'매도 수량에 대응하는 매수 기록 부족','UNCONFIRMED_HISTORY':'체결 미확정 관측 존재','TV_HISTORY_LIMIT':'신호 이력 처리 한도 초과','NOTIFICATION_HISTORY_LIMIT':'관측 이력 처리 한도 초과','TV_OBSERVATION_CONFLICT':'신호 참조 충돌 · REVIEW','OBSERVATION_CONFLICT':'관측 충돌 · REVIEW','EXECUTION_SCOPE_CONFLICT':'체결 범위 불일치'}
+REASONS={'TV_EVENT_ORDER_UNCERTAIN':'신호 시각 역순 · 원가 재확인 필요','TV_ACQUISITION_UNAVAILABLE':'매수 신호/전략 평균 진입가격 없음','ACQUISITION_UNAVAILABLE':'연결된 매수 체결 기록 없음 · tv_signal/strategy_id 확인','STRATEGY_UNAVAILABLE':'공통 strategy_id 필요','ACQUISITION_QUANTITY_GAP':'매도 수량에 대응하는 매수 기록 부족','UNCONFIRMED_HISTORY':'체결 미확정 관측 존재','TV_HISTORY_LIMIT':'신호 이력 처리 한도 초과','NOTIFICATION_HISTORY_LIMIT':'관측 이력 처리 한도 초과','TV_OBSERVATION_CONFLICT':'신호 참조 충돌 · REVIEW','OBSERVATION_CONFLICT':'관측 충돌 · REVIEW','EXECUTION_SCOPE_CONFLICT':'체결 범위 불일치'}
 def reason(value):return REASONS.get(value,'자료 부족 또는 범위 확인 필요')
 
 def reason_code(value):return value if value in REASONS else 'UNAVAILABLE'
 
 
-def current_layout(payload):
-    try:return json.loads((payload.verification_source or '').rsplit(PREFIX,1)[1]).get('layout')==2
-    except Exception:return False
+def layout_version(payload):
+    try:
+        version=json.loads((payload.verification_source or '').rsplit(PREFIX,1)[1]).get('layout')
+        return version if type(version) is int and version in (2,3) else 1
+    except Exception:return 1
+
+def current_layout(payload):return layout_version(payload) in (2,3)
+
+def precise_display(formatter):
+    def render(*args,**kwargs):
+        from decimal import localcontext
+        with localcontext() as ctx:
+            ctx.prec=1100
+            return formatter(*args,**kwargs)
+    return render
+
+def quantity_display(value,base):
+    from decimal import Decimal
+    from exchange.utility.discord_embed import sanitize_discord_text
+    try:
+        number=Decimal(str(value))
+        if not number.is_finite():raise ValueError()
+        text=format(number,',f')
+        if '.' in text:text=text.rstrip('0').rstrip('.')
+        return text+' '+sanitize_discord_text(base,max_len=24)
+    except (ValueError,ArithmeticError):return '미확인'

@@ -15,7 +15,7 @@ from .ledger import identity, allocate
 
 SUPPORTED={"BINANCE","BYBIT","OKX","UPBIT"}
 INFO_FIELDS=("exchange","base","quote","unified_symbol","side","is_close","is_entry","is_buy","is_sell",
-             "is_futures","is_spot","is_coinm","contract_size","order_name","exit_type","leverage","strategy_id","signal_id","tv_signal")
+             "is_futures","is_spot","is_coinm","contract_size","order_name","exit_type","leverage","strategy_id","signal_id","signal_time","tv_signal")
 
 
 def warning(code):
@@ -325,7 +325,7 @@ def verification_tick(settings, client_factory):
             data["attempts"] = attempts
             from .bootstrap import current_bootstrap
             observed=data.get('notice_intake') is not None
-            if observed and data['notice_snapshot'].get('version')==2:
+            if observed and data['notice_snapshot'].get('version') in (2,3):
                 from .tradingview_signal import process
                 process(store,key,lease,data,settings)
                 continue

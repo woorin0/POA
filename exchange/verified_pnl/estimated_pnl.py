@@ -50,7 +50,7 @@ def case_for_job(job):
     return case_key(dict(exchange=info['exchange'],source_ref=ref,symbol=info['unified_symbol'],strategy=info.get('strategy_id') or info.get('order_name') or 'default',order_id=str(order)))
 
 def notification_scope(s):
-    return dict(exchange=s['exchange'],account=s['source_ref'],subaccount='poa-producer-observation',market_type='spot',instrument=s['symbol'],symbol=s['symbol'],settlement=s['symbol'].split('/')[1],contract_size='1',position_side='LONG',position_cycle='tradingview-signal-stream' if s.get('version')==2 else 'notification-observed-stream',book=s['strategy'])
+    return dict(exchange=s['exchange'],account=s['source_ref'],subaccount='poa-producer-observation',market_type='spot',instrument=s['symbol'],symbol=s['symbol'],settlement=s['symbol'].split('/')[1],contract_size='1',position_side='LONG',position_cycle='tradingview-signal-stream' if s.get('version') in (2,3) else 'notification-observed-stream',book=s['strategy'])
 
 def source_scope(exchange,raw,symbol,order):
     """Compare actual source fields; never fill them from the request."""
@@ -160,7 +160,7 @@ def capture(exchange,raw,info,ref,account_configured):
         return validate_snapshot(s)
 
 def validate_snapshot(s):
-    if isinstance(s,dict) and s.get('version')==2:
+    if isinstance(s,dict) and s.get('version') in (2,3):
         from .tradingview_signal import validate
         return validate(s)
     if not isinstance(s,dict) or set(s)!=SNAP_KEYS or s['version']!=1:raise ValueError('snapshot_schema')
@@ -225,7 +225,7 @@ def bound_root_matches(store,c,binding,data):
 
 def calculate(c,iid):
     original=notice_input(c,iid,effective=False)
-    if original['snapshot'].get('version')==2:
+    if original['snapshot'].get('version') in (2,3):
         from .tradingview_signal import calculate as signal_calculate
         return signal_calculate(c,iid)
     n=notice_input(c,iid);s=n['snapshot'];quote=s['symbol'].split('/')[1]
@@ -275,7 +275,10 @@ def calculate(c,iid):
     return result
 
 def attach(p,store,data,settings=None):
-    with store._connect_read() as c:r=calculate(c,data['notice_intake'])
+    with store._connect_read() as c:
+        r=calculate(c,data['notice_intake'])
+        snapshot=notice_input(c,data['notice_intake'],effective=False)['snapshot']
+    if snapshot.get('version')==3:p.signal_id=snapshot['signal']['signal_id']
     p.notification_type='ESTIMATED';p.estimated_pnl=r;p.event_type='estimated'
     p.financial_receipt=p.execution_receipt=p.accounting_receipt=p.outcome_receipt=None
     p.net_pnl=p.roi_pct=p.cost_basis=None

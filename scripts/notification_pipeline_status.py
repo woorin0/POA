@@ -39,7 +39,7 @@ def inspect_events(path,limit,kind):
                 if len(encoded)>32768:raise ValueError()
                 data=json.loads(encoded);info=data.get('info') or {};snap=data.get('notice_snapshot') or data.get('observation') or {};signal=snap.get('signal') or {}
                 item['execution_state']='OBSERVED_NOT_FINANCIALLY_VERIFIED' if snap.get('confirmed') is True else 'UNCONFIRMED'
-                if snap.get('version')==2 and signal:item['path']='TV_SIGNAL'
+                if snap.get('version') in (2,3) and signal:item['path']='TV_SIGNAL'
                 elif snap or data.get('notice_intake'):item['path']='ORDER_OBSERVATION'
                 if item['path']!='TV_SIGNAL':item['missing_codes'].append('TV_SIGNAL_ABSENT')
                 if not info.get('strategy_id'):item['missing_codes'].append('STRATEGY_ID_ABSENT_ORDER_NAME_FALLBACK')

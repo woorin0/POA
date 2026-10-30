@@ -691,7 +691,7 @@ class NotificationOutboxStore:
             prior=c.execute('SELECT snapshot FROM vpnl_notice_inputs WHERE case_id=? ORDER BY sequence DESC LIMIT 1',(case,)).fetchone()
             if prior:
                 before=validate_snapshot(strict_object(prior[0]))
-                if (before['confirmed'] and snap['confirmed'] or before.get('version')==2 or snap.get('version')==2) and canonical(before)!=canonical(snap):
+                if (before['confirmed'] and snap['confirmed'] or before.get('version') in (2,3) or snap.get('version') in (2,3)) and canonical(before)!=canonical(snap):
                     c.execute('INSERT OR IGNORE INTO vpnl_notice_reviews VALUES(?,?)',(case,'observation_conflict'))
             c.execute('INSERT INTO vpnl_notice_inputs VALUES(?,?,?,?,?,?,?,?)',(iid,case,key,sequence,canonical(snap),digest(snap),canonical(notification_scope(snap)),sid))
             data=dict(info=request['info'],result=request['result'],account=request['source_account_ref'],source_account_ref=request['source_account_ref'],notice_intake=iid,notice_snapshot=snap)
@@ -713,9 +713,10 @@ class NotificationOutboxStore:
             result=p.estimated_pnl
             if not isinstance(result,dict):return False
             n=notice_input(c,result['intake_id']);snap=n['snapshot']
+            if snap.get('version')==3 and p.signal_id!=snap['signal']['signal_id']:return False
             if snap['side']=='buy':return self._buy_notification_authority(c,p,key,job,n)
-            if n['job']!=key or snap['side']!='sell' or (not snap['confirmed'] and snap.get('version')!=2) or not snap['account_configured']:return False
-            if snap.get('version')==2 and (result.get('basis')!='TRADINGVIEW_SIGNAL' or p.fill_status.value!='UNVERIFIED' or p.fill_verification_status.value!='UNVERIFIED'):return False
+            if n['job']!=key or snap['side']!='sell' or (not snap['confirmed'] and snap.get('version') not in (2,3)) or not snap['account_configured']:return False
+            if snap.get('version') in (2,3) and (result.get('basis')!='TRADINGVIEW_SIGNAL' or p.fill_status.value!='UNVERIFIED' or p.fill_verification_status.value!='UNVERIFIED'):return False
             if c.execute('SELECT 1 FROM vpnl_notice_reviews WHERE case_id=?',(n['case'],)).fetchone():return False
             if (p.exchange,p.symbol,p.order_id)!=(snap['exchange'],snap['symbol'],snap['order_id']):return False
             if p.side!='매도' or (p.strategy_id or p.order_name or 'default')!=snap['strategy']:return False
@@ -735,7 +736,7 @@ class NotificationOutboxStore:
         from .intake import submission_for,validate_submission
         s=n['snapshot'];r=p.estimated_pnl
         if n['job']!=key or not s['account_configured'] or s['side']!='buy':return False
-        if s.get('version')==2:
+        if s.get('version') in (2,3):
             if r.get('basis')!='TRADINGVIEW_BUY_SIGNAL' or s['confirmed']:return False
         elif not s['confirmed'] or r.get('basis')!='POA_BUY_OBSERVATION':return False
         if p.side!='매수' or (p.exchange,p.symbol,p.order_id)!=(s['exchange'],s['symbol'],s['order_id']):return False

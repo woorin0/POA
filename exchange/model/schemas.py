@@ -244,6 +244,10 @@ class OrderRequest(BaseModel):
         if values.get('tv_signal') is not None:
             from exchange.verified_pnl.tradingview_signal import parse
             s=parse(values['tv_signal'])
+            if values.get('signal_id') is not None and values['signal_id']!=s['signal_id']:raise ValueError('tv_signal_binding')
+            if values.get('signal_time') is not None:
+                timed=parse(dict(s,signal_time=str(values['signal_time'])))
+                if s.get('signal_time',timed['signal_time'])!=timed['signal_time']:raise ValueError('tv_time_binding')
             if values.get('is_futures') or values.get('is_coinm') or s['strategy_id']!=values.get('strategy_id') or s['action']!=('buy' if values.get('is_buy') else 'sell'):
                 raise ValueError('tv_request_binding')
         return values

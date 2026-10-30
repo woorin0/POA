@@ -1713,9 +1713,43 @@ def build_error_embed(
 def build_estimated_order_embed(payload):
     from exchange.verified_pnl.notification_origin import current_layout
     if not current_layout(payload):return _build_estimated_order_embed_v1(payload)
-    return _build_estimated_order_embed_current(payload)
+    from exchange.verified_pnl.notification_origin import layout_version
+    return _build_estimated_order_embed_current(payload) if layout_version(payload)==3 else _build_estimated_order_embed_v2(payload)
 
 def _build_estimated_order_embed_current(payload):
+    """Unsigned notification estimate; never labels financial verification."""
+    from exchange.verified_pnl.notification_origin import precise_display,quantity_display
+    price_display=precise_display(format_price_display)
+    roi_display=precise_display(format_roi_display)
+    e=payload.estimated_pnl or {};ccy=e.get('currency')
+    if e.get('basis') in ('TRADINGVIEW_SIGNAL','TRADINGVIEW_BUY_SIGNAL','POA_BUY_OBSERVATION'):
+        from exchange.verified_pnl.tradingview_signal import render
+        return render(payload)
+    if ccy not in ('KRW','USDT'):ccy='KRW' if payload.exchange=='UPBIT' else 'USDT'
+    symbol=normalize_display_symbol(payload.symbol);base=extract_base_asset(symbol)
+    fmt=lambda v,signed=False:price_display(v,currency=ccy,signed=signed)
+    # Validate only printable numeric outputs here; durable authority is Outbox admission.
+    qty=_to_finite_decimal(e.get('quantity'));entry=_to_finite_decimal(e.get('entry_price'));exit_price=_to_finite_decimal(e.get('exit_price'));amount=_to_finite_decimal(e.get('amount'));roi=_to_finite_decimal(e.get('roi'))
+    lines=['전략: '+sanitize_discord_text(payload.strategy_id or payload.order_name or '미확인',max_len=128),'거래소: '+sanitize_discord_text(payload.exchange,max_len=24),'종목: '+sanitize_discord_text(symbol,max_len=32),'매도수량: '+quantity_display(qty,base),'평균 매수가: '+(fmt(entry) if entry is not None else '미확인'),'평균 매도가: '+(fmt(exit_price) if exit_price is not None else '미확인')]
+    if e.get('status')=='ESTIMATED' and entry is not None and entry>0 and qty is not None and qty>0 and amount is not None:
+        mode=e.get('fee_mode');label='수수료 미반영 추정 차익' if mode=='MISSING' else '추정 실현손익'
+        lines.append(label+': '+fmt(amount,True)+((' ('+roi_display(roi)+')') if roi is not None else ''))
+        lines.append('수수료: '+('확인된 귀속 수수료 반영' if mode=='COMPLETE' else '일부 수수료 미반영' if mode=='PARTIAL' else '수수료 정보 미확인 — 실제 순손익과 다를 수 있음'))
+        if e.get('ignored_assets'):lines.append('환산 근거 없는 자산 수수료 미반영')
+    else:
+        from exchange.verified_pnl.notification_origin import reason,reason_code
+        lines+=['추정 손익: 계산 불가','사유: '+reason(e.get('reason'))+' ['+reason_code(e.get('reason'))+']']
+    from exchange.verified_pnl.notification_origin import display
+    origin=display(payload)
+    if origin:lines.append(origin)
+    lines.append('손익 기준: POA에 귀속된 매수·매도 체결/완료 주문 관측 기록')
+    lines.append('안내: 추정치이며 실제 정산손익과 차이가 있을 수 있음')
+    from datetime import datetime, timezone, timedelta
+    lines.append('시각: '+datetime.fromtimestamp(payload.event_timestamp,timezone(timedelta(hours=9))).strftime('%Y-%m-%d %H:%M:%S KST'))
+    return enforce_embed_bounds(Embed(title='현물 매도 · 추정 알림',description='\n'.join(lines),color=0xEF4444 if e.get('status')=='ESTIMATED' else 0x64748B))
+
+
+def _build_estimated_order_embed_v2(payload):
     """Unsigned notification estimate; never labels financial verification."""
     e=payload.estimated_pnl or {};ccy=e.get('currency')
     if e.get('basis') in ('TRADINGVIEW_SIGNAL','TRADINGVIEW_BUY_SIGNAL','POA_BUY_OBSERVATION'):
