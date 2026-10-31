@@ -9,12 +9,13 @@ from urllib.parse import urlencode
 ORIGIN='https://api.upbit.com'
 PATH='/v1/order'
 
-_CODES=frozenset('CREDENTIAL_UNAVAILABLE ORDER_UUID_REQUIRED GET_POLICY_REJECTED GET_TARGET_REJECTED GET_BOUNDS_REJECTED TLS_POLICY_REJECTED RESPONSE_ENCODING_REJECTED RESPONSE_TOO_LARGE READ_TIMEOUT TLS_FAILURE READ_CONNECTION_FAILED GET_CONFIGURATION_REQUIRED GET_TRANSPORT_REQUIRED AUTHENTICATION_DISABLED RATE_LIMITED CREDENTIAL_OR_BINDING_UNAVAILABLE RESPONSE_CONTRACT_REJECTED AUTHENTICATION_REJECTED PERMISSION_REJECTED REDIRECT_REJECTED READ_BLOCKED UPBIT_SERVER_UNAVAILABLE ORDER_QUERY_REJECTED RESPONSE_TYPE_REJECTED ORDER_RESPONSE_INVALID READ_ATTEMPTS_EXHAUSTED ACCOUNT_BINDING_UNAVAILABLE CREDENTIAL_BINDING_MISMATCH READ_SOURCES_NOT_CONFIGURED READ_FAILURE'.split())
+_CODES=frozenset('CREDENTIAL_UNAVAILABLE ORDER_UUID_REQUIRED GET_POLICY_REJECTED GET_TARGET_REJECTED GET_BOUNDS_REJECTED TLS_POLICY_REJECTED RESPONSE_ENCODING_REJECTED RESPONSE_TOO_LARGE READ_TIMEOUT TLS_FAILURE READ_CONNECTION_FAILED GET_CONFIGURATION_REQUIRED GET_TRANSPORT_REQUIRED AUTHENTICATION_DISABLED RATE_LIMITED CREDENTIAL_OR_BINDING_UNAVAILABLE RESPONSE_CONTRACT_REJECTED AUTHENTICATION_REJECTED PERMISSION_REJECTED IP_REJECTED REDIRECT_REJECTED READ_BLOCKED UPBIT_SERVER_UNAVAILABLE ORDER_QUERY_REJECTED RESPONSE_TYPE_REJECTED ORDER_RESPONSE_INVALID READ_ATTEMPTS_EXHAUSTED ACCOUNT_BINDING_UNAVAILABLE CREDENTIAL_BINDING_MISMATCH READ_SOURCES_NOT_CONFIGURED READ_FAILURE'.split())
 
 class UpbitGETError(ValueError):
-    def __init__(self,code,retry_after=0):
+    def __init__(self,code,retry_after=0,*,reason=None):
         self.code=code if code in _CODES else 'READ_FAILURE'
         self.retry_after=min(60,max(0,retry_after)) if type(retry_after) in (int,float) and math.isfinite(retry_after) else 0
+        self.reason=reason if reason in ('UUID','MARKET','SIDE','SCHEMA') else None
         super().__init__(self.code)
 
 @dataclass(frozen=True,repr=False)
@@ -77,7 +78,7 @@ class HTTPSOrderGETTransport:
             target=request.url[len(ORIGIN):]
             connection.request('GET',target,headers=dict(request.headers))
             response=connection.getresponse();headers={k.lower():v for k,v in response.getheaders()}
-            if response.status!=200:return OrderGETResponse(response.status,b'',headers)
+            if response.status not in (200,401,403):return OrderGETResponse(response.status,b'',headers)
             if headers.get('content-encoding','identity').lower() not in ('','identity'):raise UpbitGETError('RESPONSE_ENCODING_REJECTED')
             length=headers.get('content-length')
             if length is not None and (not length.isdigit() or int(length)>request.max_bytes):raise UpbitGETError('RESPONSE_TOO_LARGE')
@@ -164,7 +165,15 @@ class UpbitNotificationGET:
                 if type(response) is not OrderGETResponse or type(response.status) is not int or type(response.body) is not bytes or type(response.headers) is not dict:raise UpbitGETError('RESPONSE_CONTRACT_REJECTED')
                 headers={str(k).lower():v for k,v in response.headers.items()};status=response.status
                 if status in (401,403):
-                    self._auth_failed=True;raise UpbitGETError('AUTHENTICATION_REJECTED' if status==401 else 'PERMISSION_REJECTED')
+                    self._auth_failed=True
+                    code='AUTHENTICATION_REJECTED' if status==401 else 'PERMISSION_REJECTED'
+                    try:
+                        body=_json(response.body) if len(response.body)<=1048576 else {}
+                        name=body.get('error',{}).get('name')
+                        if name=='no_authorization_ip':code='IP_REJECTED'
+                        elif name=='out_of_scope':code='PERMISSION_REJECTED'
+                    except (ValueError,TypeError,AttributeError):pass
+                    raise UpbitGETError(code)
                 if 300<=status<400:raise UpbitGETError('REDIRECT_REJECTED')
                 if status in (429,418):
                     try:delay=float(headers.get('retry-after',1 if status==429 else 60));assert math.isfinite(delay) and delay>=0
@@ -180,8 +189,11 @@ class UpbitNotificationGET:
                 if str(headers.get('content-type','application/json')).split(';')[0].strip().lower()!='application/json':raise UpbitGETError('RESPONSE_TYPE_REJECTED')
                 try:
                     data=_json(response.body)
-                    if type(data) is not dict or 'error' in data or data.get('uuid')!=oid or data.get('market')!=market or data.get('side') not in ('bid','ask'):raise ValueError()
-                except Exception:raise UpbitGETError('ORDER_RESPONSE_INVALID') from None
+                    if type(data) is not dict or 'error' in data:raise ValueError()
+                except Exception:raise UpbitGETError('ORDER_RESPONSE_INVALID',reason='SCHEMA') from None
+                if data.get('uuid')!=oid:raise UpbitGETError('ORDER_RESPONSE_INVALID',reason='UUID')
+                if data.get('market')!=market:raise UpbitGETError('ORDER_RESPONSE_INVALID',reason='MARKET')
+                if data.get('side') not in ('bid','ask'):raise UpbitGETError('ORDER_RESPONSE_INVALID',reason='SIDE')
                 remaining=str(headers.get('remaining-req',''))
                 if any(p.strip()=='sec=0' for p in remaining.split(';')):self._cooldown=max(self._cooldown,self._clock()+1)
                 return data

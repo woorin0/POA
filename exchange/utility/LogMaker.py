@@ -198,6 +198,11 @@ def log_order_message(exchange_name, order_result: dict, order_info: MarketOrder
         account_label=account_label,
         timestamp=0.0 if date == "fixed-time" else None,
     )
+    from exchange.verified_pnl.alert_presentation import legacy
+    embed=legacy(embed,exchange_name,order_result,order_info,settings)
+    if order_result is None:
+        from exchange.verified_pnl.operational_alerts import report
+        report(settings,'ORDER_RESULT_UNCONFIRMED',phase='ORDER',info=order_info,only_if_no_active=True)
     log_message(content, embed)
 
 
@@ -218,31 +223,22 @@ def log_hedge_message(exchange, base, quote, exchange_amount, upbit_amount, hedg
     log_message(content, embed)
 
 
-def log_error_message(error, name):
-    build_error_embed = _get_discord_embed_module().build_error_embed
-    embed = build_error_embed(error, name=name)
-    logger.error("REQUEST_PROCESSING_FAILED")
-    log_message(embed=embed)
+def log_error_message(error,name):
+    from exchange.verified_pnl.operational_alerts import report
+    report(settings,'ORDER_PROCESSING_FAILED',phase='ORDER')
+    logger.error('REQUEST_PROCESSING_FAILED')
 
 
-def log_order_error_message(error: str | Exception, order_info: MarketOrder):
-    raw_error = error
-    error = "ORDER_PROCESSING_FAILED"
-
-    build_error_embed = _get_discord_embed_module().build_error_embed
-    if order_info is not None:
-        embed = build_error_embed(raw_error, order_info=order_info)
-        log_message(embed=embed)
-        logger.error(f"[주문 오류가 발생했습니다]\n{error}")
-    else:
-        embed = build_error_embed(raw_error, name="오류")
-        log_message(embed=embed)
-        logger.error(f"[오류가 발생했습니다]\n{error}")
+def log_order_error_message(error: str | Exception,order_info: MarketOrder):
+    from exchange.verified_pnl.operational_alerts import order_failure
+    order_failure(settings,error,order_info)
+    logger.error('ORDER_PROCESSING_FAILED')
 
 
 def log_validation_error_message(msg):
+    from exchange.verified_pnl.operational_alerts import report
+    report(settings,'ORDER_PARAMETERS_ERROR',phase='ORDER')
     logger.error("REQUEST_VALIDATION_FAILED")
-    log_message("REQUEST_VALIDATION_FAILED")
 
 
 def print_alert_message(order_info: MarketOrder, result="성공"):
@@ -252,11 +248,13 @@ def print_alert_message(order_info: MarketOrder, result="성공"):
         logger.error("WEBHOOK_ORDER_FAILED")
 
 
-def log_alert_message(order_info: MarketOrder, result="성공"):
-    embed = Embed(
-        title="웹훅 처리 결과",
-        description="WEBHOOK_ORDER_SUCCESS" if result == "성공" else "WEBHOOK_ORDER_FAILED",
-        color=0xFF0000,
-    )
+def log_alert_message(order_info: MarketOrder,result="성공"):
+    if result!="성공":
+        from exchange.verified_pnl.operational_alerts import report
+        report(settings,'ORDER_PROCESSING_FAILED',phase='ORDER',info=order_info,only_if_no_active=True)
+        print_alert_message(order_info,result)
+        return
+    from exchange.verified_pnl.alert_presentation import PENDING
+    embed=Embed(title="웹훅 처리 결과",description="WEBHOOK_ORDER_SUCCESS",color=PENDING)
     log_message(embed=embed)
-    print_alert_message(order_info, result)
+    print_alert_message(order_info,result)

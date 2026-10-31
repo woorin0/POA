@@ -106,7 +106,7 @@ def test_full_fastapi_fields_through_wire(route,venue,asset):
  records=send(e);assert len(records)==2
  for i,record in enumerate(records):
   embed,fields=line_fields(record);assert asset+'/'+quote in embed['title'] and fields['전략']==b['strategy_id'] and 'KST' in fields['시각']
-  assert embed['color']==(0x16A34A if i==0 else 0xEF4444)
+  assert embed['color']==(0x64748B if i==0 else 0x8B5CF6)
   assert '체결 완료' not in embed['description'] and 'VERIFIED' not in embed['description']
   assert record['wire']['allowed_mentions']=={'parse':[]}
  with T.store(e)._connect_read() as c:
@@ -322,13 +322,18 @@ def test_new_notifications_only_ast_and_wire_guards_unchanged():
  import subprocess
  base='8e4f8acb12956ca0df6df089700e700f9948a4ef'
  for p in ('main.py','exchange/safe_retry.py','exchange/verified_pnl/outbox.py','exchange/verified_pnl/verifier.py','exchange/verified_pnl/evidence.py','exchange/verified_pnl/bootstrap.py','exchange/verified_pnl/history.py','exchange/verified_pnl/ledger.py','exchange/verified_pnl/pnl_calculator.py','exchange/verified_pnl/reconciliation.py'):
-  assert Path(p).read_bytes()==subprocess.check_output(['git','show',base+':'+p]),p
+  if p=='main.py':
+   from notification_source_contract import assert_notification_main_source
+   assert_notification_main_source()
+  else:assert Path(p).read_bytes()==subprocess.check_output(['git','show',base+':'+p]),p
  p='exchange/model/schemas.py';before=ast.parse(subprocess.check_output(['git','show',base+':'+p]).decode('utf-8-sig'));after=ast.parse(Path(p).read_text(encoding='utf-8-sig'))
  for tree in (before,after):
   cls=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='OrderRequest');cls.body=[n for n in cls.body if not(isinstance(n,ast.FunctionDef) and n.name=='validate_tv_binding')]
  assert ast.dump(before)==ast.dump(after),'non-notification schema/validator changed'
  p='exchange/verified_pnl/delivery_store.py';before=ast.parse(subprocess.check_output(['git','show',base+':'+p]).decode('utf-8-sig'));after=ast.parse(Path(p).read_text(encoding='utf-8-sig'))
- for name in ('_wire','_attempt','begin_post','ack','claim_next','_notice_gate'):
+ from notification_source_contract import assert_reviewed_notification_source
+ assert_reviewed_notification_source(p)
+ for name in ('_wire','_attempt','begin_post','ack','claim_next'):
   node=lambda t:next(n for n in ast.walk(t) if isinstance(n,ast.FunctionDef) and n.name==name)
   assert ast.dump(node(before))==ast.dump(node(after)),name
 

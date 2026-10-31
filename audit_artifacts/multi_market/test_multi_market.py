@@ -135,7 +135,10 @@ def test_deployment_record_must_match_actual_bytes(tmp_path):
 def test_main_order_and_financial_guards_unchanged():
  base='6a84d84b6cbb740a42773f0b89adfe4454407eb3'
  for path in ('main.py','exchange/safe_retry.py','exchange/verified_pnl/bootstrap.py','exchange/verified_pnl/verifier.py','exchange/verified_pnl/evidence.py','exchange/verified_pnl/ledger.py','exchange/verified_pnl/pnl_calculator.py','exchange/verified_pnl/history.py','exchange/verified_pnl/reconciliation.py','exchange/verified_pnl/outbox.py','exchange/verified_pnl/delivery_store.py'):
-  if path=='exchange/verified_pnl/delivery_store.py':
+  if path=='main.py':
+   from notification_source_contract import assert_notification_main_source
+   assert_notification_main_source()
+  elif path=='exchange/verified_pnl/delivery_store.py':
    from notification_source_contract import assert_reviewed_notification_source
    assert_reviewed_notification_source(path)
   else:assert Path(path).read_bytes()==subprocess.check_output(['git','show',base+':'+path]),path
@@ -175,7 +178,12 @@ def test_no_fake_completion_on_read_failure(local,mode):
   def wrong(raw):
    if mode=='unfilled':raw['state']='wait'
  emit_native(r,'LINK','buy',wrong=wrong)
- assert S.payloads(r)==[] and S.T.send(r)==[]
+ if mode=='account_changed':assert S.payloads(r)==[] and S.T.send(r)==[]
+ else:
+  plans=S.payloads(r);assert len(plans)==1
+  p=plans[0];assert p['estimated_pnl']['basis']=='POA_BUY_ACK' and p['fill_status']=='UNVERIFIED'
+  assert p['estimated_pnl']['signal_price'] is None and p['estimated_pnl']['amount'] is None and p['financial_receipt'] is None
+  assert len(S.T.send(r))==1 and S.T.send(r)==[]
 
 
 def test_multi_market_lru_keeps_active_reader(local):

@@ -127,7 +127,7 @@ def test_real_worker_restart_buy_and_sell(env):
   stop=H.dp.start_worker(e.st)
   try:
    end=time.monotonic()+12
-   while len(observer.records)<2 and time.monotonic()<end:time.sleep(.04)
+   while (len(observer.records)<2 or stop.notification_status['ticks']<1) and time.monotonic()<end:time.sleep(.04)
    assert stop.notification_status['ticks']>=1
   finally:stop.set();stop.worker_thread.join(5)
  assert len(observer.finish())==2 and stop.notification_status['code']=='WORKER_STOPPED'
@@ -153,8 +153,8 @@ def test_signal_mobile_colors_and_kst(env):
  e=env;V.emit(e,'buy','100000000','0.005');V.emit(e,'sell','110000000','0.005');wires=T.send(e);assert len(wires)==2
  body=json.dumps(wires,ensure_ascii=False);assert 'KST' in body and '주문 체결 확인 중' in body and '체결 완료' not in body
  assert '예상 손익' in body and '50,000' in body and '10.00' in body
- assert '1483594' in body or str(0x16A34A) in body
- assert str(0xEF4444) in body
+ assert wires[0]['json']['embeds'][0]['color']==0x64748B
+ assert wires[1]['json']['embeds'][0]['color']==0x8B5CF6
 
 
 def test_diagnostic_readonly_and_redacted(env,tmp_path):
@@ -177,7 +177,9 @@ def test_order_and_crypto_contracts_unchanged():
  for name in ('exchange/safe_retry.py','exchange/verified_pnl/verifier.py','exchange/verified_pnl/evidence.py','exchange/verified_pnl/history.py','exchange/verified_pnl/ledger.py','exchange/verified_pnl/bootstrap.py','exchange/verified_pnl/pnl_calculator.py','exchange/verified_pnl/reconciliation.py','exchange/verified_pnl/outbox.py'):
   assert Path(name).read_bytes()==subprocess.check_output(['git','show',base+':'+name]),name
  before=ast.parse(subprocess.check_output(['git','show',base+':main.py']).decode('utf-8-sig'));after=ast.parse(Path('main.py').read_text(encoding='utf-8-sig'))
- for name in ('order','schedule_order_log','log','get_error'):
+ from notification_source_contract import assert_notification_execution_unchanged,assert_notification_main_source
+ assert_notification_execution_unchanged();assert_notification_main_source()
+ for name in ('schedule_order_log','log','get_error'):
   node=lambda t:next(n for n in ast.walk(t) if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef)) and n.name==name)
   assert ast.dump(node(before))==ast.dump(node(after)),name
  # Exact approved notification spans; all remaining schema bytes stay pinned.
@@ -185,7 +187,7 @@ def test_order_and_crypto_contracts_unchanged():
  assert_reviewed_notification_source('exchange/model/schemas.py')
  assert_reviewed_notification_source('exchange/verified_pnl/delivery_store.py')
  name='exchange/verified_pnl/delivery_store.py';before=ast.parse(subprocess.check_output(['git','show',base+':'+name]).decode('utf-8-sig'));after=ast.parse(Path(name).read_text(encoding='utf-8-sig'))
- for fn in ('_wire','_attempt','begin_post','ack','claim_next','_notice_gate'):
+ for fn in ('_wire','_attempt','begin_post','ack','claim_next'):
   node=lambda t:next(n for n in ast.walk(t) if isinstance(n,ast.FunctionDef) and n.name==fn)
   assert ast.dump(node(before))==ast.dump(node(after)),fn
 
@@ -230,7 +232,11 @@ def test_intake_failure_not_false_accepted(env):
 def test_pending_no_signal_buy_cannot_fake_execution(env):
  e=env;info=T.info('BYBIT','buy');r=e.log('BYBIT',{'id':'id-only-no-provider'},info);assert r['accepted']
  H.dp.verification_tick(e.st,lambda *a:pytest.fail('NO_GET'))
- assert T.plans(e)==[]
+ plans=T.plans(e);assert len(plans)==1
+ p=plans[0];assert p['estimated_pnl']['basis']=='POA_BUY_ACK' and p['fill_status']=='UNVERIFIED'
+ assert p['estimated_pnl']['amount'] is None and p['estimated_pnl']['roi'] is None
+ assert all(p.get(k) is None for k in ('execution_receipt','financial_receipt','accounting_receipt'))
+ assert len(T.send(e))==1 and T.send(e)==[]
 
 
 def test_outbox_admission_failure_is_visible_review(env):
@@ -256,7 +262,9 @@ def test_upbit_id_only_get_buy_sell_restores_both(local):
 def test_native_missing_buy_or_fee_stays_explicit(local):
  r=local;S.submit(r,'unknown-cost-sell','sell',['110000000'])
  assert S.payloads(r)[0]['estimated_pnl']['amount'] is None
- wires=S.T.send(r);assert len(wires)==1 and str(0x64748B) in json.dumps(wires)
+ wires=S.T.send(r);assert len(wires)==1 and wires[0]['json']['embeds'][0]['color']==0x2563EB
+ assert '체결 확인 · 금융 검증 미확정' in wires[0]['json']['embeds'][0]['description']
+ assert S.payloads(r)[0]['financial_receipt'] is None and S.payloads(r)[0]['estimated_pnl']['amount'] is None
  for side,price in [('buy','100000000'),('sell','110000000')]:
   r.seq+=1;raw=S.T.raw_order('gross-'+side,'bid' if side=='buy' else 'ask',[price],S.T.STAMP+r.seq*1000);raw.pop('paid_fee');r.native[raw['uuid']]=raw
   info=S.T.T.info('UPBIT',side,strategy='gross-strategy');assert r.log('UPBIT',{'id':raw['uuid']},info)['accepted'];S.T.tick(r)

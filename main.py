@@ -72,6 +72,8 @@ async def startup():
         app.state.safe_reconciliation = asyncio.create_task(reconciliation_loop(settings))
     # Order startup and notification readiness are independent. Never report
     # the bot greeting as proof of a running notification Worker.
+    from exchange.verified_pnl.operational_alerts import start as start_operational_alerts
+    app.state.operational_alert_stop = start_operational_alerts(settings)
     app.state.notification_worker_status = 'DISABLED'
     if getattr(settings, "VERIFIED_DISCORD_ALERTS", False) and getattr(settings, "DISCORD_OUTBOX_ENABLED", False):
         from loguru import logger
@@ -92,9 +94,14 @@ async def startup():
             app.state.verified_notifications_stop = worker
             app.state.notification_worker_status = 'WORKER_STARTING' if worker is not None else 'WORKER_NOT_STARTED'
             logger.warning('notification_worker: {}', app.state.notification_worker_status)
+            if worker is None:
+                from exchange.verified_pnl.operational_alerts import report
+                report(settings,'WORKER_NOT_STARTED',phase='WORKER')
         except Exception:
             app.state.notification_worker_status = 'WORKER_START_FAILED'
             logger.error('notification_worker: WORKER_START_FAILED')
+            from exchange.verified_pnl.operational_alerts import report
+            report(settings,'WORKER_START_FAILED',phase='WORKER')
     else:
         from loguru import logger
         logger.info('notification_worker: DISABLED')
@@ -104,6 +111,8 @@ async def startup():
 @app.on_event("shutdown")
 async def shutdown():
     import asyncio
+    operational_stop = getattr(app.state, 'operational_alert_stop', None)
+    if operational_stop is not None:operational_stop.set()
     notification_stop = getattr(app.state, "verified_notifications_stop", None)
     if notification_stop is not None:
         notification_stop.set()
@@ -316,6 +325,8 @@ async def order(order_info: MarketOrder, background_tasks: BackgroundTasks):
             schedule_order_log(background_tasks, exchange_name, order_result, order_info)
 
     except TypeError as e:
+        from exchange.verified_pnl.operational_alerts import order_failure
+        order_failure(settings,e,order_info)
         error_msg = get_error(e)
         if settings.VERIFIED_DISCORD_ALERTS and is_verified_exchange(order_info.exchange):
             schedule_order_log(background_tasks, order_info.exchange, None, order_info)
@@ -323,6 +334,8 @@ async def order(order_info: MarketOrder, background_tasks: BackgroundTasks):
             background_tasks.add_task(log_order_error_message, "\n".join(error_msg), order_info)
 
     except Exception as e:
+        from exchange.verified_pnl.operational_alerts import order_failure
+        order_failure(settings,e,order_info)
         error_msg = get_error(e)
         if settings.VERIFIED_DISCORD_ALERTS and is_verified_exchange(order_info.exchange):
             schedule_order_log(background_tasks, order_info.exchange, None, order_info)

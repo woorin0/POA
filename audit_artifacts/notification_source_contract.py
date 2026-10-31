@@ -27,6 +27,14 @@ PINS={
     }
 }
 
+BOT03_MODULE_SHA256='dbd0203e4687b14b4b56f192cfccb06eb80d8ecf15bdbe37a8dc662a958860de'
+
+# Explicit BOT03 acceptance->observed-fill admission delta; no CAS/sender exception.
+BOT03_PINS={
+    "NotificationOutboxStore._buy_notification_authority": "0d21b4b0cdcd4d35b61c1a34cd93cfba5acde90678b062a0424017f38c1fc46f",
+    "NotificationOutboxStore._notice_gate": "e7ccacf7fd87f11eee27a5cb78855d3c968fed8f1ab769777ff4f422947fabbe"
+}
+
 
 def _node(tree,key,required=True):
     body=tree.body
@@ -45,11 +53,90 @@ def _span(node):
     return min([node.lineno]+[d.lineno for d in getattr(node,'decorator_list',[])]),node.end_lineno
 
 
+def _bot03_delta(path,current):
+    if path!='exchange/verified_pnl/delivery_store.py':return current
+    assert hashlib.sha256((ROOT/'exchange/verified_pnl/buy_ack.py').read_bytes()).hexdigest()==BOT03_MODULE_SHA256, 'unapproved buy acknowledgement authority module'
+    oldraw=subprocess.check_output(['git','-C',str(ROOT),'show',APPROVED_COMMIT+':'+path])
+    tree=ast.parse(current);old=ast.parse(oldraw);lines=current.splitlines(keepends=True);oldlines=oldraw.splitlines(keepends=True);edits=[]
+    for key,sha in BOT03_PINS.items():
+        start,end=_span(_node(tree,key))
+        assert hashlib.sha256(b''.join(lines[start-1:end])).hexdigest()==sha, 'unapproved BOT03 notification delta: '+key
+        begin,finish=_span(_node(old,key));edits.append((start-1,end,oldlines[begin-1:finish]))
+    for start,end,original in sorted(edits,reverse=True):lines[start:end]=original
+    return b''.join(lines)
+
+
+PRESENTATION_PINS={
+    "main.py": {
+        "startup": "e8d241400fd2d73e46ce2c12d674f5b6e434d116cdedb5cc15cbc06a0462a14a",
+        "shutdown": "8faaf6d85ac77373df6da30ef78a5d0a59c55c4329d75adafd367409c5f9ebd7",
+        "order": "c5ae65d460eff9eccdb4d2cfd0c1afa4603c1aaba02af9577071514f4ff3e3bc"
+    },
+    "exchange/utility/LogMaker.py": {
+        "log_error_message": "e4a48121a0c8efd7a816d535012c8cff7ddb3706c2b0fee17d911bc577d7752c",
+        "log_order_error_message": "c40ed7aeb77a3aa5b9f6f3b213d64fbeb7f65b7effd71e48bcdb9ca2f8b45d3f",
+        "log_order_message": "d9c67d2cb5355adc406e558a0eeac62bc8ca38f03913d9be7faf765ebe05ec5e",
+        "log_alert_message": "6e665581682acf342399a8f6420f0a6093f992319051754965b7139a93d36901",
+        "log_validation_error_message": "46f7c2e72f5cb8a93077b2f0b8ccfb7ad5cfa9afab774e554551ab9e2b2bcd48"
+    },
+    "exchange/verified_pnl/delivery_store.py": {
+        "NotificationOutboxStore.enqueue": "14063eadddd01f77ef56c364cd2a982c61939b0abcc5dc75382695541c93fb84"
+    }
+}
+PRESENTATION_MODULES={
+    "exchange/verified_pnl/alert_presentation.py": "12ab42a4db7bbaf088f2128e1c3975490e3a388d888149d918481fae3a6e4ddc",
+    "exchange/verified_pnl/operational_alerts.py": "587d11fa451b2091c636eea439bb63a6deeddf81593fcdc238fae9f34811c424"
+}
+
+
+def _presentation_modules():
+    for path,expected in PRESENTATION_MODULES.items():
+        assert hashlib.sha256((ROOT/path).read_bytes()).hexdigest()==expected, 'unapproved presentation/operational authority module: '+path
+
+
+def _presentation_delta(path,current):
+    _presentation_modules()
+    rules=PRESENTATION_PINS.get(path,{})
+    if not rules:return current
+    prior=subprocess.check_output(['git','-C',str(ROOT),'show',APPROVED_COMMIT+':'+path])
+    tree=ast.parse(current);old=ast.parse(prior);lines=current.splitlines(keepends=True);before=prior.splitlines(keepends=True);edits=[]
+    for key,sha in rules.items():
+        start,end=_span(_node(tree,key))
+        assert hashlib.sha256(b''.join(lines[start-1:end])).hexdigest()==sha, 'unapproved notification instrumentation: '+path+':'+key
+        begin,finish=_span(_node(old,key));edits.append((start-1,end,before[begin-1:finish]))
+    for start,end,original in sorted(edits,reverse=True):lines[start:end]=original
+    return b''.join(lines)
+
+
+def assert_notification_execution_unchanged(source=None):
+    path='main.py';current=(ROOT/path).read_bytes() if source is None else source
+    prior=subprocess.check_output(['git','-C',str(ROOT),'show',APPROVED_COMMIT+':'+path])
+    tree=ast.parse(current);old=ast.parse(prior);node=_node(tree,'order');previous=_node(old,'order')
+    expected=ast.parse("from exchange.verified_pnl.operational_alerts import order_failure\norder_failure(settings,e,order_info)\n").body
+    for handler in [n for n in node.body if isinstance(n,ast.Try)][0].handlers:
+        if isinstance(handler.type,ast.Name) and handler.type.id in ('TypeError','Exception'):
+            assert [ast.dump(n) for n in handler.body[:2]]==[ast.dump(n) for n in expected],'only the exact two error-report statements are allowed'
+            handler.body=handler.body[2:]
+    assert ast.dump(node)==ast.dump(previous),'order execution/quantity/Safe Retry changed'
+    # Startup's protected reconciliation branch is independent of error reporting.
+    assert ast.dump(_node(tree,'startup').body[0])==ast.dump(_node(old,'startup').body[0]),'Safe Retry startup changed'
+
+
+def assert_notification_main_source():
+    raw=(ROOT/'main.py').read_bytes();assert_notification_execution_unchanged(raw)
+    restored=_presentation_delta('main.py',raw)
+    assert restored==subprocess.check_output(['git','-C',str(ROOT),'show',APPROVED_COMMIT+':main.py']),'non-notification main source changed'
+    path='exchange/utility/LogMaker.py'
+    restored=_presentation_delta(path,(ROOT/path).read_bytes())
+    assert restored==subprocess.check_output(['git','-C',str(ROOT),'show',APPROVED_COMMIT+':'+path]),'non-error LogMaker source changed'
+
 def assert_reviewed_notification_source(path,source=None):
     """Validate exact approved spans AND byte equality of everything outside them."""
     rule=PINS[path]
     current=Path(ROOT/path).read_bytes() if source is None else source
     historic=subprocess.check_output(['git','-C',str(ROOT),'show',rule['baseline']+':'+path])
+    current=_presentation_delta(path,current)
+    current=_bot03_delta(path,current)
     tree=ast.parse(current);old=ast.parse(historic)
     lines=current.splitlines(keepends=True);oldlines=historic.splitlines(keepends=True)
     replacements=[]

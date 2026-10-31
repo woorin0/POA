@@ -97,6 +97,7 @@ def capture(exchange,raw,info,ref,account_configured):
         s['terminal']=status in ('closed','filled','done','canceled','cancelled','cancel')
         if status in ('rejected','failed','unknown','pending','expired'):return validate_snapshot(s)
         match=source_scope(exchange,raw,s['symbol'],s['order_id'])
+        if match!='CONFLICT' and not s['terminal'] and not raw.get('trades') and all(number(raw.get(k) or '0')==0 for k in ('filled','executed_volume')):s['price_source']='ORDER_ACK_ONLY'
         if match!='MATCH':
             if match=='CONFLICT':s['price_source']='SCOPE_REJECTED'
             return validate_snapshot(s)
@@ -169,7 +170,7 @@ def validate_snapshot(s):
         text(s[k])
     if s['order_id']:text(s['order_id'])
     if s['side'] not in ('buy','sell') or any(type(s[k]) is not bool for k in ('confirmed','terminal','fees_known','account_configured')):raise ValueError('snapshot_flags')
-    if s['price_source'] not in ('ACTUAL_FILLS','COMPLETED_ORDER_AVERAGE','UNAVAILABLE','SCOPE_REJECTED'):raise ValueError('snapshot_source')
+    if s['price_source'] not in ('ACTUAL_FILLS','COMPLETED_ORDER_AVERAGE','UNAVAILABLE','SCOPE_REJECTED','ORDER_ACK_ONLY'):raise ValueError('snapshot_source')
     if not isinstance(s['references'],list) or len(s['references'])>40 or any(not re.fullmatch('[0-9a-f]{64}',x) for x in s['references']) or len(set(s['references']))!=len(s['references']):raise ValueError('snapshot_references')
     if not isinstance(s['fees'],dict) or len(s['fees'])>8 or any(not re.fullmatch('[A-Z0-9]{2,12}',c) for c in s['fees']):raise ValueError('snapshot_fees')
     out=dict(s,quantity=norm(s['quantity']),notional=norm(s['notional']),average=norm(s['average']) if s['average'] is not None else None,fees={k:norm(v) for k,v in s['fees'].items()})
@@ -274,9 +275,12 @@ def calculate(c,iid):
                     if qty==0:principal=fees=Decimal(0);complete=True;ignored=set()
     return result
 
-def attach(p,store,data,settings=None):
+def attach(p,store,data,settings=None,*,pending_buy=False):
     with store._connect_read() as c:
-        r=calculate(c,data['notice_intake'])
+        if pending_buy:
+            from .buy_ack import result
+            r=result(c,data['notice_intake'])
+        else:r=calculate(c,data['notice_intake'])
         snapshot=notice_input(c,data['notice_intake'],effective=False)['snapshot']
     if snapshot.get('version')==3:p.signal_id=snapshot['signal']['signal_id']
     p.notification_type='ESTIMATED';p.estimated_pnl=r;p.event_type='estimated'

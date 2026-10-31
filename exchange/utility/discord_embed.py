@@ -1116,6 +1116,11 @@ def _append_unverified_financial_status(lines: List[str]) -> None:
 
 
 def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
+    from exchange.verified_pnl.alert_presentation import apply
+    return apply(_build_mobile_verified_embed_legacy(payload),payload)
+
+
+def _build_mobile_verified_embed_legacy(payload: NotificationPayload) -> Embed:
     """
     Builds the POA v2 unified mobile-friendly Discord Embed from a NotificationPayload.
     Does NOT populate redundant Embed.fields on the Discord wire payload (P2-2) and strictly
@@ -1711,6 +1716,12 @@ def build_error_embed(
 
 
 def build_estimated_order_embed(payload):
+    if payload.event_version==2 and (payload.estimated_pnl or {}).get('basis')=='POA_BUY_OBSERVATION' and '\nPOA_BUY_ACK_CONFIRMED' in (payload.verification_source or ''):
+        from exchange.verified_pnl.buy_ack import render_confirmation
+        return render_confirmation(payload)
+    if (payload.estimated_pnl or {}).get('basis')=='POA_BUY_ACK':
+        from exchange.verified_pnl.buy_ack import render
+        return render(payload)
     from exchange.verified_pnl.notification_origin import current_layout
     if not current_layout(payload):return _build_estimated_order_embed_v1(payload)
     from exchange.verified_pnl.notification_origin import layout_version

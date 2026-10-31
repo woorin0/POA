@@ -124,12 +124,25 @@ def process(store,key,lease,data,settings):
     fill=VerifiedFill(exchange=s['exchange'],symbol=s['symbol'],order_id=s['order_id'],source='TRADINGVIEW_SIGNAL_NOT_EXECUTION' if s.get('version') in (2,3) else 'POA_ORDER_OBSERVATION_NOT_VERIFIED')
     p=make_payload(identity(key,'estimated',[],2),fill,SimpleNamespace(**data['info']),PnlCalculationResult(),None,settings)
     p=attach(p,store,data,settings)
+    from .buy_ack import prepare_confirmation,confirmation_blocked
+    p=prepare_confirmation(store,p)
     ok=store.enqueue(p,max_attempts=settings.DISCORD_RETRY_MAX_ATTEMPTS if settings.DISCORD_RETRY_ENABLED else 1,job_claim=(key,lease))
-    if not ok and not store.notice_decided(key):
+    if ok and s.get('confirmed'):
+        from .operational_alerts import resolve
+        resolve(settings,phase='OBSERVATION',info=data['info'],order_id=s['order_id'])
+    with store._connect_read() as c:
+        known=store.publication_reference(c,p,(key,lease)) is not None
+    if ok or known:
+        from .operational_alerts import resolve
+        resolve(settings,phase='OUTBOX',info=data['info'],order_id=s['order_id'],codes=('BUY_ADMISSION_REJECTED','SIGNAL_SELL_ADMISSION_REJECTED'))
+    if not ok and not known and not store.notice_decided(key):
         from .dispatcher import warning
         warning('BUY_ADMISSION_REJECTED' if s['side']=='buy' else 'SIGNAL_SELL_ADMISSION_REJECTED')
+        from .operational_alerts import report
+        report(settings,'BUY_ADMISSION_REJECTED' if s['side']=='buy' else 'SIGNAL_SELL_ADMISSION_REJECTED',phase='OUTBOX',info=data['info'],order_id=s['order_id'])
     with store._connect() as c:
-        state='OBSERVED_NOTIFIED' if ok or store.notice_decided(key) else 'OBSERVED_REVIEW'
+        resolved=ok or known or (store.notice_decided(key) and not confirmation_blocked(store,key))
+        state='OBSERVED_NOTIFIED' if resolved else 'OBSERVED_REVIEW'
         if c.execute("UPDATE vpnl_jobs SET state=?,financial_state=?,job_lease=NULL WHERE id=? AND state='VERIFYING' AND job_lease=?",(state,'SIGNAL_ONLY' if s.get('version') in (2,3) else 'OBSERVATION_ONLY',key,lease)).rowcount!=1:raise ValueError('tv_lease')
 
 

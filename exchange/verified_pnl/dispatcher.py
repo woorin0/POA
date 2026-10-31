@@ -129,7 +129,9 @@ def dispatch_verified_alert(exchange_name, order_result, order_info, settings, b
 
 
 def dispatch_verified_error_alert(error_message, order_info, settings):
-    # Lost API response is not evidence of rejection. No raw exception is persisted.
+    # Operational error reporting never asserts exchange rejection.
+    from .operational_alerts import order_failure
+    order_failure(settings,error_message,order_info)
     dispatch_verified_alert(order_info.exchange,None,order_info,settings)
 
 
@@ -159,7 +161,7 @@ def make_payload(key, fill, info, pnl, entry_price, settings):
 
     from .evidence import execution_valid
     trusted_fill=execution_valid(fill,fill.scope_data)
-    return NotificationPayload(
+    payload=NotificationPayload(
         event_id=key,
         financial_receipt=pnl.financial_receipt,
         accounting_receipt=fill.accounting_receipt,
@@ -209,6 +211,11 @@ def make_payload(key, fill, info, pnl, entry_price, settings):
         cost_basis=format_decimal(getattr(pnl, "cost_basis", None)) if getattr(pnl, "cost_basis", None) is not None else None,
         cost_basis_currency=getattr(fill, "pnl_currency", None) or getattr(pnl, "pnl_currency", None),
     )
+    from .evidence import outcome_rejected
+    if outcome_rejected(payload):
+        from .operational_alerts import report
+        report(settings,'ORDER_REJECTION_EVENT',phase='ORDER',info=info,order_id=payload.order_id)
+    return payload
 
 
 def make_manual_review_payload(key, data, reason, settings):
@@ -330,8 +337,6 @@ def verification_tick(settings, client_factory):
                 process(store,key,lease,data,settings)
                 continue
             upbit_host=upbit_host_provider
-            if observed and info.exchange=='UPBIT' and upbit_host_provider is not None and hasattr(upbit_host_provider,'select_job') and not data['notice_snapshot']['confirmed']:
-                upbit_host=upbit_host_provider.select_job(store,key,lease,data)
             if observed and data['notice_snapshot']['price_source']=='SCOPE_REJECTED':
                 with store._connect() as c:c.execute("UPDATE vpnl_jobs SET state='OBSERVED_REVIEW',job_lease=NULL WHERE id=? AND job_lease=?",(key,lease))
                 continue
@@ -355,17 +360,33 @@ def verification_tick(settings, client_factory):
             local_observed=False
             if local_upbit and evidence_context is None:
                 from .upbit_spot_read import UpbitNotificationWait
+                stage='BINDING'
                 try:
+                    if hasattr(upbit_host_provider,'select_job'):upbit_host=upbit_host_provider.select_job(store,key,lease,data)
+                    stage='READ'
                     observation=upbit_host.observe(data['notice_intake'],info,data['source_account_ref'],data['result']['id'])
+                    stage='ADMISSION'
                     if not store.record_upbit_observation(key,lease,data,observation):raise ValueError('upbit_observation_not_admitted')
                     result_data=observation.facts;local_observed=True
+                    from .operational_alerts import resolve
+                    resolve(settings,phase='OBSERVATION',info=info,order_id=data['result']['id'])
                 except UpbitNotificationWait:
+                    from .buy_ack import emit
+                    emit(store,key,lease,data,settings)
+                    warning('UPBIT_READ_FILL_PENDING')
                     expired=time.time()-created>=settings.FILL_VERIFICATION_TIMEOUT_SEC
-                    with store._connect() as c:c.execute("UPDATE vpnl_jobs SET state=?,due=?,job_lease=NULL WHERE id=? AND job_lease=?",('OBSERVED_REVIEW' if expired else 'PENDING',time.time()+max(1,settings.VERIFY_STAGED_DELAYS[min(attempts-1,len(settings.VERIFY_STAGED_DELAYS)-1)]),key,lease))
+                    with store._connect() as c:c.execute("UPDATE vpnl_jobs SET state=?,due=?,financial_state='UPBIT_READ_FILL_PENDING',job_lease=NULL WHERE id=? AND job_lease=?",('OBSERVED_REVIEW' if expired else 'PENDING',time.time()+max(1,settings.VERIFY_STAGED_DELAYS[min(attempts-1,len(settings.VERIFY_STAGED_DELAYS)-1)]),key,lease))
                     continue
-                except Exception:
-                    warning('UPBIT_OBSERVATION_REVIEW')
-                    with store._connect() as c:c.execute("UPDATE vpnl_jobs SET state='OBSERVED_REVIEW',job_lease=NULL WHERE id=? AND job_lease=?",(key,lease))
+                except Exception as exc:
+                    from .buy_ack import error_code,emit
+                    code=error_code(exc,stage)
+                    warning('UPBIT_OBSERVATION_REVIEW');warning(code)
+                    from .operational_alerts import report
+                    report(settings,code,phase='OBSERVATION',info=info,order_id=data['result']['id'])
+                    # Conflicting identity/scope is not an ordinary unavailable read.
+                    if code not in ('UPBIT_READ_BINDING_FAILED','UPBIT_READ_SCOPE_MISMATCH','UPBIT_READ_ORDER_UUID','UPBIT_READ_RESPONSE_SCOPE'):
+                        emit(store,key,lease,data,settings)
+                    with store._connect() as c:c.execute("UPDATE vpnl_jobs SET state='OBSERVED_REVIEW',financial_state=?,job_lease=NULL WHERE id=? AND job_lease=?",(code,key,lease))
                     continue
             if observed and evidence_context is None and data['notice_snapshot']['side']=='buy' and (data['notice_snapshot']['confirmed'] or local_observed):
                 from .tradingview_signal import process
@@ -373,6 +394,8 @@ def verification_tick(settings, client_factory):
                 continue
             fill=FillVerifier().verify_order_result(read_bot,info.exchange,info.unified_symbol,result_data,info,evidence_context)
             if observed and evidence_context is None and not local_observed and (data['notice_snapshot']['side']=='buy' or not data['notice_snapshot']['confirmed']):
+                from .buy_ack import emit
+                emit(store,key,lease,data,settings)
                 with store._connect() as c:c.execute("UPDATE vpnl_jobs SET state=?,financial_state='OBSERVATION_ONLY',job_lease=NULL WHERE id=? AND job_lease=?",('OBSERVED_RECORDED' if data['notice_snapshot']['confirmed'] else 'OBSERVED_REVIEW' if boot is not None else 'OBSERVED_WAIT_PROVIDER',key,lease))
                 continue
             if observed and evidence_context is not None:
@@ -381,6 +404,7 @@ def verification_tick(settings, client_factory):
                     if not store.record_notice_successor(key,lease,data,fill,evidence_context):
                         with store._connect() as c:c.execute("UPDATE vpnl_jobs SET state='OBSERVED_REVIEW',job_lease=NULL WHERE id=? AND job_lease=?",(key,lease))
                         continue
+
                 elif not data['notice_snapshot']['confirmed']:
                     expired=time.time()-created>=settings.FILL_VERIFICATION_TIMEOUT_SEC
                     with store._connect() as c:c.execute("UPDATE vpnl_jobs SET state=?,due=?,job_lease=NULL WHERE id=? AND job_lease=?",('OBSERVED_REVIEW' if expired else 'PENDING',time.time()+max(1,settings.VERIFY_STAGED_DELAYS[min(attempts-1,len(settings.VERIFY_STAGED_DELAYS)-1)]),key,lease))
@@ -404,6 +428,13 @@ def verification_tick(settings, client_factory):
                     allocated_margin=spot_margin,generation_store=store)
             FillVerifier().certify_financial_result(fill,info,pnl,evidence_context,generation_store=store)
             if evidence_context is not None:register_dependency(store,fill,pnl,evidence_context,key)
+            # Preserve verification/accounting before choosing a notification revision.
+            if observed and evidence_context is not None and data['notice_snapshot']['side']=='buy':
+                from .buy_ack import confirmation_blocked
+                if confirmation_blocked(store,key):
+                    from .tradingview_signal import process
+                    process(store,key,lease,data,settings)
+                    continue
             partial_alerts = (settings.UPBIT_PARTIAL_FILL_ALERTS if is_upbit else settings.PARTIAL_FILL_ALERTS)
             max_attempts = getattr(settings, "UPBIT_MAX_VERIFY_ATTEMPTS", 5) if is_upbit else 999
             attempts_exceeded = is_upbit and (attempts >= max_attempts)
@@ -583,6 +614,8 @@ def verification_tick(settings, client_factory):
         except Exception as exc:
             warning("fill_verification_failed")
             logger.warning("verified_alerts: verification_failed_safe")
+            from .operational_alerts import report
+            report(settings,'VERIFICATION_FAILED',phase='OBSERVATION',info=data.get('info') if isinstance(data,dict) else None,order_id=data.get('result',{}).get('id') if isinstance(data,dict) else None)
             now = time.time()
             raw_data = data
             if raw_data is None:
@@ -646,8 +679,15 @@ def verification_tick(settings, client_factory):
 def flush_outbox(settings):
     store=NotificationOutboxStore(settings.VERIFIED_NOTIFICATIONS_DB_PATH)
     from .intake import restore_preflight
-    if not restore_preflight(store)['ready']:
-        warning('RESTORE_PREFLIGHT_BLOCKED');return
+    gate=restore_preflight(store)
+    if not gate['ready']:
+        warning('RESTORE_PREFLIGHT_BLOCKED')
+        if gate.get('blocked'):
+            from .operational_alerts import report
+            report(settings,'RESTORE_PREFLIGHT_BLOCKED',phase='RESTORE')
+        return
+    from .operational_alerts import resolve
+    resolve(settings,phase='RESTORE',codes=('RESTORE_PREFLIGHT_BLOCKED',))
     store.recover()
     for _ in range(20):
         claim=store.claim_next()
@@ -657,9 +697,17 @@ def flush_outbox(settings):
         try:
             success,error,delay=sender.send_frozen(claim['wire'])
             store.ack(claim,success,sender.message_id,error,delay)
+            if success:
+                from .operational_alerts import delivery
+                delivery(settings,store,claim,recovered=True)
+            if not success and delay is None:
+                from .operational_alerts import delivery
+                delivery(settings,store,claim,'DISCORD_DELIVERY_UNKNOWN' if error=='delivery_unknown' else 'DISCORD_DELIVERY_FAILED')
         except Exception:
             store.ack(claim,False,error='delivery_unknown')
             warning('discord_delivery_unknown')
+            from .operational_alerts import delivery
+            delivery(settings,store,claim,'DISCORD_DELIVERY_UNKNOWN')
 
 
 class ReadClients:
@@ -710,6 +758,9 @@ def start_worker(settings, *, execution_bootstrap=None, upbit_observation_host=N
         prior=stop.notification_status.get('code')
         stop.notification_status.update(state=state,code=code)
         if prior!=code:warning(code)
+        if state in ('FAILED','BLOCKED') and code!='WORKER_RESTORE_BLOCKED':
+            from .operational_alerts import report
+            report(settings,code,phase='WORKER')
     def failed(stage,exc):
         if isinstance(exc,ValueError) and str(exc)=='notification_migration_approval_required':
             status('BLOCKED','WORKER_CUTOVER_REQUIRED');return
@@ -752,7 +803,10 @@ def start_worker(settings, *, execution_bootstrap=None, upbit_observation_host=N
                 flush_outbox(settings)
                 tick_count += 1
                 stop.notification_status.update(ticks=tick_count,last_tick=time.time())
-                if gate['ready']:status('RUNNING','WORKER_TICK_OK')
+                if gate['ready']:
+                    status('RUNNING','WORKER_TICK_OK')
+                    from .operational_alerts import resolve
+                    resolve(settings,phase='WORKER')
                 if tick_count % 60 == 0:
                     try:
                         m_store = NotificationOutboxStore(settings.VERIFIED_NOTIFICATIONS_DB_PATH)
@@ -791,7 +845,10 @@ def dispatch_order_observation(exchange_name,order_result,order_info,settings,*,
             if info.get(flag) is None:info[flag]=False
         raw=order_result if isinstance(order_result,dict) else {}
         oid=raw.get('id') or raw.get('uuid')
-        if oid is None:return dispatch_verified_alert(exchange_name,order_result,order_info,settings)
+        if oid is None:
+            from .operational_alerts import report
+            report(settings,'ORDER_RESULT_UNCONFIRMED',phase='ORDER',info=order_info,only_if_no_active=True)
+            return dispatch_verified_alert(exchange_name,order_result,order_info,settings)
         ref=identity(exchange_name,getattr(settings,exchange_name+'_KEY',None) or 'unconfigured')
         data=dict(info=info,result={'id':str(oid)},source_account_ref=ref,host_binding_digest=None)
         clean,review=normalized_request(data)
@@ -800,9 +857,15 @@ def dispatch_order_observation(exchange_name,order_result,order_info,settings,*,
         intake=IntakeStore(settings.VERIFIED_NOTIFICATIONS_DB_PATH)
         iid=intake.record(data,observation=observation,producer=token)
         with intake.connect() as c:intake_state=c.execute('SELECT status FROM notification_intake WHERE id=?',(iid,)).fetchone()[0]
-        if intake_state=='REVIEW':warning('NOTIFICATION_INTAKE_REVIEW')
+        if intake_state=='REVIEW':
+            warning('NOTIFICATION_INTAKE_REVIEW')
+            from .operational_alerts import report
+            report(settings,'NOTIFICATION_INTAKE_REVIEW',phase='INTAKE',info=info,order_id=str(oid))
     except Exception as exc:
-        logger.error('observed_alerts: {}',safe_failure(exc));return dict(accepted=False,status='PERSISTENCE_FAILED',code=safe_failure(exc))
+        logger.error('observed_alerts: {}',safe_failure(exc))
+        from .operational_alerts import report
+        report(settings,'INTAKE_SAVE_FAILED',phase='INTAKE',info=order_info)
+        return dict(accepted=False,status='PERSISTENCE_FAILED',code=safe_failure(exc))
     try:replay(settings,only=iid)
     except Exception:warning('INTAKE_REPLAY_DEFERRED')
     return dict(accepted=True,status='DURABLE_REVIEW' if intake_state=='REVIEW' else 'DURABLE_ACCEPTED',intake_id=iid)

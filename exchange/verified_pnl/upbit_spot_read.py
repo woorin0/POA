@@ -95,7 +95,10 @@ class UpbitSpotReads:
             result=self._get(path,dict(params))
             if type(result) not in (dict,list) or (type(result) is dict and 'error' in result):raise ValueError()
             result=copy.deepcopy(result)
-        except Exception:raise UpbitReadIncomplete('UPBIT_READ_UNAVAILABLE') from None
+        except Exception as exc:
+            from .upbit_notification_get import UpbitGETError
+            if type(exc) is UpbitGETError:raise
+            raise UpbitReadIncomplete('UPBIT_READ_UNAVAILABLE') from None
         self.identity(self)
         return result
     def market(self,symbol):

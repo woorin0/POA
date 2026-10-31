@@ -200,6 +200,8 @@ class NotificationOutboxStore:
                 if not self._estimated_authority(c,p,job_claim[0],job):return False
             elif job_claim is not None and not self._authorize_order_identity(c,p,job_claim,job):return False
             if job is not None and not self._notice_gate(c,p,job):return False
+            from .alert_presentation import admit
+            p=admit(c,p,dict(job,_presentation_job=job_claim[0]) if job is not None else None)
             try:binding=self._binding(p,job_claim,job)
             except ValueError:return False
             if valid and binding['scope'] is None:return False
@@ -736,7 +738,11 @@ class NotificationOutboxStore:
         from .intake import submission_for,validate_submission
         s=n['snapshot'];r=p.estimated_pnl
         if n['job']!=key or not s['account_configured'] or s['side']!='buy':return False
-        if s.get('version') in (2,3):
+        pending=r.get('basis')=='POA_BUY_ACK'
+        if pending:
+            from .buy_ack import result
+            if p.event_version!=1 or r!=result(c,r['intake_id']):return False
+        elif s.get('version') in (2,3):
             if r.get('basis')!='TRADINGVIEW_BUY_SIGNAL' or s['confirmed']:return False
         elif not s['confirmed'] or r.get('basis')!='POA_BUY_OBSERVATION':return False
         if p.side!='매수' or (p.exchange,p.symbol,p.order_id)!=(s['exchange'],s['symbol'],s['order_id']):return False
@@ -746,7 +752,7 @@ class NotificationOutboxStore:
         if p.filled_qty not in (None,'0'):return False
         if r.get('amount') is not None or r.get('roi') is not None:return False
         if c.execute('SELECT 1 FROM vpnl_notice_reviews WHERE case_id=?',(n['case'],)).fetchone():return False
-        if canonical(calculate(c,r['intake_id']))!=canonical(r):return False
+        if not pending and canonical(calculate(c,r['intake_id']))!=canonical(r):return False
         ack=submission_for(c,r['intake_id'])
         return ack is not None and validate_submission(self,c,ack)
 
@@ -756,7 +762,10 @@ class NotificationOutboxStore:
         if case is None:return True
         rows=c.execute('SELECT d.status,m.mode FROM vpnl_notice_members m JOIN vpnl_deliveries d ON d.id=m.delivery_id WHERE m.case_id=? LIMIT 40',(case,)).fetchall()
         if p.notification_type=='ESTIMATED':
-            return not any(mode=='FINANCIAL' or status in ('SENT','UNKNOWN','HELD','POSTING') for status,mode in rows)
+            if not any(mode=='FINANCIAL' or status in ('SENT','UNKNOWN','HELD','POSTING') for status,mode in rows):return True
+            if any(mode=='FINANCIAL' for status,mode in rows):return False
+            from .buy_ack import transition
+            return transition(c,p,job)
         if payload_valid(p) or payload_fill_valid(p):
             if any(mode=='ESTIMATED' and state in ('SENT','UNKNOWN','HELD','POSTING') for state,mode in rows):return False
             c.execute("UPDATE vpnl_deliveries SET status='SUPERSEDED_UNSENT',updated=? WHERE id IN (SELECT delivery_id FROM vpnl_notice_members WHERE case_id=? AND mode='ESTIMATED') AND status IN ('PENDING','CLAIMED')",(time.time(),case))

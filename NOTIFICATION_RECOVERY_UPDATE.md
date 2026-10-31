@@ -129,3 +129,42 @@ Upbit Simple Host는 BTC/XRP/LINK를 포함한 KRW 현물 주문 종목으로 �
 [203개 전략 공통 Webhook 템플릿·서버 지문 비교](UPBIT_MULTI_MARKET_SIGNAL_GUIDE.md)를 확인하십시오. 원본 종목 혼입 검사 4건은 기존 정상 BUY를 먼저 확인하고 잘못된 SELL의 추가 Root/Delivery/POST가 0임을 검사하도록 보완했습니다. 기존 안전 조건을 삭제하지 않았으며 UNKNOWN/HELD 원본 2건의 계약 예외와 별개입니다.
 
 배포 기록 `.poa-deployment.json`은 commit/manifest 참조만 포함합니다. 코드/manifest가 실제 bytes와 일치하지 않으면 배포 SHA를 확정하지 않습니다. 계정 신원이나 금융 증거를 만드는 파일이 아닙니다.
+
+
+## 오류 신고 Sidecar 및 신규 색상
+
+새 이벤트만 체결 확인 BLUE `#2563EB`, 오류 RED `#DC2626`, 체결 미확인 예상 손익 PURPLE `#8B5CF6`, 일반 대기 GRAY `#64748B`를 사용합니다. 체결 확인과 금융 VERIFIED는 별도입니다. 과거 SENT/Frozen Wire를 재작성하거나 다시 보내지 않습니다.
+
+운영 오류는 기존 `DISCORD_WEBHOOK_URL`을 이용합니다. 새 키/URL 입력은 필요하지 않습니다. 정상 주문 알림 Outbox와 분리된 `<VERIFIED_NOTIFICATIONS_DB_PATH>.ops.sqlite3`에 먼저 commit하고 독립 reporter가 전송합니다. Worker가 시작되지 않아도 reporter는 동작할 수 있습니다. 이 경로는 고정된 비금융 장애/복구 양식만 허용하며 주문/금융 payload를 받지 않습니다.
+
+- 같은 서버·코드·주문 지문·단계의 열린 장애는 한 번만 기록합니다. 복구는 별도 사건이며 검증된 복구 후 재발은 새 episode입니다. 주문 처리 결과가 미확정인 장애를 단순히 시간이 지났다는 이유로 복구 처리하지 않습니다.
+- reporter 전체 최대 6회/분, 명시적 429만 최대 3회 재시도합니다. Timeout/5xx/POST 중 중단은 UNKNOWN, 명시적 거부는 HELD로 보존하며 자동 재발송하지 않습니다.
+- Worker tick의 짧은 일시 오류는 5초 유예 중 복구되면 보내지 않습니다. 정상적인 체결 대기를 오류로 발송하지 않습니다.
+- 오류 코드·단계는 관측된 범주입니다. 포괄적인 `UPBIT_OBSERVATION_REVIEW`만으로 인증/IP/거래소 장애를 단정할 수 없습니다. 원문 예외·주문 JSON·계정 참조·키·JWT·Webhook URL을 출력하지 않습니다.
+- 오류 송신 실패는 다른 오류 송신을 유발하지 않습니다. Discord 장애, 프로세스 전체 중단, 디스크 고장/권한 오류로 Journal commit이 불가능하면 실제 수신은 보장할 수 없습니다. 이 경우 비밀정보 없는 고정 로컬 코드만 기록됩니다. systemd·디스크·외부 모니터링은 별도입니다.
+
+위의 정지 후 전체 백업에 **ops Sidecar 및 WAL/SHM도 포함**하십시오. Sidecar만 삭제하거나 과거 버전으로 복원하면 중복 억제 근거가 사라집니다. 알림을 재시도하려고 파일을 삭제하지 마십시오. 기존 `.env`, 거래소 키, Intake, Outbox, 금융 DB 및 전략 자료는 보존합니다.
+
+다음은 배포 후 운영자가 수행할 읽기 전용 진단 예시이며, 개발 중 실서버에서 실행하지 않았습니다.
+
+```sh
+cd /root/POA
+git rev-parse HEAD
+systemctl is-active poa
+/root/POA/.venv/bin/python scripts/notification_pipeline_status.py --db /root/POA/notifications.sqlite3 --events 40 --server-alias BOT03
+/root/POA/.venv/bin/python - <<'PYREAD'
+import sqlite3
+from pathlib import Path
+path=Path('/root/POA/notifications.sqlite3.ops.sqlite3')
+if not path.is_file():
+    print('OPS_JOURNAL_NOT_PRESENT')
+else:
+    c=sqlite3.connect(path.as_uri()+'?mode=ro',uri=True)
+    try:
+        for row in c.execute('SELECT code,phase,status,count(*) FROM ops_events GROUP BY code,phase,status LIMIT 40'):
+            print(*row)
+    finally:c.close()
+PYREAD
+```
+
+DB 경로는 해당 서버의 실제 설정과 일치시켜야 합니다. 원문 행/UUID/계정 정보는 조회하지 않습니다. BOT03 한 대부터 기존 정지→동시점 백업→fast-forward 업데이트→manifest 검증→운영자 시작 순서로 적용하고, 상태를 확인한 뒤 나머지 서버를 순차 적용하십시오. 이번 작업은 서버 배포·재시작·실거래·실제 Discord 송신을 포함하지 않습니다.

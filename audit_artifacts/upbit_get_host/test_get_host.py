@@ -151,8 +151,14 @@ def test_missing_fees_and_missing_buy(setup):
  for value in r.state['orders'].values():value.pop('paid_fee')
  prepared(r)
  for side in ('buy','sell'):feed(r,side);tick(r)
- assert payload(r)['estimated_pnl']['fee_mode']=='MISSING' and T.D(payload(r)['estimated_pnl']['amount'])==10000000
- assert '수수료 미반영 추정 차익' in json.dumps(send(r)[0]['json'],ensure_ascii=False)
+ with store(r)._connect_read() as c:plans=[json.loads(x[0]) for x in c.execute('SELECT payload FROM vpnl_revisions ORDER BY rowid')]
+ sell=next(p for p in plans if p['side']=='매도')
+ assert len(plans)==2 and {p['side'] for p in plans}=={'매수','매도'}
+ assert sell['estimated_pnl']['fee_mode']=='MISSING' and T.D(sell['estimated_pnl']['amount'])==10000000
+ assert all(p['financial_receipt'] is None and p['execution_receipt'] is None for p in plans)
+ records=send(r);assert len(records)==2 and all(x['ack']['status']=='SENT' for x in records)
+ assert '수수료 미반영 추정 차익' in json.dumps(records[1]['json'],ensure_ascii=False)
+ assert send(r)==[]
 
 
 def test_sell_only_unavailable(setup):
@@ -168,16 +174,25 @@ def test_key_pin_guard_prevents_trading_key_substitution(setup):
 
 def test_main_startup_optin_only_injects_explicit_host(setup):
  import exchange.verified_pnl.dispatcher as dp
- r=setup;root=Path(__file__).resolve().parents[2];tree=ast.parse((root/'main.py').read_text(encoding='utf-8'));node=next(x for x in tree.body if isinstance(x,ast.AsyncFunctionDef) and x.name=='startup');node.decorator_list=[]
  import asyncio
+ r=setup;root=Path(__file__).resolve().parents[2];tree=ast.parse((root/'main.py').read_text(encoding='utf-8'));node=next(x for x in tree.body if isinstance(x,ast.AsyncFunctionDef) and x.name=='startup');node.decorator_list=[]
  ns={'settings':r.st,'app':NS(state=NS()),'log_message':lambda *a:None,'VERSION':'mock'}
  exec(compile(ast.Module(body=[node],type_ignores=[]),str(root/'main.py'),'exec'),ns)
- with patch.object(dp,'start_worker',return_value=None) as start:
-  with patch.dict(os.environ,{'POA_UPBIT_ESTIMATED_READ_ENABLED':'false'}):asyncio.run(ns['startup']())
-  assert start.call_args.kwargs=={} and r.state['key_calls']==r.state['binding_calls']==0
-  with patch.dict(os.environ,{'POA_UPBIT_ESTIMATED_READ_ENABLED':'true'}):asyncio.run(ns['startup']())
-  assert start.call_args.kwargs['upbit_observation_host'] is not None
-  assert r.state['key_calls']==0 and not r.state['requests']
+ # Replace only external vault/binding discovery; platform preparation and host
+ # construction/registration remain production implementations.
+ def discover(**kwargs):
+  assert configure_upbit_read_sources(r.sources)
+  return 'LOCAL_SOURCES_CONFIGURED_EXTERNAL_IDENTITY_UNVERIFIED'
+ try:
+  with patch('exchange.verified_pnl.upbit_notification_local.configure_local_upbit_sources',side_effect=discover),patch('exchange.verified_pnl.upbit_notification_platform._linux_sources',return_value=r.sources),patch.object(dp,'start_worker',return_value=None) as start:
+   with patch.dict(os.environ,{'POA_UPBIT_ESTIMATED_READ_ENABLED':'false'}):asyncio.run(ns['startup']())
+   assert start.call_args.kwargs=={} and r.state['key_calls']==r.state['binding_calls']==0
+   with patch.dict(os.environ,{'POA_UPBIT_ESTIMATED_READ_ENABLED':'true'}):asyncio.run(ns['startup']())
+   assert start.call_args.kwargs['upbit_observation_host'] is not None
+   assert r.state['binding_calls']>0 and r.state['key_calls']==0 and not r.state['requests']
+ finally:
+  stop=getattr(ns['app'].state,'operational_alert_stop',None)
+  if stop is not None:stop.set();getattr(stop,'worker_thread',NS(join=lambda **k:None)).join(timeout=2)
 
 @pytest.mark.parametrize('fault',['ok','redirect','oversize','encoding','tls','timeout'])
 def test_real_transport_fixed_tls_and_bounds(setup,fault):
@@ -263,60 +278,72 @@ def test_real_startup_child_process_replay_and_no_extra_post(setup,tmp_path):
  for side in ('buy','sell'):feed(r,side);tick(r)
  s=store(r)
  with s._connect_read() as c:before=c.execute('SELECT record,record_digest FROM vpnl_notice_upbit_observations ORDER BY intake_id').fetchall()
- output=OUT/'child_wire.json'
+ output=tmp_path/'child_wire.json'
  code="""
-import sys,json,time,threading,ast,asyncio,os
+import sys,json,time,ast,asyncio,os
 from pathlib import Path
 from types import SimpleNamespace as NS
+from unittest.mock import patch
 import test_get_host as T
 f=T.setup.__wrapped__(Path(sys.argv[1]).parent);r=next(f)
 root=Path.cwd();tree=ast.parse((root/'main.py').read_text(encoding='utf-8'));node=next(n for n in tree.body if isinstance(n,ast.AsyncFunctionDef) and n.name=='startup');node.decorator_list=[]
 ns={'settings':r.st,'app':NS(state=NS()),'log_message':lambda *a:None,'VERSION':'mock'}
 exec(compile(ast.Module(body=[node],type_ignores=[]),str(root/'main.py'),'exec'),ns)
-os.environ['POA_UPBIT_ESTIMATED_READ_ENABLED']='true'
+def discover(**kwargs):
+ assert T.configure_upbit_read_sources(r.sources)
+ return 'LOCAL_SOURCES_CONFIGURED_EXTERNAL_IDENTITY_UNVERIFIED'
 with T.FrozenWireObserver(T.store(r)) as observer:
- asyncio.run(ns['startup']());stop=ns['app'].state.verified_notifications_stop;assert stop is not None
- deadline=time.time()+10
- while not observer.records and time.time()<deadline:time.sleep(.02)
- stop.set()
- deadline=time.time()+5
- while any(t.name=='verified-notifications' for t in threading.enumerate()) and time.time()<deadline:time.sleep(.02)
- records=observer.finish();assert len(records)==1
+ try:
+  with patch('exchange.verified_pnl.upbit_notification_local.configure_local_upbit_sources',side_effect=discover),patch('exchange.verified_pnl.upbit_notification_platform._linux_sources',return_value=r.sources),patch.dict(os.environ,{'POA_UPBIT_ESTIMATED_READ_ENABLED':'true'}):asyncio.run(ns['startup']())
+  stop=ns['app'].state.verified_notifications_stop;assert stop is not None
+  deadline=time.time()+10
+  while (len(observer.records)<2 or stop.notification_status['ticks']<1) and time.time()<deadline:time.sleep(.02)
+ finally:
+  stop=ns['app'].state.verified_notifications_stop;stop.set();stop.worker_thread.join(5)
+  ops=ns['app'].state.operational_alert_stop;ops.set();ops.worker_thread.join(2)
+ records=observer.finish();assert len(records)==2 and all(x['ack']['status']=='SENT' for x in records)
 Path(sys.argv[2]).write_text(json.dumps(records),encoding='utf-8')
 assert not r.state['requests'] and r.state['key_calls']==0
 """
  env=dict(os.environ);env['PYTHONPATH']=str(OUT)+os.pathsep+env.get('PYTHONPATH','')
  child=subprocess.run([sys.executable,'-c',code,r.st.VERIFIED_NOTIFICATIONS_DB_PATH,str(output)],capture_output=True,cwd=Path.cwd(),env=env,timeout=25)
  assert child.returncode==0,child.stderr.decode('utf-8','replace')[-800:]
- records=json.loads(output.read_text(encoding='utf-8'));assert records[0]['ack']['status']=='SENT'
- with s._connect_read() as c:assert c.execute('SELECT record,record_digest FROM vpnl_notice_upbit_observations ORDER BY intake_id').fetchall()==before
+ records=json.loads(output.read_text(encoding='utf-8'));assert len(records)==2 and all(x['ack']['status']=='SENT' for x in records)
+ with s._connect_read() as c:
+  assert c.execute('SELECT record,record_digest FROM vpnl_notice_upbit_observations ORDER BY intake_id').fetchall()==before
+  plans=[json.loads(x[0]) for x in c.execute('SELECT payload FROM vpnl_revisions')]
+ assert {p['side'] for p in plans}=={'매수','매도'} and all(p['financial_receipt'] is None and p['execution_receipt'] is None for p in plans)
  assert send(r)==[]
 
 
 def test_main_startup_worker_fetches_ack_buy_sell_without_finance(setup):
- import asyncio,threading
+ import asyncio
  r=setup;root=Path.cwd();tree=ast.parse((root/'main.py').read_text(encoding='utf-8'));node=next(n for n in tree.body if isinstance(n,ast.AsyncFunctionDef) and n.name=='startup');node.decorator_list=[]
  ns={'settings':r.st,'app':NS(state=NS()),'log_message':lambda *a:None,'VERSION':'mock'}
  exec(compile(ast.Module(body=[node],type_ignores=[]),str(root/'main.py'),'exec'),ns)
+ def discover(**kwargs):
+  assert configure_upbit_read_sources(r.sources)
+  return 'LOCAL_SOURCES_CONFIGURED_EXTERNAL_IDENTITY_UNVERIFIED'
  feed(r,'buy');stop=None
  with FrozenWireObserver(store(r)) as observer:
   try:
-   with patch.dict(os.environ,{'POA_UPBIT_ESTIMATED_READ_ENABLED':'true'}):asyncio.run(ns['startup']())
+   with patch('exchange.verified_pnl.upbit_notification_local.configure_local_upbit_sources',side_effect=discover),patch('exchange.verified_pnl.upbit_notification_platform._linux_sources',return_value=r.sources),patch.dict(os.environ,{'POA_UPBIT_ESTIMATED_READ_ENABLED':'true'}):asyncio.run(ns['startup']())
    stop=ns['app'].state.verified_notifications_stop;assert stop is not None
-   deadline=time.time()+10
-   while time.time()<deadline:
+   deadline=time.monotonic()+10
+   while time.monotonic()<deadline:
     with store(r)._connect_read() as c:n=c.execute('SELECT count(*) FROM vpnl_notice_upbit_observations').fetchone()[0]
     if n==1:break
     time.sleep(.02)
    assert n==1
-   feed(r,'sell');deadline=time.time()+10
-   while not observer.records and time.time()<deadline:time.sleep(.02)
+   feed(r,'sell');deadline=time.monotonic()+10
+   while (len(observer.records)<2 or stop.notification_status['ticks']<1) and time.monotonic()<deadline:time.sleep(.02)
   finally:
-   if stop is not None:stop.set()
-   deadline=time.time()+5
-   while any(t.name=='verified-notifications' for t in threading.enumerate()) and time.time()<deadline:time.sleep(.02)
+   if stop is not None:stop.set();stop.worker_thread.join(5)
+   ops=getattr(ns['app'].state,'operational_alert_stop',None)
+   if ops is not None:ops.set();ops.worker_thread.join(2)
   records=observer.finish()
- assert len(records)==1 and records[0]['ack']['status']=='SENT' and len(r.state['requests'])==2
- assert T.D(payload(r)['estimated_pnl']['amount'])==9895000 and payload(r)['financial_receipt'] is None
- (OUT/'startup_worker_wire.json').write_text(json.dumps(records),encoding='utf-8')
- assert send(r)==[]
+ assert len(records)==2 and all(x['ack']['status']=='SENT' for x in records) and len(r.state['requests'])==2
+ with store(r)._connect_read() as c:plans=[json.loads(x[0]) for x in c.execute('SELECT payload FROM vpnl_revisions ORDER BY rowid')]
+ sell=next(p for p in plans if p['side']=='매도')
+ assert T.D(sell['estimated_pnl']['amount'])==9895000 and all(p['financial_receipt'] is None and p['execution_receipt'] is None for p in plans)
+ assert {p['side'] for p in plans}=={'매수','매도'} and send(r)==[]
