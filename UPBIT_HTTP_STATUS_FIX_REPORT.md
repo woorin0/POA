@@ -64,5 +64,7 @@ OPERATING_READY: NO
 
 로컬 증거: audit_artifacts/upbit_http_status/의 before.xml, final.xml, baseline_contracts.xml, final_direct.xml, 로그, runtime_manifest.json, results_summary.json. 합성 DB/로그/XML/키/임시 결과는 업로드하지 않습니다.
 
-PRODUCT_COMMIT_PIN: PENDING_PRODUCT_COMMIT
+PRODUCT_COMMIT_PIN: e53cc55eb46cc56c07b6ca0b0b7c7993b5507573
 User Data는 최종 제품 커밋을 후속 메타데이터 커밋에서 고정합니다. 운영 환경 성공을 의미하지 않습니다.
+
+USER_DATA_PIN: repo_ref=e53cc55eb46cc56c07b6ca0b0b7c7993b5507573, release_manifest_sha256=ca3eb2524538e1b98e1184a7e2ccb0e69a3a555bdfe3431cdc82c7be974fb65b. 최종 main의 후속 커밋은 User Data와 문서만 변경하며 제품 bytes는 동일합니다.

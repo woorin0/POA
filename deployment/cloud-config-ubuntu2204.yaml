@@ -1,5 +1,5 @@
 #cloud-config
-# Ubuntu 22.04 amd64 fresh server. GitHub main + pinned release manifest.
+# Ubuntu 22.04 amd64 fresh server. Immutable product commit + pinned release manifest.
 # Fill the JSON inputs. Keep completed user-data private.
 package_update: true
 timezone: UTC
@@ -13,7 +13,7 @@ write_files:
     content: |
       {
         "domain": "YOUR_DOMAIN.example",
-        "repo_ref": "main",
+        "repo_ref": "e53cc55eb46cc56c07b6ca0b0b7c7993b5507573",
         "db_admin_email": "poa-admin@example.com",
         "credentials": {
           "PASSWORD": "CHANGE_ME_WEBHOOK_PASSWORD",
