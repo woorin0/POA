@@ -1116,8 +1116,8 @@ def _append_unverified_financial_status(lines: List[str]) -> None:
 
 
 def build_mobile_verified_embed(payload: NotificationPayload) -> Embed:
-    from exchange.verified_pnl.alert_presentation import apply
-    return apply(_build_mobile_verified_embed_legacy(payload),payload)
+    from exchange.verified_pnl.alert_presentation import apply, apply_amount_only
+    return apply_amount_only(apply(_build_mobile_verified_embed_legacy(payload),payload),payload)
 
 
 def _build_mobile_verified_embed_legacy(payload: NotificationPayload) -> Embed:
