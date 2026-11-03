@@ -120,12 +120,20 @@ def test_repeat_query_and_restart_keep_originals(local):
  r=local
  for side in ('buy','sell'):feed(r,side);tick(r)
  s=store(r)
- with s._connect_read() as c:before=c.execute('SELECT intake_id,record,record_digest FROM vpnl_notice_upbit_observations ORDER BY intake_id').fetchall()
- wires=send(r);assert len(wires)==1
+ with s._connect_read() as c:
+  before=c.execute('SELECT intake_id,record,record_digest FROM vpnl_notice_upbit_observations ORDER BY intake_id').fetchall()
+  selected=c.execute("SELECT json_extract(v.payload,'$.order_id'),d.id,d.root_id,d.revision FROM vpnl_deliveries d JOIN vpnl_revisions v ON v.root_id=d.root_id AND v.revision=d.revision WHERE json_extract(v.payload,'$.order_id') IN (?,?) ORDER BY d.id",(r.buy,r.sell)).fetchall()
+ assert len(before)==len(selected)==2 and {row[0] for row in selected}=={r.buy,r.sell}
+ assert len({(row[2],row[3]) for row in selected})==2
+ wires=send(r);assert len(wires)==2 and all(x['ack']['status']=='SENT' for x in wires)
+ with s._connect_read() as c:sent=c.execute('SELECT id,root_id,revision,wire,wire_digest,status,message_id FROM vpnl_deliveries ORDER BY id').fetchall()
+ assert all(row[5]=='SENT' and row[6] for row in sent) and {row[0] for row in sent}=={row[1] for row in selected}
  I._BOOT_CHECKED.discard(s.db_path);I.replay(r.st,store=store(r))
  for side in ('buy','sell'):feed(r,side)
  tick(r);assert send(r)==[]
- with s._connect_read() as c:assert c.execute('SELECT intake_id,record,record_digest FROM vpnl_notice_upbit_observations ORDER BY intake_id').fetchall()==before
+ with s._connect_read() as c:
+  assert c.execute('SELECT intake_id,record,record_digest FROM vpnl_notice_upbit_observations ORDER BY intake_id').fetchall()==before
+  assert c.execute('SELECT id,root_id,revision,wire,wire_digest,status,message_id FROM vpnl_deliveries ORDER BY id').fetchall()==sent
 
 
 def test_conflicting_reread_is_review_not_overwrite(local):
@@ -143,16 +151,30 @@ def test_conflicting_reread_is_review_not_overwrite(local):
 @pytest.mark.parametrize('status',['SENT','UNKNOWN','HELD','POSTING'])
 def test_states_and_wire_cas_no_repost(local,status):
  r=local
- for side in ('buy','sell'):feed(r,side);tick(r)
+ # In POSTING, finish BUY first so an unrelated pending BUY cannot be
+ # mistaken for an unauthorized retransmission of the selected SELL.
+ if status=='POSTING':
+  feed(r,'buy');tick(r);assert len(send(r))==1
+  feed(r,'sell');tick(r)
+ else:
+  for side in ('buy','sell'):feed(r,side);tick(r)
  s=store(r);claim=None
- if status=='SENT':assert len(send(r))==1
+ with s._connect_read() as c:
+  observations=c.execute('SELECT intake_id,record,record_digest FROM vpnl_notice_upbit_observations ORDER BY intake_id').fetchall()
+  selected=c.execute("SELECT json_extract(v.payload,'$.order_id'),d.id,d.root_id,d.revision FROM vpnl_deliveries d JOIN vpnl_revisions v ON v.root_id=d.root_id AND v.revision=d.revision WHERE json_extract(v.payload,'$.order_id') IN (?,?)",(r.buy,r.sell)).fetchall()
+ assert len(observations)==len(selected)==2 and {row[0] for row in selected}=={r.buy,r.sell}
+ sell=next(row for row in selected if row[0]==r.sell)
+ if status=='SENT':assert len(send(r))==2
  elif status=='POSTING':
-  claim=s.claim_next();bad=dict(claim,token='wrong');assert not s.begin_post(bad);assert s.begin_post(claim);assert not s.ack(bad,True,message_id='123')
+  claim=s.claim_next();assert (claim['delivery_id'],claim['root_id'],claim['revision'])==(sell[1],sell[2],sell[3])
+  bad=dict(claim,token='wrong');assert not s.begin_post(bad);assert s.begin_post(claim);assert not s.ack(bad,True,message_id='123')
  else:
   with s._connect() as c:c.execute('UPDATE vpnl_deliveries SET status=?',(status,))
- with s._connect_read() as c:before=c.execute('SELECT wire,wire_digest,status,message_id FROM vpnl_deliveries').fetchall()
+ with s._connect_read() as c:before=c.execute('SELECT id,root_id,revision,wire,wire_digest,status,message_id FROM vpnl_deliveries ORDER BY id').fetchall()
  feed(r,'sell');tick(r);assert send(r)==[]
- with s._connect_read() as c:assert c.execute('SELECT wire,wire_digest,status,message_id FROM vpnl_deliveries').fetchall()==before
+ with s._connect_read() as c:
+  assert c.execute('SELECT id,root_id,revision,wire,wire_digest,status,message_id FROM vpnl_deliveries ORDER BY id').fetchall()==before
+  assert c.execute('SELECT intake_id,record,record_digest FROM vpnl_notice_upbit_observations ORDER BY intake_id').fetchall()==observations
  if claim:
   with FrozenWireObserver(s) as o:o.post(data=claim['wire'],headers={'Content-Type':'application/json'})
   assert s.ack(claim,True,message_id='123000') and o.finish()[0]['ack']['status']=='SENT'
@@ -258,8 +280,13 @@ def test_same_actual_order_cannot_repost_under_new_source_reference(local):
  from dataclasses import replace
  r=local
  for side in ('buy','sell'):feed(r,side);tick(r)
- assert len(send(r))==1
- with store(r)._connect_read() as c:before=c.execute('SELECT id,wire,wire_digest,status,message_id FROM vpnl_deliveries').fetchall()
+ with store(r)._connect_read() as c:
+  selected=c.execute("SELECT json_extract(v.payload,'$.order_id'),d.id,d.root_id,d.revision FROM vpnl_deliveries d JOIN vpnl_revisions v ON v.root_id=d.root_id AND v.revision=d.revision WHERE json_extract(v.payload,'$.order_id') IN (?,?)",(r.buy,r.sell)).fetchall()
+  observations=c.execute('SELECT intake_id,record,record_digest FROM vpnl_notice_upbit_observations ORDER BY intake_id').fetchall()
+ assert len(selected)==len(observations)==2 and {row[0] for row in selected}=={r.buy,r.sell}
+ first=send(r);assert len(first)==2 and all(x['ack']['status']=='SENT' for x in first)
+ with store(r)._connect_read() as c:before=c.execute('SELECT id,root_id,revision,wire,wire_digest,status,message_id FROM vpnl_deliveries ORDER BY id').fetchall()
+ assert {row[0] for row in before}=={row[1] for row in selected} and all(row[5]=='SENT' and row[6] for row in before)
  # Explicit host reconfiguration must REVIEW an already observed physical order,
  # not silently make a new event under another credential reference.
  r.st.UPBIT_KEY='mock-host-reconfigured'
@@ -269,5 +296,6 @@ def test_same_actual_order_cannot_repost_under_new_source_reference(local):
  for side in ('buy','sell'):feed(r,side);tick(r)
  assert send(r)==[]
  with store(r)._connect_read() as c:
-  assert c.execute('SELECT id,wire,wire_digest,status,message_id FROM vpnl_deliveries').fetchall()==before
+  assert c.execute('SELECT id,root_id,revision,wire,wire_digest,status,message_id FROM vpnl_deliveries ORDER BY id').fetchall()==before
+  assert c.execute('SELECT intake_id,record,record_digest FROM vpnl_notice_upbit_observations ORDER BY intake_id').fetchall()==observations
   assert c.execute('SELECT count(*) FROM vpnl_notice_reviews').fetchone()[0]==2

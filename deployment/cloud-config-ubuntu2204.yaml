@@ -31,7 +31,7 @@ write_files:
           "BITGET_SECRET": "",
           "BITGET_PASSPHRASE": ""
         },
-        "release_manifest_sha256": "1414d171ef345ab353b81711184f4c71cb53c21aad634b750edb615819f69efc"
+        "release_manifest_sha256": "ca3eb2524538e1b98e1184a7e2ccb0e69a3a555bdfe3431cdc82c7be974fb65b"
       }
   - path: "/usr/local/lib/poa/fix_alerts.py"
     owner: "root:root"

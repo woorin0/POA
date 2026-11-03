@@ -92,7 +92,7 @@ class HTTPSOrderGETTransport:
                 size+=len(part)
                 if size>request.max_bytes:raise UpbitGETError('RESPONSE_TOO_LARGE')
                 chunks.append(part)
-            return OrderGETResponse(200,b''.join(chunks),headers)
+            return OrderGETResponse(response.status,b''.join(chunks),headers)
         except UpbitGETError:raise
         except ssl.SSLError:raise UpbitGETError('TLS_FAILURE') from None
         except (TimeoutError,socket.timeout):raise UpbitGETError('READ_TIMEOUT') from None

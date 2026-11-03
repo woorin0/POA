@@ -271,8 +271,8 @@
   },
   {
     "Path": "exchange/verified_pnl/upbit_notification_get.py",
-    "Bytes": 12764,
-    "SHA256": "BCB253CA42F117E3AB9D469620004F19A82FD5435FAB27972CF0C032699681D5"
+    "Bytes": 12776,
+    "SHA256": "335E7D478AAE7736459CF06713C08B82499C94C4F3B86EE99F4D7553814EFCB9"
   },
   {
     "Path": "exchange/verified_pnl/upbit_notification_local.py",
