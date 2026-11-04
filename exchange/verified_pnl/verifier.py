@@ -60,6 +60,32 @@ class FillVerifier:
         if reader is not None:reader.observed_result(verified or outcome_rejected(fill))
         return fill
 
+    @staticmethod
+    def _quote_costs_match(data, trades, settlement):
+        """Optional CCXT cost is quote turnover, never fee or requested notional.
+
+        Amounts on VerifiedTrade are already base units (including OKX ctVal).
+        Missing costs remain absent; supplied costs must agree exactly. Native
+        aliases are not guessed here: adapters own their economic meaning.
+        """
+        with localcontext() as arithmetic:
+            arithmetic.prec = 1100
+            total = Decimal(0)
+            for trade in trades:
+                expected = trade.price * trade.amount
+                if trade.cost is not None and (not trade.cost.is_finite() or trade.cost != expected):
+                    return False
+                total += expected
+            for raw in [data] + list(data.get('trades') or []):
+                if not isinstance(raw, dict):
+                    return False
+                if raw.get('cost') is not None:
+                    value = to_decimal(raw['cost'])
+                    if value is None or value < 0 or raw.get('cost_currency', settlement) != settlement:
+                        return False
+            order_cost = data.get('cost')
+            return order_cost is None or to_decimal(order_cost) == total
+
     def _parse_order_dict(self, exchange_name, symbol, data, order_info):
         futures = getattr(order_info, "is_futures", False) is True
         inverse = getattr(order_info, "is_coinm", False) is True
@@ -122,7 +148,8 @@ class FillVerifier:
                     from datetime import datetime
                     try: trade_ts = datetime.fromisoformat(str(raw_ts)).timestamp()
                     except Exception: pass
-            trades.append(VerifiedTrade(id=tid, price=px, amount=amount, fee=cost,
+            trades.append(VerifiedTrade(id=tid, price=px, amount=amount,
+                cost=to_decimal(t.get("cost")), fee=cost,
                 fee_currency=currency, timestamp=trade_ts,
                 order=str(t.get("order") or t.get("uuid") or oid),
                 order_id=str(t.get("order") or t.get("uuid") or oid),
@@ -179,6 +206,11 @@ class FillVerifier:
             coverage = False
             if not completeness_reason: completeness_reason = "page_cap"
 
+        quote_costs_valid = self._quote_costs_match(data, trades, settlement)
+        if not quote_costs_valid:
+            coverage = False
+            completeness_reason = "quote_cost_conflict"
+
         reported_count = to_decimal(data.get("trades_count") or (data.get("info") or {}).get("trades_count"))
         if reported_count is not None and reported_count > 0 and len(trades) < reported_count:
             coverage = False
@@ -232,7 +264,7 @@ class FillVerifier:
         elif raw_status in {"rejected", "failed"}: status = FillStatus.FAILED
         if remaining is None and requested is not None:
             remaining = max(Decimal(0), requested - quantity)
-        verified = average is not None and quantity > 0 and (requested is None or quantity <= requested)
+        verified = quote_costs_valid and average is not None and quantity > 0 and (requested is None or quantity <= requested)
         gross = sum(pnl, Decimal(0)) if coverage and pnl and all(v is not None for v in pnl) else None
         stamps = [t.timestamp for t in trades if t.timestamp is not None]
         last = to_decimal(data.get("lastTradeTimestamp"))
@@ -324,6 +356,7 @@ class FillVerifier:
             if fill.trades_complete is not True or fill.verification_status!=VerificationStatus.VERIFIED: return
             if not fill.order_id or not fill.trades or fill.filled_quantity<=0: return
             raw=fill.raw_data or {};raw_trades=raw.get('trades')
+            if not self._quote_costs_match(raw,fill.trades,fill.pnl_currency):return
             if raw.get('symbol')!=fill.symbol:return
             market=client.market(fill.symbol)
             if not isinstance(market,dict) or market.get('id')!=scope['instrument'] or market.get('symbol')!=fill.symbol:return

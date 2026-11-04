@@ -1563,7 +1563,8 @@ def build_legacy_order_embed(
         color=COLOR_ORDER_AMBIGUOUS,
     )
     content = f"[{exchange}] {display_symbol} {side_clean} 접수 (미검증)"
-    return content, enforce_embed_bounds(embed)
+    from exchange.verified_pnl.alert_presentation import new_unverified_amount_embed
+    return content, new_unverified_amount_embed(enforce_embed_bounds(embed),exchange,display_symbol,side_clean,strategy_name,timestamp)
 
 
 def build_error_embed(
@@ -1698,7 +1699,8 @@ def build_error_embed(
         if is_sell_or_close_side(side):
             _append_unverified_financial_status(lines)
         embed = Embed(title=title[:256], description="\n".join(lines)[:4096], color=color)
-        return enforce_embed_bounds(embed)
+        from exchange.verified_pnl.alert_presentation import new_unverified_amount_embed
+        return new_unverified_amount_embed(enforce_embed_bounds(embed),exchange,display_symbol,side,strategy_name,timestamp)
 
     # Generic system/webhook error without order_info
     header_name = sanitize_discord_text(name or "시스템", max_len=40)

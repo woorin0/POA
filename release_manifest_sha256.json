@@ -121,8 +121,8 @@
   },
   {
     "Path": "exchange/utility/discord_embed.py",
-    "Bytes": 85538,
-    "SHA256": "06AA0D619E8A9AEEF26EFACD97707A162E12D746E0BC88EB06379272327406A8"
+    "Bytes": 85928,
+    "SHA256": "9CE6540137AB3825B12D50828C3DD98DA77DE8875394E54E970EE01E9E8229AC"
   },
   {
     "Path": "exchange/utility/setting.py",
@@ -141,8 +141,8 @@
   },
   {
     "Path": "exchange/verified_pnl/alert_presentation.py",
-    "Bytes": 2961,
-    "SHA256": "12AB42A4DB7BBAF088F2128E1C3975490E3A388D888149D918481FAE3A6E4DDC"
+    "Bytes": 11810,
+    "SHA256": "BCB19659E18DEF234CEF6DCCD7C9483AD23634E77B39510AEBBF941A1F2EE0D5"
   },
   {
     "Path": "exchange/verified_pnl/binance_spot_read.py",
@@ -156,8 +156,8 @@
   },
   {
     "Path": "exchange/verified_pnl/bootstrap.py",
-    "Bytes": 13376,
-    "SHA256": "E0A41A9E28B1E3FB42A8DEB0A6FE1841386F48BEB69CB4695FDCF3F44F87A087"
+    "Bytes": 13422,
+    "SHA256": "B213D28960CF2FD2EAEFC0DA6C56A98E8DA0A9DEFBDFFF5EC9B4B3ADBF3320D7"
   },
   {
     "Path": "exchange/verified_pnl/buy_ack.py",
@@ -296,8 +296,8 @@
   },
   {
     "Path": "exchange/verified_pnl/verifier.py",
-    "Bytes": 24765,
-    "SHA256": "32FE998F411E18AFC46A8FF375A5D268630052189B95E9458D334F32D5AB3CFE"
+    "Bytes": 26384,
+    "SHA256": "D3AD33F00DDCABB082189B93950974030994C1E5AD720495D6EB95213C2B16C7"
   },
   {
     "Path": "main.py",

@@ -69,51 +69,52 @@ def legacy(embed,exchange,result,info,settings):
 
 
 def _verified_executed_amount(payload):
-    """Only signed, same-order COMPLETE exchange execution trades; fee-exclusive quote amount.
+    """Fee-exclusive quote sum from signed, complete normalized execution trades.
 
-    This intentionally does not trust payload.notional_amount, order request cost,
-    TradingView price, estimated_pnl, or unsigned order acknowledgements.
+    Trade quantities already include the verifier's contract-size conversion.
+    Reconcile VWAP using that verifier's existing 512-digit arithmetic policy;
+    no exchange-price tolerance or inferred execution is introduced here.
     """
-    from decimal import Decimal, InvalidOperation, localcontext
-    from .evidence import payload_fill_valid
-    if not payload_fill_valid(payload):
-        return None
+    from decimal import Decimal, localcontext
+    from .evidence import payload_fill_valid,canonical
+    if not payload_fill_valid(payload):return None
     try:
-        body=payload.execution_receipt['body']
-        fill,scope=body['fill'],body['scope']
-        if fill.get('trades_complete') is not True or not isinstance(fill.get('trades'),list) or not fill['trades']:
-            return None
-        if fill.get('market_type') not in ('spot','linear') or scope.get('market_type')!=fill['market_type']:
-            return None
-        currency=str(scope.get('settlement','')).upper()
-        if currency not in ('KRW','USDT','USDC'):
-            return None
-        if str(fill.get('pnl_currency','')).upper()!=currency:
-            return None
+        body=payload.execution_receipt['body'];fill,scope=body['fill'],body['scope']
+        trades=fill.get('trades')
+        if fill.get('trades_complete') is not True or not isinstance(trades,list) or not 1<=len(trades)<=4000:return None
+        market=fill.get('market_type')
+        if market not in ('spot','linear') or scope.get('market_type')!=market:return None
+        if not scope.get('account') or not scope.get('symbol') or not scope.get('instrument'):return None
+        if (fill.get('exchange'),fill.get('symbol'))!=(scope.get('exchange'),scope['symbol']):return None
+        if fill.get('scope_data') is not None and canonical(fill['scope_data'])!=canonical(scope):return None
+        currency=scope.get('settlement')
+        if currency not in ('KRW','USDT','USDC') or fill.get('pnl_currency')!=currency:return None
+        if scope['symbol'].split('/')[-1].split(':')[0]!=currency:return None
+        def number(value):
+            n=Decimal(str(value))
+            if not n.is_finite() or len(n.as_tuple().digits)>1100 or abs(n.as_tuple().exponent)>1100:raise ValueError('amount_bounds')
+            return n
         with localcontext() as ctx:
             ctx.prec=1100
-            qty=Decimal(str(fill['filled_quantity']))
-            avg=Decimal(str(fill['average_fill_price']))
-            if not qty.is_finite() or qty<=0 or not avg.is_finite() or avg<=0:
-                return None
-            total=Decimal(0)
-            summed_qty=Decimal(0)
-            ids=set()
-            for trade in fill['trades']:
-                if not isinstance(trade,dict) or not trade.get('id') or str(trade['id']) in ids:
-                    return None
-                ids.add(str(trade['id']))
-                px=Decimal(str(trade['price']))
-                amount=Decimal(str(trade['amount']))
-                if not px.is_finite() or not amount.is_finite() or px<=0 or amount<=0:
-                    return None
-                total+=px*amount
-                summed_qty+=amount
-            if summed_qty!=qty or total/qty!=avg or not total.is_finite() or total<=0:
-                return None
-            return total,currency,fill['market_type']
-    except (KeyError,TypeError,ValueError,InvalidOperation,ArithmeticError,AttributeError):
-        return None
+            qty=number(fill['filled_quantity']);avg=number(fill['average_fill_price']);factor=number(scope['contract_size'])
+            if min(qty,avg,factor)<=0 or number(fill['contract_size'])!=factor or (market=='spot' and factor!=1):return None
+            total=Decimal(0);summed=Decimal(0);ids=set()
+            for t in trades:
+                if not isinstance(t,dict) or not isinstance(t.get('id'),str) or not t['id'] or t['id'] in ids:return None
+                ids.add(t['id'])
+                refs=[t[k] for k in ('order','order_id') if t.get(k) is not None]
+                if not refs or any(ref!=fill['order_id'] for ref in refs):return None
+                px,amount=number(t['price']),number(t['amount'])
+                if min(px,amount)<=0:return None
+                value=px*amount
+                if t.get('cost') is not None and number(t['cost'])!=value:return None
+                total+=value;summed+=amount
+            if summed!=qty or not total.is_finite() or total<=0:return None
+            with localcontext() as approved:
+                approved.prec=512
+                if total/qty!=avg:return None
+            return total,currency,market
+    except (KeyError,TypeError,ValueError,ArithmeticError,AttributeError):return None
 
 
 def _order_action(side):
@@ -126,43 +127,67 @@ def _order_action(side):
 
 
 def apply_amount_only(embed,payload):
-    """Notification-only projection for newly admitted messages.
-
-    Frozen historical Outbox wires do not contain the marker, and trade/order/PnL
-    calculation, reconciliation, retries, and financial receipts are unchanged.
-    """
-    if AMOUNT_ONLY_MARKER not in (payload.verification_source or '').splitlines():
-        return embed
-    from exchange.utility.discord_embed import format_price_display,enforce_embed_bounds
-    old=embed.data.get('description','')
-    excluded_amount_prefixes=('매수금액:','매도금액:','총 매수액:','총 매도액:','실제 총 매수액:','실제 총 매도액:','실제 총 체결액:')
+    """Fresh, marked notification projection; no historical wire is rewritten."""
+    if AMOUNT_ONLY_MARKER not in (payload.verification_source or '').splitlines():return embed
+    from exchange.utility.discord_embed import (Embed,format_price_display,format_quantity_display,
+        enforce_embed_bounds,sanitize_discord_text,format_kst_full,normalize_display_symbol,extract_base_asset)
+    from .evidence import outcome_rejected
+    clean=lambda value:sanitize_discord_text(str(value or ''),max_len=128)
+    old=embed.data;original=old.get('description','');action=_order_action(getattr(payload,'side',None))
     lines=[]
-    for line in old.splitlines():
-        stripped=line.strip()
-        low=stripped.lower()
-        if any(word in low for word in ('손익','수익률','roi','pnl','차익','펀딩비:','금융 검증')):
-            continue
-        if stripped.startswith(excluded_amount_prefixes) or stripped.startswith('ℹ️ 매수 원가'):
-            continue
-        lines.append(line)
-    action=_order_action(getattr(payload,'side',None))
-    proof=_verified_executed_amount(payload)
-    if proof is not None:
-        amount,currency,market=proof
-        label='실제 총 '+action+'액' if action!='체결' else '실제 총 체결액'
-        if market!='spot':
-            label+=' (계약 명목가치)'
-        value=format_price_display(amount,currency=currency)
-        amount_line=label+': '+value+' (수수료 제외)'
+    strategy=getattr(payload,'strategy_id',None) or getattr(payload,'order_name',None)
+    if strategy:lines.append('전략: '+clean(strategy))
     else:
-        label='실제 총 '+action+'액' if action!='체결' else '실제 총 체결액'
-        amount_line=label+': 확인 중 (실체결 금액 미검증)'
-    insert=next((i+1 for i,line in enumerate(lines) if ('체결수량:' in line or '매수수량:' in line or '매도수량:' in line)),None)
-    if insert is None:
-        insert=next((i+1 for i,line in enumerate(lines) if line.startswith('전략:') or line.startswith('전략/주문명:')),0)
-    lines.insert(insert,amount_line)
-    if proof is None:
-        lines.insert(insert+1,'신호가격·요청금액·추정치를 실제 체결대금으로 표시하지 않습니다')
-    embed.description='\n'.join(lines)
-    embed.data['description']=embed.description
-    return enforce_embed_bounds(embed)
+        previous=next((line for line in original.splitlines() if line.startswith(('전략:','전략/주문명:'))),None)
+        if previous:lines.append(clean(previous))
+    # Explicit request labels are context only. Signal/reference prices, virtual
+    # inventory, old PnL fields, footer and arbitrary fields are never projected.
+    # Preserve only bounded, nonfinancial context from the existing renderer.
+    context_prefixes=('요청수량:','매수수량:','매도수량:','미체결수량:',
+        '원가 미확인 수량:','매칭 수량:','잔여수량:','상태:','실제 체결:',
+        '사유:','오류 코드:','코드:','신호 시각:','서버:','배포:')
+    for line in original.splitlines():
+        if line.startswith(context_prefixes) and not any(word in line.lower() for word in ('손익','roi','수익률','차익')):
+            lines.append(clean(line))
+    estimate=getattr(payload,'estimated_pnl',None) or {}
+    if estimate.get('basis') in ('TRADINGVIEW_SIGNAL','TRADINGVIEW_BUY_SIGNAL'):
+        lines.append('수량 기준: TradingView 신호 (실체결 수량 아님)')
+    if estimate.get('status')=='UNAVAILABLE':
+        lines.append('원가 확인: 계산 불가')
+    observed_confirmation='체결 확인 · 금융 검증 미확정' in original and colour(payload)==CONFIRMED_FILL
+    proof=_verified_executed_amount(payload)
+    label='실제 총 '+action+'액' if action!='체결' else '실제 총 체결액'
+    if proof is not None:
+        amount,currency,market=proof;fill=payload.execution_receipt['body']['fill'];base=extract_base_asset(normalize_display_symbol(fill['symbol']))
+        lines+=['실제 평균 체결가: '+format_price_display(fill['average_fill_price'],currency=currency),
+                '실제 체결수량: '+format_quantity_display(fill['filled_quantity'],base_asset=base)+(' (기초자산 환산)' if market=='linear' else ''),
+                label+(' (계약 명목가치)' if market=='linear' else '')+': '+format_price_display(amount,currency=currency)+' (수수료 제외)']
+        fees=fill.get('fees')
+        if fill.get('fees_complete') is True and isinstance(fees,dict) and 0<len(fees)<=16:
+            lines.append('수수료/리베이트: '+', '.join(format_price_display(value,currency=clean(ccy)) for ccy,value in sorted(fees.items())))
+        else:lines.append('수수료: 확인 중')
+        lines.append('체결 상태: '+('부분체결 확인 (확인된 누적 체결만)' if fill.get('status')=='PARTIALLY_FILLED' else '체결 확인'))
+    else:
+        fee_note=('일부 미확인 · 일부 수수료 미반영' if estimate.get('fee_mode')=='PARTIAL' else '미확인 · 수수료 미반영' if estimate.get('fee_mode')=='MISSING' or '수수료 미반영' in original.splitlines() else '확인 중')
+        lines+=['실제 평균 체결가: 확인 중','실제 체결수량: 확인 중',label+': 확인 중 (실체결 금액 미검증)',
+                '수수료: '+fee_note,'체결 상태: '+('거래소 거절 확인' if outcome_rejected(payload) else '체결 확인 · 금융 검증 미확정' if observed_confirmation else '확인 중'),
+                '신호가격·요청금액·추정치를 실제 체결대금으로 표시하지 않습니다']
+    reason=getattr(payload,'exit_reason',None);reason=getattr(reason,'value',reason)
+    if action=='매도' and reason:lines.append('청산 사유: '+clean(reason))
+    ts=getattr(payload,'fill_timestamp',None)
+    if ts is None:ts=getattr(payload,'event_timestamp',None)
+    when=next((clean(line) for line in original.splitlines() if line.startswith(('시각:','🕒 ')) and 'KST' in line),None) if proof is None or ts is None else None
+    if when:lines.append(when)
+    elif ts is not None:lines.append('시각: '+format_kst_full(ts))
+    title=old.get('title','')
+    if any(word in title.lower() for word in ('손익','roi','pnl','수익률','차익')):title=' · '.join(clean(getattr(payload,k,'')) for k in ('exchange','symbol','side'))
+    return enforce_embed_bounds(Embed(title=title,description='\n'.join(lines),color=old.get('color',PENDING)))
+
+
+def new_unverified_amount_embed(embed,exchange,symbol,side,strategy=None,timestamp=None):
+    """Fresh legacy/error calls only; never used by stored Outbox rendering."""
+    if exchange not in ('UPBIT','BINANCE','BYBIT','OKX','BITGET'):return embed
+    from types import SimpleNamespace
+    p=SimpleNamespace(exchange=exchange,symbol=symbol,side=side,order_name=strategy,
+        verification_source=AMOUNT_ONLY_MARKER,execution_receipt=None,outcome_receipt=None,event_timestamp=timestamp)
+    return apply_amount_only(embed,p)
