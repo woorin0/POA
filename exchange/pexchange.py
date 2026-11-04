@@ -2,7 +2,7 @@ import ccxt
 import ccxt.async_support as ccxt_async
 import httpx
 from fastapi import HTTPException
-from pydantic import BaseModel
+from pydantic.v1 import BaseModel
 from .binance import Binance
 from .upbit import Upbit
 from .bybit import Bybit

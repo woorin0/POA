@@ -132,9 +132,10 @@ def test_cloud_init_installer_and_service_settings_contract(local):
  d=yaml.safe_load((ROOT/'deployment/cloud-config-ubuntu2204.yaml').read_text(encoding='utf-8'))
  files={x['path']:x for x in d['write_files']};embedded=files['/usr/local/lib/poa/install_once.py']['content']
  assert embedded.rstrip()==(ROOT/'deployment/install_once.py').read_text(encoding='utf-8').rstrip();compile(embedded,'cloud-installer','exec')
- inp=json.loads(files['/root/poa-install-input.json']['content']);assert 'upbit_estimated_read' not in inp and inp['repo_ref']=='e53cc55eb46cc56c07b6ca0b0b7c7993b5507573'
- assert files['/root/poa-install-input.json']['permissions']=='0600'
- service=files['/etc/systemd/system/poa.service']['content'];assert 'WorkingDirectory=/root/POA' in service and 'User=root' in service
+ inp=json.loads(files['/root/poa-stage-input.json']['content']);assert 'upbit_estimated_read' not in inp and inp['repo_ref']=='de969040dec42a369274adb1a59a3d44a2ba3aa6' and inp['install_mode']=='NEW_SERVER_STAGE_ONLY' and 'credentials' not in inp
+ assert files['/root/poa-stage-input.json']['permissions']=='0600'
+ service=files['/usr/local/lib/poa/poa.service.staged']['content'];assert 'WorkingDirectory=/root/POA' in service and 'User=root' in service
+ assert 'ExecStartPre=/usr/bin/false' in service and 'Restart=no' in service
  assert 'UPBIT_SECRET' not in service and 'EnvironmentFile=' not in service # Pydantic reads .env; no shell JSON quoting ambiguity.
  env,raw=I.upbit_read_configuration({'upbit_estimated_read':local.linux['config']},{'UPBIT_KEY':local.st.UPBIT_KEY,'UPBIT_SECRET':local.st.UPBIT_SECRET})
  assert env['POA_UPBIT_ESTIMATED_READ_ENABLED'] and env['POA_UPBIT_READ_BINDING_SHA256']==hashlib.sha256(raw.encode()).hexdigest()

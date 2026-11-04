@@ -110,6 +110,8 @@ def _presentation_delta(path,current):
 
 def assert_notification_execution_unchanged(source=None):
     path='main.py';current=(ROOT/path).read_bytes() if source is None else source
+    from release_checks.http_source_contract import restore_http_source
+    current=restore_http_source(path,current)
     prior=subprocess.check_output(['git','-C',str(ROOT),'show',APPROVED_COMMIT+':'+path])
     tree=ast.parse(current);old=ast.parse(prior);node=_node(tree,'order');previous=_node(old,'order')
     expected=ast.parse("from exchange.verified_pnl.operational_alerts import order_failure\norder_failure(settings,e,order_info)\n").body
@@ -124,6 +126,8 @@ def assert_notification_execution_unchanged(source=None):
 
 def assert_notification_main_source():
     raw=(ROOT/'main.py').read_bytes();assert_notification_execution_unchanged(raw)
+    from release_checks.http_source_contract import restore_http_source
+    raw=restore_http_source('main.py',raw)
     restored=_presentation_delta('main.py',raw)
     assert restored==subprocess.check_output(['git','-C',str(ROOT),'show',APPROVED_COMMIT+':main.py']),'non-notification main source changed'
     path='exchange/utility/LogMaker.py'
@@ -134,6 +138,8 @@ def assert_reviewed_notification_source(path,source=None):
     """Validate exact approved spans AND byte equality of everything outside them."""
     rule=PINS[path]
     current=Path(ROOT/path).read_bytes() if source is None else source
+    from release_checks.http_source_contract import restore_http_source
+    current=restore_http_source(path,current)
     historic=subprocess.check_output(['git','-C',str(ROOT),'show',rule['baseline']+':'+path])
     current=_presentation_delta(path,current)
     current=_bot03_delta(path,current)

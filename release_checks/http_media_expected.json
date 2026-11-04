@@ -1,0 +1,610 @@
+[
+  {
+    "case": "text/plain|valid",
+    "status": 422,
+    "response": {
+      "detail": [
+        {
+          "loc": [
+            "body"
+          ],
+          "msg": "Invalid request",
+          "type": "value_error"
+        }
+      ]
+    },
+    "engine_calls": []
+  },
+  {
+    "case": "text/plain|bad-auth",
+    "status": 422,
+    "response": {
+      "detail": [
+        {
+          "loc": [
+            "body"
+          ],
+          "msg": "Invalid request",
+          "type": "value_error"
+        }
+      ]
+    },
+    "engine_calls": []
+  },
+  {
+    "case": "text/plain|null",
+    "status": 422,
+    "response": {
+      "detail": [
+        {
+          "loc": [
+            "body"
+          ],
+          "msg": "Invalid request",
+          "type": "value_error"
+        }
+      ]
+    },
+    "engine_calls": []
+  },
+  {
+    "case": "text/plain|empty",
+    "status": 422,
+    "response": {
+      "detail": [
+        {
+          "loc": [
+            "body"
+          ],
+          "msg": "field required",
+          "type": "value_error.missing"
+        }
+      ]
+    },
+    "engine_calls": []
+  },
+  {
+    "case": "text/plain|malformed",
+    "status": 422,
+    "response": {
+      "detail": [
+        {
+          "loc": [
+            "body"
+          ],
+          "msg": "Invalid request",
+          "type": "value_error"
+        }
+      ]
+    },
+    "engine_calls": []
+  },
+  {
+    "case": "text/plain|invalid-utf8",
+    "status": 422,
+    "response": {
+      "detail": [
+        {
+          "loc": [
+            "body"
+          ],
+          "msg": "Invalid request",
+          "type": "value_error"
+        }
+      ]
+    },
+    "engine_calls": []
+  },
+  {
+    "case": "application/octet-stream|valid",
+    "status": 422,
+    "response": {
+      "detail": [
+        {
+          "loc": [
+            "body"
+          ],
+          "msg": "Invalid request",
+          "type": "value_error"
+        }
+      ]
+    },
+    "engine_calls": []
+  },
+  {
+    "case": "application/octet-stream|bad-auth",
+    "status": 422,
+    "response": {
+      "detail": [
+        {
+          "loc": [
+            "body"
+          ],
+          "msg": "Invalid request",
+          "type": "value_error"
+        }
+      ]
+    },
+    "engine_calls": []
+  },
+  {
+    "case": "application/octet-stream|null",
+    "status": 422,
+    "response": {
+      "detail": [
+        {
+          "loc": [
+            "body"
+          ],
+          "msg": "Invalid request",
+          "type": "value_error"
+        }
+      ]
+    },
+    "engine_calls": []
+  },
+  {
+    "case": "application/octet-stream|empty",
+    "status": 422,
+    "response": {
+      "detail": [
+        {
+          "loc": [
+            "body"
+          ],
+          "msg": "field required",
+          "type": "value_error.missing"
+        }
+      ]
+    },
+    "engine_calls": []
+  },
+  {
+    "case": "application/octet-stream|malformed",
+    "status": 422,
+    "response": {
+      "detail": [
+        {
+          "loc": [
+            "body"
+          ],
+          "msg": "Invalid request",
+          "type": "value_error"
+        }
+      ]
+    },
+    "engine_calls": []
+  },
+  {
+    "case": "application/octet-stream|invalid-utf8",
+    "status": 422,
+    "response": {
+      "detail": [
+        {
+          "loc": [
+            "body"
+          ],
+          "msg": "Invalid request",
+          "type": "value_error"
+        }
+      ]
+    },
+    "engine_calls": []
+  },
+  {
+    "case": "application/json|valid",
+    "status": 200,
+    "response": {
+      "result": "success"
+    },
+    "engine_calls": [
+      {
+        "exchange": "UPBIT",
+        "base": "BTC",
+        "quote": "KRW",
+        "unified_symbol": "BTC/KRW",
+        "side": "buy",
+        "amount": 0.005,
+        "price": 100.0,
+        "cost": null,
+        "percent": null,
+        "strategy_id": "synthetic-strategy",
+        "signal_id": "UPBITBTCbuy",
+        "order_name": "LL",
+        "tv_signal": null,
+        "is_futures": null,
+        "is_coinm": null,
+        "is_entry": null,
+        "is_close": null,
+        "is_buy": true,
+        "is_sell": null
+      }
+    ]
+  },
+  {
+    "case": "application/json|bad-auth",
+    "status": 422,
+    "response": {
+      "detail": [
+        {
+          "loc": [
+            "body",
+            "password"
+          ],
+          "msg": "Invalid request",
+          "type": "value_error"
+        }
+      ]
+    },
+    "engine_calls": []
+  },
+  {
+    "case": "application/json|null",
+    "status": 422,
+    "response": {
+      "detail": [
+        {
+          "loc": [
+            "body"
+          ],
+          "msg": "field required",
+          "type": "value_error.missing"
+        }
+      ]
+    },
+    "engine_calls": []
+  },
+  {
+    "case": "application/json|empty",
+    "status": 422,
+    "response": {
+      "detail": [
+        {
+          "loc": [
+            "body"
+          ],
+          "msg": "field required",
+          "type": "value_error.missing"
+        }
+      ]
+    },
+    "engine_calls": []
+  },
+  {
+    "case": "application/json|malformed",
+    "status": 422,
+    "response": {
+      "detail": [
+        {
+          "loc": [
+            "body",
+            1
+          ],
+          "msg": "Invalid request",
+          "type": "value_error"
+        }
+      ]
+    },
+    "engine_calls": []
+  },
+  {
+    "case": "application/json|invalid-utf8",
+    "status": 400,
+    "response": {
+      "detail": "There was an error parsing the body"
+    },
+    "engine_calls": []
+  },
+  {
+    "case": "application/problem+json|valid",
+    "status": 200,
+    "response": {
+      "result": "success"
+    },
+    "engine_calls": [
+      {
+        "exchange": "UPBIT",
+        "base": "BTC",
+        "quote": "KRW",
+        "unified_symbol": "BTC/KRW",
+        "side": "buy",
+        "amount": 0.005,
+        "price": 100.0,
+        "cost": null,
+        "percent": null,
+        "strategy_id": "synthetic-strategy",
+        "signal_id": "UPBITBTCbuy",
+        "order_name": "LL",
+        "tv_signal": null,
+        "is_futures": null,
+        "is_coinm": null,
+        "is_entry": null,
+        "is_close": null,
+        "is_buy": true,
+        "is_sell": null
+      }
+    ]
+  },
+  {
+    "case": "application/problem+json|bad-auth",
+    "status": 422,
+    "response": {
+      "detail": [
+        {
+          "loc": [
+            "body",
+            "password"
+          ],
+          "msg": "Invalid request",
+          "type": "value_error"
+        }
+      ]
+    },
+    "engine_calls": []
+  },
+  {
+    "case": "application/problem+json|null",
+    "status": 422,
+    "response": {
+      "detail": [
+        {
+          "loc": [
+            "body"
+          ],
+          "msg": "field required",
+          "type": "value_error.missing"
+        }
+      ]
+    },
+    "engine_calls": []
+  },
+  {
+    "case": "application/problem+json|empty",
+    "status": 422,
+    "response": {
+      "detail": [
+        {
+          "loc": [
+            "body"
+          ],
+          "msg": "field required",
+          "type": "value_error.missing"
+        }
+      ]
+    },
+    "engine_calls": []
+  },
+  {
+    "case": "application/problem+json|malformed",
+    "status": 422,
+    "response": {
+      "detail": [
+        {
+          "loc": [
+            "body",
+            1
+          ],
+          "msg": "Invalid request",
+          "type": "value_error"
+        }
+      ]
+    },
+    "engine_calls": []
+  },
+  {
+    "case": "application/problem+json|invalid-utf8",
+    "status": 400,
+    "response": {
+      "detail": "There was an error parsing the body"
+    },
+    "engine_calls": []
+  },
+  {
+    "case": "application/json; charset=utf-8|valid",
+    "status": 200,
+    "response": {
+      "result": "success"
+    },
+    "engine_calls": [
+      {
+        "exchange": "UPBIT",
+        "base": "BTC",
+        "quote": "KRW",
+        "unified_symbol": "BTC/KRW",
+        "side": "buy",
+        "amount": 0.005,
+        "price": 100.0,
+        "cost": null,
+        "percent": null,
+        "strategy_id": "synthetic-strategy",
+        "signal_id": "UPBITBTCbuy",
+        "order_name": "LL",
+        "tv_signal": null,
+        "is_futures": null,
+        "is_coinm": null,
+        "is_entry": null,
+        "is_close": null,
+        "is_buy": true,
+        "is_sell": null
+      }
+    ]
+  },
+  {
+    "case": "application/json; charset=utf-8|bad-auth",
+    "status": 422,
+    "response": {
+      "detail": [
+        {
+          "loc": [
+            "body",
+            "password"
+          ],
+          "msg": "Invalid request",
+          "type": "value_error"
+        }
+      ]
+    },
+    "engine_calls": []
+  },
+  {
+    "case": "application/json; charset=utf-8|null",
+    "status": 422,
+    "response": {
+      "detail": [
+        {
+          "loc": [
+            "body"
+          ],
+          "msg": "field required",
+          "type": "value_error.missing"
+        }
+      ]
+    },
+    "engine_calls": []
+  },
+  {
+    "case": "application/json; charset=utf-8|empty",
+    "status": 422,
+    "response": {
+      "detail": [
+        {
+          "loc": [
+            "body"
+          ],
+          "msg": "field required",
+          "type": "value_error.missing"
+        }
+      ]
+    },
+    "engine_calls": []
+  },
+  {
+    "case": "application/json; charset=utf-8|malformed",
+    "status": 422,
+    "response": {
+      "detail": [
+        {
+          "loc": [
+            "body",
+            1
+          ],
+          "msg": "Invalid request",
+          "type": "value_error"
+        }
+      ]
+    },
+    "engine_calls": []
+  },
+  {
+    "case": "application/json; charset=utf-8|invalid-utf8",
+    "status": 400,
+    "response": {
+      "detail": "There was an error parsing the body"
+    },
+    "engine_calls": []
+  },
+  {
+    "case": "|valid",
+    "status": 200,
+    "response": {
+      "result": "success"
+    },
+    "engine_calls": [
+      {
+        "exchange": "UPBIT",
+        "base": "BTC",
+        "quote": "KRW",
+        "unified_symbol": "BTC/KRW",
+        "side": "buy",
+        "amount": 0.005,
+        "price": 100.0,
+        "cost": null,
+        "percent": null,
+        "strategy_id": "synthetic-strategy",
+        "signal_id": "UPBITBTCbuy",
+        "order_name": "LL",
+        "tv_signal": null,
+        "is_futures": null,
+        "is_coinm": null,
+        "is_entry": null,
+        "is_close": null,
+        "is_buy": true,
+        "is_sell": null
+      }
+    ]
+  },
+  {
+    "case": "|bad-auth",
+    "status": 422,
+    "response": {
+      "detail": [
+        {
+          "loc": [
+            "body",
+            "password"
+          ],
+          "msg": "Invalid request",
+          "type": "value_error"
+        }
+      ]
+    },
+    "engine_calls": []
+  },
+  {
+    "case": "|null",
+    "status": 422,
+    "response": {
+      "detail": [
+        {
+          "loc": [
+            "body"
+          ],
+          "msg": "field required",
+          "type": "value_error.missing"
+        }
+      ]
+    },
+    "engine_calls": []
+  },
+  {
+    "case": "|empty",
+    "status": 422,
+    "response": {
+      "detail": [
+        {
+          "loc": [
+            "body"
+          ],
+          "msg": "field required",
+          "type": "value_error.missing"
+        }
+      ]
+    },
+    "engine_calls": []
+  },
+  {
+    "case": "|malformed",
+    "status": 422,
+    "response": {
+      "detail": [
+        {
+          "loc": [
+            "body",
+            1
+          ],
+          "msg": "Invalid request",
+          "type": "value_error"
+        }
+      ]
+    },
+    "engine_calls": []
+  },
+  {
+    "case": "|invalid-utf8",
+    "status": 400,
+    "response": {
+      "detail": "There was an error parsing the body"
+    },
+    "engine_calls": []
+  }
+]

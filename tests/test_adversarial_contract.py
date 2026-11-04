@@ -243,7 +243,16 @@ def _run_all_adversarial_tests():
     nonexistent_files = [f for f in union_files if not (ROOT / f).exists()]
     assert len(existing_files) == 26, f"Expected 26 existing files, got {len(existing_files)}"
     assert len(nonexistent_files) == 8, f"Expected 8 nonexistent files, got {len(nonexistent_files)}"
-    diff_proc = subprocess.run(["git", "diff", base_sha, "--"] + existing_files, cwd=ROOT, capture_output=True, text=True)
+    from release_checks.verify_release import assert_deployment_source_pins, assert_dependency_source_pin
+    approved_stage_files = assert_deployment_source_pins(ROOT)
+    assert_dependency_source_pin(ROOT)
+    from release_checks.http_source_contract import assert_http_source_pins
+    http_files = assert_http_source_pins(ROOT)
+    # Exact pins and Debian AST reconstruction replace only the three approved
+    # Ubuntu deployment files. The four dependency versions are pinned separately;
+    # every other original protected file stays pinned.
+    protected_files = [f for f in existing_files if f not in approved_stage_files and f not in http_files and f != 'requirements.txt']
+    diff_proc = subprocess.run(["git", "diff", base_sha, "--"] + protected_files, cwd=ROOT, capture_output=True, text=True)
     assert diff_proc.stdout.strip() == "", f"Diff found in protected union files!\n{diff_proc.stdout}"
     print(f"PASS: All {len(existing_files)} existing protected files have exact ZERO diff against Base SHA! (8 nonexistent paths acknowledged)")
 

@@ -154,7 +154,7 @@ def test_actual_order_route_mock_to_notification(env,venue):
  import ast,asyncio
  from types import SimpleNamespace as NS
  e=env;root=Path.cwd();tree=ast.parse((root/'main.py').read_text(encoding='utf-8-sig'))
- nodes=[n for n in tree.body if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef)) and n.name in ('order','schedule_order_log')]
+ nodes=[n for n in tree.body if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef)) and n.name in ('_v1_request','_order_http','order','schedule_order_log')]
  for n in nodes:n.decorator_list=[]
  calls=[]
  class Bot:
@@ -162,6 +162,11 @@ def test_actual_order_route_mock_to_notification(env,venue):
   def market_buy(self,info):calls.append(('buy',info.amount,info.price));return {'id':'route-buy'}
   def market_sell(self,info):calls.append(('sell',info.amount,info.price));return {'id':'route-sell'}
  bot=Bot();namespace=dict(settings=e.st,MarketOrder=object,BackgroundTasks=object,get_bot=lambda *a:bot,log=e.log,is_verified_exchange=lambda v:True,get_error=lambda err:(_ for _ in ()).throw(err))
+ from fastapi import Request
+ from fastapi.exceptions import RequestValidationError
+ from pydantic.v1 import ValidationError
+ from pydantic.v1.fields import ModelField
+ namespace.update(Request=Request,RequestValidationError=RequestValidationError,ValidationError=ValidationError,ModelField=ModelField,json=json)
  exec(compile(ast.Module(body=nodes,type_ignores=[]),str(root/'main.py'),'exec'),namespace)
  for side,price in [('buy','150'),('sell','160')]:
   sig=dict(kind='strategy_order_fill',price=price,quantity='2',action=side,order_id=side,signal_id='route-'+side,strategy_id='tv-route')
