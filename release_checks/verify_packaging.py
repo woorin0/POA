@@ -1,5 +1,6 @@
 """Verify non-circular User Data pin against an existing product commit."""
 import hashlib
+import ast
 import json
 from pathlib import Path
 import re
@@ -16,6 +17,10 @@ def verify():
     assert config['install_mode'] == 'NEW_SERVER_STAGE_ONLY'
     commit = config['repo_ref']; digest = config['release_manifest_sha256']
     assert re.fullmatch('[0-9a-f]{40}', commit) and re.fullmatch('[0-9a-f]{64}', digest)
+    node=next(n for n in ast.parse((ROOT/'deployment/build_cloud_config.py').read_text(encoding='utf-8')).body if isinstance(n,ast.FunctionDef) and n.name=='build_ubuntu')
+    ns={'HERE':ROOT/'deployment','json':json}
+    exec(compile(ast.Module(body=[node],type_ignores=[]),'actual_cloud_config_builder','exec'),ns)
+    assert (ROOT/'deployment/cloud-config-ubuntu2204.yaml').read_bytes()==ns['build_ubuntu'](commit,digest).encode('utf-8')
     def blob(path):
         return subprocess.check_output(['git', 'show', commit+':'+path], cwd=ROOT)
     manifest = blob('release_manifest_sha256.json')

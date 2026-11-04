@@ -11,8 +11,8 @@
   },
   {
     "Path": "deployment/install_once.py",
-    "Bytes": 24748,
-    "SHA256": "C54171F248126DB1C20B73F8514B2FB8CB9E8611F170AE0DAD9709D4FC466816"
+    "Bytes": 24959,
+    "SHA256": "5572D3CEF61050BFEBA684DCB573B4057F0714DA85FBDB6B9BFE62761A471374"
   },
   {
     "Path": "deployment/prepare_ubuntu.py",

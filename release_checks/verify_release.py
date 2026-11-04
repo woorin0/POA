@@ -4,7 +4,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 
-APPROVED_STAGE_PINS = {'deployment/build_cloud_config.py': '8093e3b61591972b3983e9fb0b007449b196355feaccbb60bf8036b7585fec64', 'deployment/install_once.py': 'c54171f248126db1c20b73f8514b2fb8cb9e8611f170ae0dad9709d4fc466816', 'deployment/prepare_ubuntu.py': '7d8f570f756cd41694001de12b271f4dc443fd21a45a06acc1b68c972bad605b'}
+APPROVED_STAGE_PINS = {'deployment/build_cloud_config.py': '8093e3b61591972b3983e9fb0b007449b196355feaccbb60bf8036b7585fec64', 'deployment/install_once.py': '5572d3cef61050bfeba684dcb573b4057f0714da85fbdb6b9bfe62761a471374', 'deployment/prepare_ubuntu.py': '7d8f570f756cd41694001de12b271f4dc443fd21a45a06acc1b68c972bad605b'}
 
 def assert_deployment_source_pins(root=ROOT):
     """Only these exact Ubuntu staging bytes; no broad deployment exception."""

@@ -76,6 +76,9 @@ def test_stage_only_no_service_start_no_credentials(tmp_path,monkeypatch,corrupt
         assert not any(c[0]=='systemctl' for c in calls)
         return
     I.stage_ubuntu(config())
+    bootstrap=next(c for c in calls if 'pip==26.3' in c)
+    assert bootstrap==[str(app/'.venv/bin/python'),'-m','pip','install','--no-cache-dir','pip==26.3','setuptools==84.2.1']
+    assert any(c[:2]==[str(app/'.venv/bin/python'),'-c'] and "m.version('setuptools') == '84.2.1'" in c[2] for c in calls)
     assert validations==['a'*64]*2
     assert I.os.environ['PYTHONDONTWRITEBYTECODE']=='1'
     assert any(str(I.APP/'release_checks/run.py') in c for c in calls)
@@ -87,7 +90,20 @@ def test_stage_only_no_service_start_no_credentials(tmp_path,monkeypatch,corrupt
 
 def test_user_data_secret_free_and_embedded_sources_match():
     import yaml
-    data=yaml.safe_load((ROOT/'deployment/cloud-config-ubuntu2204.yaml').read_text(encoding='utf-8'))
+    ci=yaml.load((ROOT/'.github/workflows/pr_verification.yml').read_text(encoding='utf-8'),Loader=yaml.BaseLoader)
+    assert ci['on']['push']['branches']==['main'] and ci['on']['pull_request']['branches']==['main']
+    steps=ci['jobs']['offline']['steps']
+    install=next(s['run'] for s in steps if s.get('name')=='Install isolated test dependencies')
+    assert 'pip==26.3 setuptools==84.2.1' in install and "m.version('setuptools') == '84.2.1'" in install
+    audit=next(s['run'] for s in steps if s.get('name')=='Audit complete installed Python environment (no suppressions)')
+    assert 'pip freeze --all' in audit and '--ignore-vuln' not in audit
+    # Product D excludes packaging E. Test the actual builder here; the separate
+    # packaging gate checks the complete stored E document against this output.
+    import ast
+    node=next(n for n in ast.parse((ROOT/'deployment/build_cloud_config.py').read_text(encoding='utf-8')).body if isinstance(n,ast.FunctionDef) and n.name=='build_ubuntu')
+    ns={'HERE':ROOT/'deployment','json':json}
+    exec(compile(ast.Module(body=[node],type_ignores=[]),'actual_cloud_config_builder','exec'),ns)
+    data=yaml.safe_load(ns['build_ubuntu']('d'*40,'a'*64))
     files={x['path']:x for x in data['write_files']}
     inputs=json.loads(files['/root/poa-stage-input.json']['content']);I.validate_stage(inputs)
     assert 'credentials' not in inputs

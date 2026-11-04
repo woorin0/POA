@@ -3,7 +3,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main, fix/poa-release-safety-pr3]
+    branches: [main]
 permissions:
   contents: read
 jobs:
@@ -32,9 +32,10 @@ jobs:
       # Package downloads happen before the test network tripwire is enabled.
       - name: Install isolated test dependencies
         run: |
-          python -m pip install pip==26.3
+          python -m pip install pip==26.3 setuptools==84.2.1
           python -m pip install -r requirements.txt
           python -m pip install pytest==9.1.1 pytest-subtests pytest-asyncio pytest-cov cryptography PyYAML
+          python -c "import importlib.metadata as m; print('SETUPTOOLS_VERSION=' + m.version('setuptools')); assert m.version('setuptools') == '84.2.1'"
           python -m pip check
       - name: Audit complete installed Python environment (no suppressions)
         shell: bash
@@ -42,7 +43,7 @@ jobs:
           python -m pip freeze --all > installed-freeze.txt
           python -m venv .audit-tool
           if [ "$RUNNER_OS" = "Windows" ]; then TOOL=.audit-tool/Scripts/python; else TOOL=.audit-tool/bin/python; fi
-          "$TOOL" -m pip install pip-audit==2.10.1
+          "$TOOL" -m pip install pip==26.3 setuptools==84.2.1 pip-audit==2.10.1
           "$TOOL" -m pip_audit --no-deps --disable-pip -r installed-freeze.txt
       - name: Independent Ed25519, amount, admission and installer gates (no legacy bridge)
         run: python release_checks/run.py -q --tb=short --junitxml=independent.xml
