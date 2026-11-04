@@ -16,6 +16,15 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Disable AutoCRLF and checkout files as stored
+        shell: bash
+        run: |
+          git config core.autocrlf false
+          git rm --cached -r .
+          git reset --hard HEAD
 
       - name: Set up Python 3.10
         uses: actions/setup-python@v5
@@ -67,6 +76,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python 3.10
         uses: actions/setup-python@v5
