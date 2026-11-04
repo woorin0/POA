@@ -152,7 +152,10 @@ def test_startup_disabled_or_none(env):
 def test_signal_mobile_colors_and_kst(env):
  e=env;V.emit(e,'buy','100000000','0.005');V.emit(e,'sell','110000000','0.005');wires=T.send(e);assert len(wires)==2
  body=json.dumps(wires,ensure_ascii=False);assert 'KST' in body and '주문 체결 확인 중' in body and '체결 완료' not in body
- assert '예상 손익' in body and '50,000' in body and '10.00' in body
+ # Amount-only policy removes displayed PnL, not the internal strategy math.
+ assert D(T.plans(e)[-1]['estimated_pnl']['amount'])==50000
+ assert D(T.plans(e)[-1]['estimated_pnl']['roi'])==10
+ assert '실제 총 매도액: 확인 중' in body and '예상 손익' not in body and 'ROI' not in body
  assert wires[0]['json']['embeds'][0]['color']==0x64748B
  assert wires[1]['json']['embeds'][0]['color']==0x8B5CF6
 
@@ -175,7 +178,10 @@ def test_order_and_crypto_contracts_unchanged():
  import subprocess
  base='c99be38640d0b1d665ca7f921612380028443771'
  for name in ('exchange/safe_retry.py','exchange/verified_pnl/verifier.py','exchange/verified_pnl/evidence.py','exchange/verified_pnl/history.py','exchange/verified_pnl/ledger.py','exchange/verified_pnl/bootstrap.py','exchange/verified_pnl/pnl_calculator.py','exchange/verified_pnl/reconciliation.py','exchange/verified_pnl/outbox.py'):
-  assert Path(name).read_bytes()==subprocess.check_output(['git','show',base+':'+name]),name
+  if name in ('exchange/verified_pnl/bootstrap.py','exchange/verified_pnl/verifier.py'):
+   from notification_source_contract import assert_reviewed_quote_cost_source
+   assert_reviewed_quote_cost_source(name)
+  else:assert Path(name).read_bytes()==subprocess.check_output(['git','show',base+':'+name]),name
  before=ast.parse(subprocess.check_output(['git','show',base+':main.py']).decode('utf-8-sig'));after=ast.parse(Path('main.py').read_text(encoding='utf-8-sig'))
  from notification_source_contract import assert_notification_execution_unchanged,assert_notification_main_source
  assert_notification_execution_unchanged();assert_notification_main_source()

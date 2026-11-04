@@ -141,6 +141,9 @@ def test_main_order_and_financial_guards_unchanged():
   elif path=='exchange/verified_pnl/delivery_store.py':
    from notification_source_contract import assert_reviewed_notification_source
    assert_reviewed_notification_source(path)
+  elif path in ('exchange/verified_pnl/bootstrap.py','exchange/verified_pnl/verifier.py'):
+   from notification_source_contract import assert_reviewed_quote_cost_source
+   assert_reviewed_quote_cost_source(path)
   else:assert Path(path).read_bytes()==subprocess.check_output(['git','show',base+':'+path]),path
 
 

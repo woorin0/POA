@@ -46,13 +46,15 @@ def test_linux_startup_actual_log_worker_get_to_estimated(local):
     if n==1:break
     time.sleep(.02)
    assert n==1;T.feed(r,'sell');deadline=time.time()+10
-   while not observer.records and time.time()<deadline:time.sleep(.02)
+   while len(observer.records)<2 and time.time()<deadline:time.sleep(.02)
   finally:
    if stop is not None:stop.set()
+   ops=getattr(ns['app'].state,'operational_alert_stop',None)
+   if ops is not None:ops.set();ops.worker_thread.join(2)
    deadline=time.time()+5
    while any(t.name=='verified-notifications' for t in threading.enumerate()) and time.time()<deadline:time.sleep(.02)
   wires=observer.finish()
- assert len(wires)==1 and len(r.linux['http'])==2
+ assert len(wires)==2 and len(r.linux['http'])==2
  p=T.payload(r);assert T.T.D(p['estimated_pnl']['amount'])==9895000 and p['financial_receipt'] is None
  assert T.send(r)==[]
  (Path(__file__).parent/'worker_wire.json').write_text(json.dumps(wires),encoding='utf-8')
@@ -109,7 +111,7 @@ def test_missing_buy_or_fee(local,missing):
  T.feed(r,'sell');T.tick(r);v=T.payload(r)['estimated_pnl']
  if missing=='buy':assert v['status']=='UNAVAILABLE'
  else:assert v['fee_mode']=='MISSING' and T.T.D(v['amount'])==10000000
- assert len(T.send(r))==1
+ assert len(T.send(r))==(1 if missing=='buy' else 2)
 
 
 def test_settings_dotenv_and_process_precedence(tmp_path,monkeypatch):
@@ -130,7 +132,7 @@ def test_cloud_init_installer_and_service_settings_contract(local):
  d=yaml.safe_load((ROOT/'deployment/cloud-config-ubuntu2204.yaml').read_text(encoding='utf-8'))
  files={x['path']:x for x in d['write_files']};embedded=files['/usr/local/lib/poa/install_once.py']['content']
  assert embedded.rstrip()==(ROOT/'deployment/install_once.py').read_text(encoding='utf-8').rstrip();compile(embedded,'cloud-installer','exec')
- inp=json.loads(files['/root/poa-install-input.json']['content']);assert 'upbit_estimated_read' not in inp and inp['repo_ref']=='main'
+ inp=json.loads(files['/root/poa-install-input.json']['content']);assert 'upbit_estimated_read' not in inp and inp['repo_ref']=='e53cc55eb46cc56c07b6ca0b0b7c7993b5507573'
  assert files['/root/poa-install-input.json']['permissions']=='0600'
  service=files['/etc/systemd/system/poa.service']['content'];assert 'WorkingDirectory=/root/POA' in service and 'User=root' in service
  assert 'UPBIT_SECRET' not in service and 'EnvironmentFile=' not in service # Pydantic reads .env; no shell JSON quoting ambiguity.

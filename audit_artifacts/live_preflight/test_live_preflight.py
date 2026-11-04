@@ -119,13 +119,15 @@ def test_actual_startup_local_sources_worker_estimated(local):
     if n==1:break
     time.sleep(.02)
    assert n==1;T.feed(r,'sell');deadline=time.time()+10
-   while not observer.records and time.time()<deadline:time.sleep(.02)
+   while len(observer.records)<2 and time.time()<deadline:time.sleep(.02)
   finally:
    if stop is not None:stop.set()
+   ops=getattr(ns['app'].state,'operational_alert_stop',None)
+   if ops is not None:ops.set();ops.worker_thread.join(2)
    deadline=time.time()+5
    while any(t.name=='verified-notifications' for t in threading.enumerate()) and time.time()<deadline:time.sleep(.02)
   wires=observer.finish()
- assert len(wires)==1 and len(r.local['http'])==2 and T.T.D(T.payload(r)['estimated_pnl']['amount'])==9895000
+ assert len(wires)==2 and len(r.local['http'])==2 and T.T.D(T.payload(r)['estimated_pnl']['amount'])==9895000
  assert T.payload(r)['financial_receipt'] is None and T.send(r)==[]
  (Path(__file__).parent/'worker_wire.json').write_text(json.dumps(wires),encoding='utf-8')
 

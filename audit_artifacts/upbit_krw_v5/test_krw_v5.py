@@ -101,7 +101,12 @@ def test_full_native_trusted_path_oracle_embed_wire_restart(krw):
  k=krw;p=positive(k)
  for receipt,kind in [(p.execution_receipt,'EXECUTION'),(p.accounting_receipt,'ACCOUNTING'),(p.financial_receipt,'FINANCIAL')]:
   assert receipt['version']==5 and receipt['profile']==E.KRW_PROFILE and E.verify(receipt,kind)
- desc=H.de.build_mobile_verified_embed(p).to_dict()['description'];assert '미확정' not in desc and '+9,895,000원 (+9.89%)' in desc and '매수가: 100,000,000원' in desc
+ # positive() above still verifies acquisition, cost, exact Net and ROI; all three
+ # genuine v5 signatures above and frozen-wire/restart assertions below remain.
+ desc=H.de.build_mobile_verified_embed(p).to_dict()['description']
+ assert '미확정' not in desc and '실제 총 매도액: 110,000,000원' in desc
+ assert '실제 평균 체결가: 110,000,000원' in desc
+ assert '손익' not in desc and 'ROI' not in desc and '9,895,000' not in desc
  with FrozenWireObserver(store(k)) as obs:H.dp.flush_outbox(k.st)
  wire=obs.finish();assert len(wire)==1 and wire[0]['ack']['status']=='SENT'
  before=wire[0]

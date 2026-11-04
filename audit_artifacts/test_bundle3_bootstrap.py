@@ -191,9 +191,17 @@ def test_actual_worker_wiring_execution_only_and_same_fact_post_zero(rig):
 
 
 def test_no_provider_worker_does_not_create_client(rig):
- with patch.object(H.dp,'ReadClients') as clients,patch('requests.post') as post:
-  assert H.dp.start_worker(rig.st) is None
- assert clients.call_count==0 and post.call_count==0
+ stop=None
+ try:
+  with patch.object(H.dp,'ReadClients') as clients,patch('requests.post') as post:
+   stop=H.dp.start_worker(rig.st)
+   assert stop is not None
+  assert clients.call_count==0 and post.call_count==0
+ finally:
+  if stop is not None:
+   stop.set()
+   stop.worker_thread.join(timeout=5)
+   assert not stop.worker_thread.is_alive(), 'test worker cleanup failed'
 
 
 def test_canary_no_log_wire_or_database_leaks(rig,capsys):

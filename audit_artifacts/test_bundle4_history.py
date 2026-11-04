@@ -457,6 +457,8 @@ def test_fractional_entry_fee_keeps_verified_accounting_precision(history):
   precision.prec=512
   assert D(p['net_pnl'].split()[0])==D(26)/D(3)
  wire=send(h)[0];description=json.loads(wire)['embeds'][0]['description']
- assert '+8.6667 USDT' in description and '손익 검증 완료' in description
+ # Amount-only policy changes presentation, not the signed 26/3 PnL above.
+ assert '실제 총 매도액: 160 USDT' in description
+ assert '+8.6667 USDT' not in description and '손익' not in description and 'ROI' not in description
  (H.ROOT/'audit_artifacts/bundle4_fractional_display.json').write_text(json.dumps({'description_length':len(description),'full_precision_matches':p['net_pnl'] in description,'rounded_8_6667_present':'+8.6667 USDT' in description}),encoding='utf8')
  assert D('150.33')<D(p['cost_basis'])<D('150.34')

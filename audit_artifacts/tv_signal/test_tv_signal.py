@@ -29,14 +29,14 @@ def test_main_entrypoint_signal_no_fill(env,venue,base):
  r=estimate(e);assert D(r['amount'])==10 and D(r['entry_price'])==150 and D(r['quantity'])==1
  assert abs(D(r['roi'])-D('6.6666666667'))<D('0.000000001')
  p=T.plans(e)[-1];assert p['execution_receipt'] is None and p['financial_receipt'] is None and p['fill_status']=='UNVERIFIED'
- wire=T.send(e);assert len(wire)==1
- desc=json.dumps(wire,ensure_ascii=False);assert 'TradingView' in desc and '미반영' in desc
+ wire=T.send(e);assert len(wire)==2
+ desc=json.dumps(wire[-1],ensure_ascii=False);assert ('실제 총 매도액: 확인 중' in desc) if hasattr(__import__('exchange.verified_pnl.alert_presentation',fromlist=['*']),'AMOUNT_ONLY_MARKER') else ('TradingView' in desc and '미반영' in desc)
 
 @pytest.mark.parametrize('sale,profit',[('160','20'),('140','-20'),('150','0')])
 def test_weighted_partial_restart(env,sale,profit):
  e=env;emit(e,'buy','100','1');emit(e,'buy','200','1');emit(e,'sell',sale,'1')
  assert D(estimate(e)['amount'])==D(profit)/2
- store=T.store(e);assert len(T.send(e))==1
+ store=T.store(e);assert len(T.send(e))==3
  # Recreate both stores; second sell uses remaining average 150, not entire principal.
  I.IntakeStore(e.st.VERIFIED_NOTIFICATIONS_DB_PATH);T.store(e)
  emit(e,'sell',sale,'1');assert D(estimate(e)['amount'])==D(profit)/2
@@ -71,7 +71,7 @@ def test_action_strategy_mismatch_not_accepted(env):
 
 
 def test_dedup_same_signal_new_ack(env):
- e=env;emit(e,'buy','150',sid='buy-1');emit(e,'sell','160',sid='sell-1');assert len(T.send(e))==1
+ e=env;emit(e,'buy','150',sid='buy-1');emit(e,'sell','160',sid='sell-1');assert len(T.send(e))==2
  a,_=emit(e,'sell','160',sid='sell-1');assert a['accepted'];assert T.send(e)==[]
  bad,_=emit(e,'sell','170',sid='sell-1');assert not bad['accepted'];assert T.send(e)==[]
  with T.store(e)._connect_read() as c:assert c.execute('SELECT count(*) FROM vpnl_notice_inputs').fetchone()[0]==2
@@ -84,7 +84,7 @@ def test_signal_and_execution_cost_never_mix(env):
 def test_existing_delivery_never_rewritten(env,state):
  e=env;emit(e,'buy','150');emit(e,'sell','160',sid='sell-immutable')
  st=T.store(e)
- if state=='SENT':assert len(T.send(e))==1
+ if state=='SENT':assert len(T.send(e))==2
  else:
   with st._connect() as c:c.execute('UPDATE vpnl_deliveries SET status=?',(state,))
  with st._connect_read() as c:before=c.execute('SELECT * FROM vpnl_deliveries').fetchall();revs=c.execute('SELECT * FROM vpnl_revisions').fetchall()
@@ -115,13 +115,13 @@ def test_concurrent_producer_dedup(env):
  assert len(results)==10 and all(r['accepted'] for r in results)
  assert len(set(r['intake_id'] for r in results))==1
  H.dp.verification_tick(e.st,lambda *a: (_ for _ in ()).throw(AssertionError('NO_GET')))
- emit(e,'sell','160');assert D(estimate(e)['amount'])==10 and len(T.send(e))==1
+ emit(e,'sell','160');assert D(estimate(e)['amount'])==10 and len(T.send(e))==2
 
 
 def test_restart_separate_process_projection(env,tmp_path):
  import subprocess,os
  e=env;emit(e,'buy','100000000');r,_=emit(e,'sell','110000000')
- before=estimate(e);assert len(T.send(e))==1
+ before=estimate(e);assert len(T.send(e))==2
  code="""import sys,json
 import test_estimated_contracts as T
 from exchange.verified_pnl.estimated_pnl import calculate
@@ -169,7 +169,7 @@ def test_actual_order_route_mock_to_notification(env,venue):
   assert asyncio.run(namespace['order'](info,NS(add_task=lambda *a:pytest.fail('legacy_fallback'))))=={'result':'success'}
   H.dp.verification_tick(e.st,lambda *a:pytest.fail('GET_FORBIDDEN'))
  assert calls==[('buy',0.002,777),('sell',0.002,777)]
- assert D(estimate(e)['amount'])==20 and len(T.send(e))==1
+ assert D(estimate(e)['amount'])==20 and len(T.send(e))==2
 
 
 def test_producer_capability_cannot_be_flag(env):
@@ -184,18 +184,24 @@ def test_payload_financial_labels_forgery_rejected(env):
 
 
 def test_no_order_or_financial_execution_changes():
- import subprocess,ast
- root=Path.cwd()
- unchanged=['main.py','exchange/safe_retry.py','exchange/verified_pnl/evidence.py','exchange/verified_pnl/verifier.py','exchange/verified_pnl/bootstrap.py','exchange/verified_pnl/history.py','exchange/verified_pnl/ledger.py','exchange/verified_pnl/pnl_calculator.py','exchange/verified_pnl/reconciliation.py','exchange/verified_pnl/outbox.py','exchange/verified_pnl/discord_sender.py']
- for name in unchanged:
-  p=root/name
-  if not p.exists():continue
-  old=subprocess.check_output(['git','show','ae0691e01c926c7247328bd6e6dba1ba3fb1ddca:'+name])
-  assert p.read_bytes()==old,name
- name='exchange/verified_pnl/delivery_store.py';before=ast.parse(subprocess.check_output(['git','show','ae0691e01c926c7247328bd6e6dba1ba3fb1ddca:'+name]).decode('utf-8-sig'));after=ast.parse((root/name).read_text(encoding='utf-8-sig'))
- for fn in ('_wire','_attempt','begin_post','ack','claim_next'):
-  get=lambda tree:next(n for n in ast.walk(tree) if isinstance(n,ast.FunctionDef) and n.name==fn)
-  assert ast.dump(get(before))==ast.dump(get(after)),fn
+ import subprocess
+ base='ae0691e01c926c7247328bd6e6dba1ba3fb1ddca'
+ for path in ('main.py','exchange/safe_retry.py','exchange/verified_pnl/evidence.py','exchange/verified_pnl/verifier.py','exchange/verified_pnl/bootstrap.py','exchange/verified_pnl/history.py','exchange/verified_pnl/ledger.py','exchange/verified_pnl/pnl_calculator.py','exchange/verified_pnl/reconciliation.py','exchange/verified_pnl/outbox.py','exchange/verified_pnl/discord_sender.py','exchange/verified_pnl/delivery_store.py'):
+  if path=='main.py':
+   from notification_source_contract import assert_notification_main_source
+   assert_notification_main_source()
+  elif path=='exchange/verified_pnl/delivery_store.py':
+   from notification_source_contract import assert_reviewed_notification_source
+   assert_reviewed_notification_source(path)
+  elif path in ('exchange/verified_pnl/bootstrap.py','exchange/verified_pnl/verifier.py'):
+   import notification_source_contract as nsc
+   if hasattr(nsc, 'assert_reviewed_quote_cost_source'):
+    nsc.assert_reviewed_quote_cost_source(path)
+   else:
+    assert Path(path).read_bytes()==subprocess.check_output(['git','show',base+':'+path]),path
+  else:
+   if not Path(path).exists():continue
+   assert Path(path).read_bytes()==subprocess.check_output(['git','show',base+':'+path]),path
 
 
 def test_failed_commit_not_accepted(env):

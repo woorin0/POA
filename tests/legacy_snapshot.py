@@ -15,7 +15,7 @@ for ex in ["BINANCE", "BYBIT", "OKX"]:
                                leverage=2, margin_mode=margin, **sizing)
                 info = schema.OrderRequest(**payload)
                 parsed = info.dict()
-                for key in ["signal_id", "signal_time", "strategy_id"]:
+                for key in ["signal_id", "signal_time", "strategy_id", "tv_signal"]:
                     parsed.pop(key, None)
                 bot = bot_for(ex, info)
                 method = "market_entry" if info.is_entry else "market_close" if info.is_close else "market_buy" if info.is_buy else "market_sell"

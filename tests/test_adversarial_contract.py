@@ -1,6 +1,4 @@
 import os, sys, tempfile, json, time, random, string, dataclasses
-os.environ["PASSWORD"] = "test"
-os.environ["DISCORD_WEBHOOK_URL"] = "https://discord.com/api/webhooks/1/dummy"
 from decimal import Decimal as D
 from pathlib import Path
 from types import SimpleNamespace as NS
@@ -23,6 +21,12 @@ def random_string(n=10):
     return "".join(random.choices(string.ascii_letters + string.digits, k=n))
 
 def run_all_adversarial_tests():
+    # Test configuration belongs to execution, never pytest collection/import.
+    with patch.dict(os.environ, {"PASSWORD": "test", "DISCORD_WEBHOOK_URL": "https://discord.com/api/webhooks/1/dummy"}):
+        return _run_all_adversarial_tests()
+
+
+def _run_all_adversarial_tests():
     print("=== STARTING ADVERSARIAL AND CONTRACT VERIFICATION TESTS ===")
 
     # -------------------------------------------------------------------------

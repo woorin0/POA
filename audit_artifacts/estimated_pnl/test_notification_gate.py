@@ -5,7 +5,11 @@ No synthetic NotificationPayload is passed to a renderer.
 import ast,copy,json,sqlite3,sys,hashlib,uuid
 from pathlib import Path
 from unittest.mock import Mock,patch
-import pytest
+import os,pytest
+_paths=[Path(__file__).resolve().parents[2],Path(__file__).resolve().parents[2]/'tests',Path(__file__).resolve().parents[1]]+[d for d in Path(__file__).resolve().parents[1].iterdir() if d.is_dir() and d.name!='__pycache__']
+for _p in _paths:
+ if str(_p) not in sys.path:sys.path.insert(0,str(_p))
+os.environ['PYTHONPATH']=os.pathsep.join([str(_p) for _p in _paths]+([os.environ['PYTHONPATH']] if os.environ.get('PYTHONPATH') else []))
 import r6_worker_harness as H
 from exchange.verified_pnl.bootstrap import configure_execution_bootstrap
 from exchange.verified_pnl.history import configure_history_provider
@@ -54,5 +58,6 @@ def test_actual_notification_entry_raw_fill_requires_estimate(tmp_path,venue):
  (OUT/(venue.lower()+'_entrypoint.json')).write_text(json.dumps(proof,ensure_ascii=False,indent=2),encoding='utf-8')
  with sqlite3.connect(st.VERIFIED_NOTIFICATIONS_DB_PATH) as c,sqlite3.connect(OUT/(venue.lower()+'_fixture.sqlite')) as dst:c.backup(dst)
  with sqlite3.connect(sidecar.path) as c,sqlite3.connect(OUT/(venue.lower()+'_intake_fixture.sqlite')) as dst:c.backup(dst)
- assert post.call_count==1,'RAW_OBSERVED_ESTIMATE_NOT_DELIVERED: '+json.dumps({k:proof[k] for k in ('intake_states','job_states','root_count','delivery_count','mock_post_count')})
- assert '추정' in post.call_args.kwargs['data'].decode('utf-8')
+ assert post.call_count==2,'RAW_OBSERVED_ESTIMATE_NOT_DELIVERED: '+json.dumps({k:proof[k] for k in ('intake_states','job_states','root_count','delivery_count','mock_post_count')})
+ wire_text=post.call_args_list[-1].kwargs['data'].decode('utf-8')
+ assert ('실제 총 매도액' in wire_text) if hasattr(__import__('exchange.verified_pnl.alert_presentation',fromlist=['*']),'AMOUNT_ONLY_MARKER') else ('추정' in wire_text)

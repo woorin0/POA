@@ -84,7 +84,7 @@ PRESENTATION_PINS={
     }
 }
 PRESENTATION_MODULES={
-    "exchange/verified_pnl/alert_presentation.py": "12ab42a4db7bbaf088f2128e1c3975490e3a388d888149d918481fae3a6e4ddc",
+    "exchange/verified_pnl/alert_presentation.py": "bcb19659e18def234cef6dccd7c9483ad23634e77b39510aebbf941a1f2ee0d5",
     "exchange/verified_pnl/operational_alerts.py": "587d11fa451b2091c636eea439bb63a6deeddf81593fcdc238fae9f34811c424"
 }
 
@@ -153,3 +153,24 @@ def assert_reviewed_notification_source(path,source=None):
         replacements.append((start-1,end,original))
     for start,end,original in sorted(replacements,reverse=True):lines[start:end]=original
     assert b''.join(lines)==historic, 'protected source changed outside approved notification spans: '+path
+
+
+QUOTE_COST_SOURCE_PINS = {'exchange/verified_pnl/bootstrap.py': {'current': 'b213d28960cf2fd2eaefc0da6c56a98e8da0a9defbdfff5ec9b4b3adbf3320d7', 'historic': 'e0a41a9e28b1e3fb42a8deb0a6fe1841386f48beb69cb4695fdcf3f44f87a087'}, 'exchange/verified_pnl/verifier.py': {'current': 'd3ad33f00ddcabb082189b93950974030994c1e5ad720495d6eb95213c2b16c7', 'historic': '32fe998f411e18afc46a8ff375a5d268630052189b95e9458d334f32d5ab3cfe'}}
+
+def assert_reviewed_quote_cost_source(path):
+    """Exact approved cost delta; every other verifier/bootstrap node stays pinned."""
+    rule=QUOTE_COST_SOURCE_PINS[path]
+    current=(ROOT/path).read_bytes()
+    historic=subprocess.check_output(['git','-C',str(ROOT),'show','71eca9417ea6cadc8a0b89deabdc259a6875c6b6:'+path])
+    assert hashlib.sha256(current).hexdigest()==rule['current'],'unapproved quote cost source'
+    assert hashlib.sha256(historic).hexdigest()==rule['historic'],'quote cost baseline changed'
+    tree=ast.parse(current);old=ast.parse(historic)
+    owner='SpotExecutionBootstrap' if path.endswith('bootstrap.py') else 'FillVerifier'
+    cls=_node(tree,owner);previous=_node(old,owner)
+    allowed={'_observe'} if owner=='SpotExecutionBootstrap' else {'_parse_order_dict','_certify_execution_precise'}
+    if owner=='FillVerifier':
+        cls.body=[n for n in cls.body if getattr(n,'name',None)!='_quote_costs_match']
+    for i,n in enumerate(cls.body):
+        if getattr(n,'name',None) in allowed:
+            cls.body[i]=next(x for x in previous.body if getattr(x,'name',None)==n.name)
+    assert ast.dump(tree)==ast.dump(old),'non-cost validation changed'

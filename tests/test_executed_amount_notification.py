@@ -30,7 +30,9 @@ def payload(*, side="매수", trades=None, filled="3", average="150",
         trades_complete=complete, trades=trades, market_type=market,
         filled_quantity=filled, average_fill_price=average, pnl_currency="USDT",
     )
-    scope = dict(settlement="USDT", market_type=market)
+    scope = dict(exchange="BINANCE",account="test-account",symbol="BTC/USDT",instrument="BTCUSDT",settlement="USDT",market_type=market,contract_size="1")
+    fill.update(exchange="BINANCE",symbol="BTC/USDT",order_id="order-1",contract_size="1",scope_data=scope)
+    for trade in trades:trade.setdefault("order","order-1")
     return SimpleNamespace(
         side=side, verification_source=AMOUNT_ONLY_MARKER,
         execution_receipt={"body":{"fill":fill,"scope":scope}},
