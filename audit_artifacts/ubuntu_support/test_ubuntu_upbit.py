@@ -132,7 +132,11 @@ def test_cloud_init_installer_and_service_settings_contract(local):
  d=yaml.safe_load((ROOT/'deployment/cloud-config-ubuntu2204.yaml').read_text(encoding='utf-8'))
  files={x['path']:x for x in d['write_files']};embedded=files['/usr/local/lib/poa/install_once.py']['content']
  assert embedded.rstrip()==(ROOT/'deployment/install_once.py').read_text(encoding='utf-8').rstrip();compile(embedded,'cloud-installer','exec')
- inp=json.loads(files['/root/poa-stage-input.json']['content']);assert 'upbit_estimated_read' not in inp and inp['repo_ref']=='de969040dec42a369274adb1a59a3d44a2ba3aa6' and inp['install_mode']=='NEW_SERVER_STAGE_ONLY' and 'credentials' not in inp
+ import subprocess
+ from release_checks.verify_packaging import verify as verify_packaging
+ product_commit=subprocess.check_output(['git','log','-1','--format=%H','--','release_manifest_sha256.json'],cwd=ROOT).decode().strip()
+ verify_packaging() # Exact generated E document, D manifest blob and all 70 product bytes.
+ inp=json.loads(files['/root/poa-stage-input.json']['content']);assert 'upbit_estimated_read' not in inp and inp['repo_ref']==product_commit and inp['install_mode']=='NEW_SERVER_STAGE_ONLY' and 'credentials' not in inp
  assert files['/root/poa-stage-input.json']['permissions']=='0600'
  service=files['/usr/local/lib/poa/poa.service.staged']['content'];assert 'WorkingDirectory=/root/POA' in service and 'User=root' in service
  assert 'ExecStartPre=/usr/bin/false' in service and 'Restart=no' in service
