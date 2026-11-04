@@ -384,7 +384,7 @@ class ThreeDefectsVerificationTests(unittest.TestCase):
 
         # Test rollback into isolated directory
         with tempfile.TemporaryDirectory(prefix="poa-norm-test-") as tdir:
-            dest = Path(tdir)
+            dest = Path(tdir).resolve()
             rel = normalize_rel_path("exchange\\model\\schemas.py")
             target = (dest / rel).resolve()
             self.assertTrue(target.is_relative_to(dest))

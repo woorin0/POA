@@ -45,7 +45,7 @@ def test_no_feeaudit_ack_buy_sell_real_entry(local):
  r=local
  assert not hasattr(r.reader,'_krw_audit_capability')
  for side in ('buy','sell'):feed(r,side);tick(r)
- p=ps(r)[0];e=p['estimated_pnl']
+ p=ps(r)[-1];e=p['estimated_pnl']
  assert p['notification_type']=='ESTIMATED' and e['status']=='ESTIMATED'
  assert T.D(e['entry_price'])==100000000 and T.D(e['amount'])==9895000 and T.D('9.88')<T.D(e['roi'])<T.D('9.90')
  assert all(p.get(k) is None for k in ('execution_receipt','accounting_receipt','financial_receipt','net_pnl','roi_pct'))
@@ -53,7 +53,7 @@ def test_no_feeaudit_ack_buy_sell_real_entry(local):
   assert c.execute('SELECT count(*) FROM vpnl_notice_upbit_observations').fetchone()[0]==2
   assert c.execute('SELECT count(*) FROM vpnl_notice_successors').fetchone()[0]==0
   assert all(not json.loads(x[0])['confirmed'] for x in c.execute('SELECT snapshot FROM vpnl_notice_inputs'))
- wires=send(r);assert len(wires)==1
+ wires=send(r);assert len(wires)==2
  (OUT/'normal_wire.json').write_text(json.dumps(wires,ensure_ascii=False,indent=2),encoding='utf-8')
 
 
@@ -66,8 +66,9 @@ def test_missing_paid_fee_gross_not_zero(local):
  r=local
  for raw in r.state['orders'].values():raw.pop('paid_fee')
  for side in ('buy','sell'):feed(r,side);tick(r)
- e=ps(r)[0]['estimated_pnl'];assert e['fee_mode']=='MISSING' and T.D(e['amount'])==10000000
- assert '수수료 미반영 추정 차익' in json.dumps(send(r)[0]['json'],ensure_ascii=False)
+ e=ps(r)[-1]['estimated_pnl'];assert e['fee_mode']=='MISSING' and T.D(e['amount'])==10000000
+ wire_text=json.dumps(send(r)[-1]['json'],ensure_ascii=False)
+ assert ('수수료 미반영' if hasattr(__import__('exchange.verified_pnl.alert_presentation',fromlist=['*']),'AMOUNT_ONLY_MARKER') else '수수료 미반영 추정 차익') in wire_text
  with pytest.raises(ValueError):r.reader.read_order(r.reader,r.buy,'BTC/KRW') # original finance entry remains strict
 
 
@@ -96,8 +97,8 @@ def test_multifill_done_vwap_not_trade_fees(local):
  r.state['orders'][r.buy]=raw_order('local-buy','bid',['100000000','200000000'],TIME)
  r.state['orders'][r.sell]=raw_order('local-sell','ask',['160000000'],TIME+1000)
  for side in ('buy','sell'):feed(r,side);tick(r)
- e=ps(r)[0]['estimated_pnl'];assert T.D(e['entry_price'])==150000000 and T.D(e['amount'])==9845000
- assert len(send(r))==1
+ e=ps(r)[-1]['estimated_pnl'];assert T.D(e['entry_price'])==150000000 and T.D(e['amount'])==9845000
+ assert len(send(r))==2
 
 
 def test_registration_and_forged_observation_cannot_admit(local):
@@ -185,14 +186,14 @@ def test_trade_id_cannot_move_order_after_reader_restart(local):
  # Clearing the reader cache simulates process restart; persisted ownership remains.
  r.reader._owners={}
  sell=r.state['orders'][r.sell];sell['trades'][0]['uuid']=r.state['orders'][r.buy]['trades'][0]['uuid']
- feed(r,'sell');tick(r);assert ps(r)==[] and send(r)==[]
+ feed(r,'sell');tick(r);assert [x for x in ps(r) if x['side']=='매도']==[] and len(send(r))==1
  with store(r)._connect_read() as c:assert c.execute('SELECT reason FROM vpnl_notice_reviews').fetchone()[0]=='upbit_trade_owner_conflict'
 
 
 def test_market_buy_request_total_not_fill_price(local):
  r=local;raw=r.state['orders'][r.buy];raw.update(ord_type='price',price='110000000',volume=None)
  for side in ('buy','sell'):feed(r,side);tick(r)
- assert T.D(ps(r)[0]['estimated_pnl']['entry_price'])==100000000
+ assert T.D(ps(r)[-1]['estimated_pnl']['entry_price'])==100000000
 
 
 def test_no_registered_host_retains_ack(local):
@@ -238,11 +239,11 @@ assert current_bootstrap() is None
 with T.FrozenWireObserver(T.store(r)) as observer:
  stop=T.H.dp.start_worker(r.st,upbit_observation_host=r.host);assert stop is not None
  deadline=time.time()+8
- while not observer.records and time.time()<deadline:time.sleep(.02)
+ while len(observer.records)<2 and time.time()<deadline:time.sleep(.02)
  stop.set()
  deadline=time.time()+5
  while any(x.name=='verified-notifications' for x in threading.enumerate()) and time.time()<deadline:time.sleep(.02)
- records=observer.finish();assert len(records)==1
+ records=observer.finish();assert len(records)==2
 Path(sys.argv[2]).write_text(json.dumps(records),encoding='utf-8')
 assert r.state['calls']==[] # replay uses committed observations, no new GET
 """

@@ -64,7 +64,7 @@ def send(r):
  with FrozenWireObserver(store(r)) as o:H.dp.flush_outbox(r.st)
  return o.finish()
 def payload(r):
- with store(r)._connect_read() as c:return json.loads(c.execute('SELECT payload FROM vpnl_revisions').fetchone()[0])
+ with store(r)._connect_read() as c:return json.loads(c.execute('SELECT payload FROM vpnl_revisions ORDER BY rowid DESC LIMIT 1').fetchone()[0])
 
 def decode_part(t):return json.loads(base64.urlsafe_b64decode(t+'='*(-len(t)%4)))
 
@@ -157,7 +157,10 @@ def test_missing_fees_and_missing_buy(setup):
  assert sell['estimated_pnl']['fee_mode']=='MISSING' and T.D(sell['estimated_pnl']['amount'])==10000000
  assert all(p['financial_receipt'] is None and p['execution_receipt'] is None for p in plans)
  records=send(r);assert len(records)==2 and all(x['ack']['status']=='SENT' for x in records)
- assert '수수료 미반영 추정 차익' in json.dumps(records[1]['json'],ensure_ascii=False)
+ # Keep missing-fee, no-receipt, SENT and no-repost assertions; only PnL display is removed.
+ body=json.dumps(records[1]['json'],ensure_ascii=False)
+ assert '수수료 미반영' in body and '실제 총 매도액: 확인 중' in body
+ assert '추정 차익' not in body and '손익' not in body and 'ROI' not in body
  assert send(r)==[]
 
 

@@ -40,11 +40,11 @@ def test_simple_two_strategies_correct_isolated_pnl(local):
  r=local
  submit(r,'A-buy','buy',['100000000']);submit(r,'B-buy','buy',['200000000'],'strategy-B')
  submit(r,'A-sell','sell',['110000000']);submit(r,'B-sell','sell',['190000000'],'strategy-B')
- p=payloads(r);assert len(p)==2
+ all_p=payloads(r);p=[x for x in all_p if x['side']=='매도'];assert len(all_p)==4 and len(p)==2
  assert [T.T.D(x['estimated_pnl']['amount']) for x in p]==[9895000,-10195000]
  assert T.T.D('9.88')<T.T.D(p[0]['estimated_pnl']['roi'])<T.T.D('9.90')
- assert all(x['financial_receipt'] is None and x['execution_receipt'] is None for x in p)
- assert len(T.send(r))==2
+ assert all(x['financial_receipt'] is None and x['execution_receipt'] is None for x in all_p)
+ assert len(T.send(r))==4
  with T.store(r)._connect_read() as c:
   scopes=[json.loads(x[0])['scope'] for x in c.execute('SELECT record FROM vpnl_notice_upbit_observations')]
  assert all(x['account'].startswith('poa-estimated-upbit:') and x['position_cycle']=='poa-estimated-internal-stream' for x in scopes)
@@ -53,11 +53,11 @@ def test_simple_two_strategies_correct_isolated_pnl(local):
 
 def test_partial_sell_weighted_cost_and_restart(local):
  r=local;submit(r,'buy2','buy',['100000000','200000000']);submit(r,'sell1','sell',['160000000'])
- p=payloads(r)[0];assert T.T.D(p['estimated_pnl']['entry_price'])==150000000 and T.T.D(p['estimated_pnl']['amount'])==9845000
- before=T.send(r);assert len(before)==1
+ p=payloads(r)[-1];assert T.T.D(p['estimated_pnl']['entry_price'])==150000000 and T.T.D(p['estimated_pnl']['amount'])==9845000
+ before=T.send(r);assert len(before)==2
  root=SimpleUpbitNotificationHosts(r.st);assert configure_upbit_notification_host(root)
  T.tick(r);assert T.send(r)==[]
- with T.store(r)._connect_read() as c:assert c.execute("SELECT count(*) FROM vpnl_deliveries WHERE status='SENT'").fetchone()[0]==1
+ with T.store(r)._connect_read() as c:assert c.execute("SELECT count(*) FROM vpnl_deliveries WHERE status='SENT'").fetchone()[0]==2
 
 @pytest.mark.parametrize('kind',['no_buy','other_strategy','generic'])
 def test_unknown_acquisition_never_borrow_cost(local,kind):
@@ -66,7 +66,7 @@ def test_unknown_acquisition_never_borrow_cost(local,kind):
  if kind=='generic':submit(r,'generic-buy','buy',['100000000'],'주문')
  submit(r,'sell-B','sell',['110000000'],'주문' if kind=='generic' else 'strategy-B')
  p=payloads(r)[-1];assert p['estimated_pnl']['status']=='UNAVAILABLE' and p['estimated_pnl']['amount'] is None
- assert len(T.send(r))==1
+ assert len(T.send(r))==(1 if kind=='no_buy' else 2)
 
 
 def test_missing_fee_is_gross(local):
@@ -74,8 +74,8 @@ def test_missing_fee_is_gross(local):
  for side,price in [('buy','100000000'),('sell','110000000')]:
   name='no-fee-'+side;r.seq+=1;raw=T.raw_order(name,'bid' if side=='buy' else 'ask',[price],T.STAMP+r.seq*1000);raw.pop('paid_fee');r.native[raw['uuid']]=raw
   assert r.log('UPBIT',{'id':raw['uuid']},T.T.info('UPBIT',side))['accepted'];T.tick(r)
- p=payloads(r)[0];assert p['estimated_pnl']['fee_mode']=='MISSING' and T.T.D(p['estimated_pnl']['amount'])==10000000
- assert '수수료 미반영' in json.dumps(T.send(r)[0]['json'],ensure_ascii=False)
+ p=payloads(r)[-1];assert p['estimated_pnl']['fee_mode']=='MISSING' and T.T.D(p['estimated_pnl']['amount'])==10000000
+ assert '수수료 미반영' in json.dumps(T.send(r)[-1]['json'],ensure_ascii=False)
 
 
 def test_no_arbitrary_order_get_from_host_or_flag(local):
@@ -102,7 +102,7 @@ def test_auth_failure_disables_read_only_not_other_logic(local,status):
 
 
 def test_same_order_relabelled_strategy_is_not_reposted(local):
- r=local;submit(r,'owned-buy','buy',['100000000']);oid=submit(r,'owned-sell','sell',['110000000']);assert len(T.send(r))==1
+ r=local;submit(r,'owned-buy','buy',['100000000']);oid=submit(r,'owned-sell','sell',['110000000']);assert len(T.send(r))==2
  r.log('UPBIT',{'id':oid},T.T.info('UPBIT','sell',strategy='strategy-B'));T.tick(r);assert T.send(r)==[]
 
 
@@ -132,19 +132,23 @@ def test_actual_startup_routes_two_strategies(local):
     if n==2:break
     time.sleep(.02)
    assert n==2;put('worker-A-sell','sell','110000000','strategy-A');put('worker-B-sell','sell','190000000','strategy-B');deadline=time.time()+10
-   while len(observer.records)<2 and time.time()<deadline:time.sleep(.02)
+   while len(observer.records)<4 and time.time()<deadline:time.sleep(.02)
   finally:
    if stop is not None:stop.set()
+   ops=getattr(ns['app'].state,'operational_alert_stop',None)
+   if ops is not None:ops.set();ops.worker_thread.join(2)
    deadline=time.time()+5
    while any(t.name=='verified-notifications' for t in threading.enumerate()) and time.time()<deadline:time.sleep(.02)
   records=observer.finish()
- assert len(records)==2 and len(r.calls)==4 and T.send(r)==[]
+ assert len(records)==4 and len(r.calls)==4 and T.send(r)==[]
  (Path(__file__).parent/'worker_wire.json').write_bytes(json.dumps(records).encode())
 
 @pytest.mark.parametrize('status',['SENT','UNKNOWN','HELD','POSTING'])
 def test_simple_sent_unknown_held_and_cas(local,status):
- r=local;submit(r,'state-buy','buy',['100000000']);oid=submit(r,'state-sell','sell',['110000000']);s=T.store(r);claim=None
- if status=='SENT':assert len(T.send(r))==1
+ r=local;submit(r,'state-buy','buy',['100000000'])
+ if status=='POSTING':assert len(T.send(r))==1
+ oid=submit(r,'state-sell','sell',['110000000']);s=T.store(r);claim=None
+ if status=='SENT':assert len(T.send(r))==2
  elif status=='POSTING':
   claim=s.claim_next();bad=dict(claim,token='wrong');assert not s.begin_post(bad);assert s.begin_post(claim);assert not s.ack(bad,True,message_id='123')
  else:
@@ -170,10 +174,10 @@ m=pytest.MonkeyPatch();f=T.local.__wrapped__(Path(sys.argv[1]).parent,m);r=next(
 with T.T.FrozenWireObserver(T.T.store(r)) as observer:
  stop=T.T.H.dp.start_worker(r.st,upbit_observation_host=r.host);assert stop is not None
  deadline=time.time()+10
- while not observer.records and time.time()<deadline:time.sleep(.02)
+ while len(observer.records)<2 and time.time()<deadline:time.sleep(.02)
  stop.set();deadline=time.time()+5
  while any(t.name=='verified-notifications' for t in threading.enumerate()) and time.time()<deadline:time.sleep(.02)
- records=observer.finish();assert len(records)==1
+ records=observer.finish();assert len(records)==2
 Path(sys.argv[2]).write_text(json.dumps(records),encoding='utf-8');assert r.calls==[]
 """
  env=dict(os.environ);env['PYTHONPATH']=str(Path(__file__).parent)+os.pathsep+env['PYTHONPATH']
@@ -199,7 +203,7 @@ def test_simple_router_does_not_override_strict_financial(krw):
 def test_sell_exceeding_observed_inventory_is_unavailable(local):
  r=local;submit(r,'insufficient-buy','buy',['100000000']);submit(r,'old-inventory-sell','sell',['110000000','110000000'])
  assert payloads(r)[-1]['estimated_pnl']['status']=='UNAVAILABLE' and payloads(r)[-1]['estimated_pnl']['amount'] is None
- assert len(T.send(r))==1
+ assert len(T.send(r))==2
 
 
 def test_estimated_sent_then_verified_provider_no_repost(krw,monkeypatch):
@@ -215,7 +219,7 @@ def test_estimated_sent_then_verified_provider_no_repost(krw,monkeypatch):
   handler=T.T.G.live_log(r.st)
   for oid,side in ((r.buy,'buy'),(r.sell,'sell')):
    assert handler('UPBIT',{'id':oid},T.T.info('UPBIT',side))['accepted'];T.tick(r)
-  assert len(T.send(r))==1
+  assert len(T.send(r))==2
   with T.store(r)._connect_read() as c:before=c.execute('SELECT id,wire,wire_digest,status,message_id FROM vpnl_deliveries').fetchall()
   assert configure_execution_bootstrap(r.boot);configure_history_provider(r.provider)
   assert handler('UPBIT',{'id':r.sell},T.T.info('UPBIT','sell'))['accepted'];T.H.dp.verification_tick(r.st,r.boot.client_for)
@@ -237,7 +241,7 @@ def test_default_installer_flags_do_not_require_verified_pnl(local):
  assert r.st.UPBIT_NET_PNL_ENABLED is False and r.st.NET_REALIZED_PNL_ENABLED is False
  submit(r,'default-install-buy','buy',['100000000']);submit(r,'default-install-sell','sell',['110000000'])
  p=payloads(r)[-1];assert T.T.D(p['estimated_pnl']['amount'])==9895000 and p['financial_receipt'] is None
- assert len(T.send(r))==1
+ assert len(T.send(r))==2
 
 
 

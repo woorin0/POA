@@ -37,6 +37,15 @@ def load(name, path):
     return obj
 
 def setup(root=ROOT):
+    root = Path(root).resolve()
+    cached = getattr(sys, "_poa_isolated_setup", None)
+    if cached is not None:
+        schema, pre, util = cached
+        if Path(schema.__file__).resolve() != root / "exchange/model/schemas.py":
+            raise RuntimeError("ISOLATED_ROOT_CONFLICT")
+        if sys.modules.get("exchange.model") is not schema:
+            raise RuntimeError("ISOLATED_MODULE_REPLACED")
+        return cached
     for name in list(sys.modules):
         if name == "exchange" or name.startswith("exchange."):
             del sys.modules[name]
@@ -77,7 +86,8 @@ def setup(root=ROOT):
     pkg.db = sys.modules["exchange.database"].db
     pkg.settings = settings
     pkg.log_message = util.log_message
-    return schema, pre, util
+    sys._poa_isolated_setup = (schema, pre, util)
+    return sys._poa_isolated_setup
 
 class FakeClient:
     def __init__(self):

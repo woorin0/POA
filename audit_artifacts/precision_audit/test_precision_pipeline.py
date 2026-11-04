@@ -325,6 +325,9 @@ def test_new_notifications_only_ast_and_wire_guards_unchanged():
   if p=='main.py':
    from notification_source_contract import assert_notification_main_source
    assert_notification_main_source()
+  elif p in ('exchange/verified_pnl/bootstrap.py','exchange/verified_pnl/verifier.py'):
+   from notification_source_contract import assert_reviewed_quote_cost_source
+   assert_reviewed_quote_cost_source(p)
   else:assert Path(p).read_bytes()==subprocess.check_output(['git','show',base+':'+p]),p
  p='exchange/model/schemas.py';before=ast.parse(subprocess.check_output(['git','show',base+':'+p]).decode('utf-8-sig'));after=ast.parse(Path(p).read_text(encoding='utf-8-sig'))
  for tree in (before,after):
@@ -358,7 +361,10 @@ Path(sys.argv[2]).write_bytes(json.dumps(probe.records).encode())
 """
  child=subprocess.run([sys.executable,'-c',code,e.st.VERIFIED_NOTIFICATIONS_DB_PATH,str(output)],capture_output=True,timeout=35)
  assert child.returncode==0,child.stderr.decode('utf-8','replace')[-700:]
- records=json.loads(output.read_bytes());assert len(records)==2 and '100원' in records[-1]['wire']['embeds'][0]['description']
+ records=json.loads(output.read_bytes());assert len(records)==2
+ body=records[-1]['wire']['embeds'][0]['description']
+ assert '실제 총 매도액: 확인 중' in body and '100원' not in body
+ assert '손익' not in body and 'ROI' not in body
  assert send(e)==[]
 
 

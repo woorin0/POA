@@ -28,66 +28,8 @@ def _load_module(name, path):
     return obj
 
 def _setup_isolated(root=ROOT):
-    if hasattr(sys, "_poa_isolated_setup"):
-        return sys._poa_isolated_setup
-    for name in list(sys.modules):
-        if name == "exchange" or name.startswith("exchange."):
-            del sys.modules[name]
-    try:
-        from pydantic import class_validators
-        if hasattr(class_validators, "_FUNCS"):
-            class_validators._FUNCS.clear()
-    except Exception:
-        pass
-    pkg = types.ModuleType("exchange")
-    pkg.__path__ = [str(root / "exchange")]
-    sys.modules["exchange"] = pkg
-    with patch("os.path.isfile", return_value=False):
-        schema = _load_module("exchange.model", root / "exchange/model/schemas.py")
-    schema.Settings.Config.env_file = None
-    os.environ["PASSWORD"] = "test-only"
-    settings = schema.Settings(_env_file=None, PASSWORD="test-only", WHITELIST=[])
-    util = types.ModuleType("exchange.utility")
-    util.settings = settings
-    util.__path__ = [str(root / "exchange/utility")]
-    sys.modules["exchange.utility"] = util
-    for fn_name in [
-        "log_message", "log_order_message", "print_alert_message", "log_alert_message",
-        "logger_test", "log_order_error_message", "log_validation_error_message",
-        "log_hedge_message", "log_error_message",
-    ]:
-        setattr(util, fn_name, Mock())
-    db_mod = types.ModuleType("exchange.database")
-    db_mod.db = Mock()
-    sys.modules["exchange.database"] = db_mod
-    stock_mod = types.ModuleType("exchange.stock")
-    stock_mod.KoreaInvestment = type("KoreaInvestment", (), {})
-    stock_mod.__path__ = []
-    sys.modules["exchange.stock"] = stock_mod
-    kis_mod = types.ModuleType("exchange.stock.kis")
-    kis_mod.KoreaInvestment = stock_mod.KoreaInvestment
-    sys.modules["exchange.stock.kis"] = kis_mod
-    sys.modules["exchange.pocket"] = types.ModuleType("exchange.pocket")
-    sys.modules["pendulum"] = types.ModuleType("pendulum")
-    import ccxt
-    import httpx
-    pre = types.ModuleType("exchange.pexchange")
-    pre.ccxt = ccxt
-    pre.ccxt_async = Mock()
-    pre.httpx = httpx
-    sys.modules["exchange.pexchange"] = pre
-    pkg.error = _load_module("exchange.error", root / "exchange/error.py")
-    for ex_name in ["binance", "bybit", "okx", "bitget", "upbit"]:
-        _load_module("exchange." + ex_name, root / ("exchange/" + ex_name + ".py"))
-    pre.__package__ = "exchange"
-    exec(compile((root / "exchange/pexchange.py").read_text(encoding="utf-8"), str(root / "exchange/pexchange.py"), "exec"), pre.__dict__)
-    for fn_name in ["get_exchange", "get_bot"]:
-        setattr(pkg, fn_name, getattr(pre, fn_name))
-    pkg.db = db_mod.db
-    pkg.settings = settings
-    pkg.log_message = util.log_message
-    sys._poa_isolated_setup = (schema, pre, util)
-    return schema, pre, util
+    from harness import setup
+    return setup(root)
 
 schema, legacy, util = _setup_isolated(ROOT)
 MarketOrder = schema.MarketOrder
@@ -119,14 +61,9 @@ from exchange.verified_pnl.outbox import (
     NotificationOutboxStore,
     build_verified_embed,
 )
-import importlib.util as _importlib_util
-_de_spec = _importlib_util.spec_from_file_location(
-    "exchange.utility.discord_embed",
-    ROOT / "exchange/utility/discord_embed.py",
-)
-_de_mod = _importlib_util.module_from_spec(_de_spec)
-sys.modules["exchange.utility.discord_embed"] = _de_mod
-_de_spec.loader.exec_module(_de_mod)
+# Reuse the same module object: earlier suites may hold class/function refs.
+from importlib import import_module as _import_module
+_de_mod = _import_module("exchange.utility.discord_embed")
 from exchange.utility.discord_embed import (
     COLOR_BUY_COMPLETED,
     COLOR_ORDER_AMBIGUOUS,
@@ -811,7 +748,9 @@ class DiscordEmbedV2Tests(unittest.TestCase):
         embed = captured[0]
         self.assertEqual(embed["color"], 0x64748B)
         self.assertIn("접수 (미검증)", embed["title"])
-        self.assertIn("확정손익: 미확정 (레거시 미검증 경로)", embed["description"])
+        self.assertIn("실제 총 매도액: 확인 중", embed["description"])
+        self.assertNotIn("손익", embed["description"])
+        self.assertNotIn("ROI", embed["description"])
         self.assertNotIn("실체결 검증 완료", embed["description"])
         self.assertNotIn("손익 검증 완료", embed["description"])
 

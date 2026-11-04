@@ -57,7 +57,9 @@ def test_entry_profit_loss_flat(env,venue,sell,expected):
  emit(env,venue,'buy','150');emit(env,venue,'sell',sell)
  r=estimate(env);assert r['status']=='ESTIMATED' and D(r['amount'])==D(expected)
  assert D(r['entry_price'])==150 and D(r['exit_price'])==D(sell)
- wire=send(env);assert len(wire)==1 and '추정' in json.dumps(wire[0]['json'],ensure_ascii=False)
+ wire=send(env);assert len(wire)==2
+ wire_text=json.dumps(wire[-1]['json'],ensure_ascii=False)
+ assert ('실제 총 매도액' in wire_text) if hasattr(__import__('exchange.verified_pnl.alert_presentation',fromlist=['*']),'AMOUNT_ONLY_MARKER') else ('추정' in wire_text)
  assert not E.payload_valid(H.dp.NotificationPayload(**plans(env)[-1]))
  assert not any(plans(env)[-1].get(k) for k in ('financial_receipt','accounting_receipt','execution_receipt'))
 
@@ -75,15 +77,15 @@ def test_fees_no_invention_or_double_deduction(env,venue,fees,mode):
  emit(env,venue,'sell','160',fee=None if fees=='missing' else '1')
  r=estimate(env);assert r['fee_mode']==mode
  assert D(r['amount'])==(10 if fees=='missing' else 9)
- wire=send(env);text=json.dumps(wire[0]['json'],ensure_ascii=False)
- assert ('수수료 미반영 추정 차익' if mode=='MISSING' else '일부 수수료 미반영') in text
+ wire=send(env);text=json.dumps(wire[-1]['json'],ensure_ascii=False)
+ assert (('수수료 미반영' if hasattr(__import__('exchange.verified_pnl.alert_presentation',fromlist=['*']),'AMOUNT_ONLY_MARKER') else '수수료 미반영 추정 차익') if mode=='MISSING' else '일부 수수료 미반영') in text
 
 @pytest.mark.parametrize('venue',VENUES)
 def test_multiple_buys_partial_sell_restart(env,venue):
  emit(env,venue,'buy','100',qty='1');emit(env,venue,'buy','200',qty='1')
  emit(env,venue,'sell','160',qty='0.5',fee='0.5');a=estimate(env)
  assert D(a['entry_price'])==150 and D(a['amount'])==4
- assert len(send(env))==1
+ assert len(send(env))==3
  # Re-open both stores and replay committed requests, without altering due.
  I.replay(env.st,store=store(env));H.dp.verification_tick(env.st,lambda *a:None)
  emit(env,venue,'sell','170',qty='1.5',fee='1.5');b=estimate(env)
@@ -97,7 +99,11 @@ def test_unavailable_cost_never_borrowed(env,venue,fault):
  if fault=='account':setattr(env.st,venue+'_KEY','mock-account-B')
  emit(env,venue,'sell','160',strategy='strategy-B' if fault=='strategy' else 'strategy-A',qty='2' if fault=='quantity' else '1')
  assert estimate(env)['status']=='UNAVAILABLE'
- assert '추정 손익: 계산 불가' in json.dumps(send(env)[0]['json'],ensure_ascii=False)
+ # New amount-only notifications retain unavailable-cost context, never PnL.
+ wires=send(env);assert len(wires)==(1 if fault=='no_buy' else 2)
+ body=json.dumps(wires[-1]['json'],ensure_ascii=False)
+ assert '실제 총 매도액: 확인 중' in body and '원가 확인: 계산 불가' in body
+ assert '손익' not in body and 'ROI' not in body
 
 @pytest.mark.parametrize('venue',VENUES)
 @pytest.mark.parametrize('fault',['pending','rejected','zero','missing_price','duplicate_trade','wrong_order'])
@@ -112,18 +118,18 @@ def test_no_fictitious_sell(env,venue,fault):
   if fault=='duplicate_trade':r['trades']+=copy.deepcopy(r['trades'])
   if fault=='wrong_order':t['order']='other-order'
  emit(env,venue,'sell','160',change=change)
- assert plans(env)==[] and send(env)==[]
+ assert [p for p in plans(env) if p['side']=='매도']==[] and len(plans(env))==1 and len(send(env))==1
 
 @pytest.mark.parametrize('venue',VENUES)
 def test_same_order_repeated_and_status_update(env,venue):
  emit(env,venue,'buy','150')
  oid,r,res=emit(env,venue,'sell','160',change=lambda r:r.update(state='wait') if venue=='UPBIT' else r.update(status='open'))
  # The same order can progress from open to complete; no request-price fallback.
- emit(env,venue,'sell','160',oid=oid);assert len(send(env))==1
+ emit(env,venue,'sell','160',oid=oid);assert len(send(env))==2
  emit(env,venue,'sell','160',oid=oid);assert send(env)==[]
  with store(env)._connect_read() as c:
-  assert c.execute('SELECT count(*) FROM vpnl_roots').fetchone()[0]==1
-  assert c.execute('SELECT count(*) FROM vpnl_deliveries').fetchone()[0]==1
+  assert c.execute('SELECT count(*) FROM vpnl_roots').fetchone()[0]==2
+  assert c.execute('SELECT count(*) FROM vpnl_deliveries').fetchone()[0]==2
 
 @pytest.mark.parametrize('state',['UNKNOWN','HELD'])
 def test_uncertain_does_not_repost(env,state):
@@ -142,7 +148,7 @@ def test_crash_after_v4_commit_before_sidecar_ack(env):
   return original(self,key,state,*a,**kw)
  with patch.object(I.IntakeStore,'mark',fail):oid,r,res=emit(env,'BINANCE','sell','160',tick=False)
  I.replay(env.st);H.dp.verification_tick(env.st,lambda *a:None)
- assert len(send(env))==1
+ assert len(send(env))==2
  I.replay(env.st);assert send(env)==[]
  with store(env)._connect_read() as c:assert c.execute('SELECT count(*) FROM vpnl_jobs').fetchone()[0]==2
 
@@ -159,12 +165,12 @@ def test_real_worker_without_provider(env):
   stop=H.dp.start_worker(env.st);assert stop is not None
   try:
    end=time.time()+8
-   while not obs.records and time.time()<end:time.sleep(.03)
+   while len(obs.records)<2 and time.time()<end:time.sleep(.03)
   finally:
    stop.set()
    end=time.time()+5
    while any(t.name=='verified-notifications' for t in threading.enumerate()) and time.time()<end:time.sleep(.03)
- assert len(obs.finish())==1
+ assert len(obs.finish())==2
 
 def test_legacy_v1_wait_provider_not_retro_sent(env):
  inf=info('BINANCE','sell');H.dp.dispatch_verified_alert('BINANCE',{'id':'legacy-order'},inf,env.st)
@@ -194,10 +200,10 @@ def test_concurrent_ten_producers_deduplicate(env):
  raw=G.observed('BINANCE','1002','sell','160','1');order=info('BINANCE','sell')
  with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:out=list(pool.map(lambda _:env.log('BINANCE',copy.deepcopy(raw),order.copy(deep=True)),range(10)))
  assert all(x['accepted'] for x in out)
- H.dp.verification_tick(env.st,lambda *a:None);assert len(send(env))==1
+ H.dp.verification_tick(env.st,lambda *a:None);assert len(send(env))==2
  with store(env)._connect_read() as c:
   assert c.execute('SELECT count(*) FROM vpnl_jobs').fetchone()[0]==2
-  assert c.execute('SELECT count(*) FROM vpnl_roots').fetchone()[0]==1
+  assert c.execute('SELECT count(*) FROM vpnl_roots').fetchone()[0]==2
 
 def test_snapshot_is_append_only_and_sidecar_binding_checked(env):
  emit(env,'BINANCE','buy','150');emit(env,'BINANCE','sell','160')
@@ -206,7 +212,7 @@ def test_snapshot_is_append_only_and_sidecar_binding_checked(env):
  side=I.IntakeStore(env.st.VERIFIED_NOTIFICATIONS_DB_PATH)
  with side.connect() as c:
   with pytest.raises(sqlite3.IntegrityError):c.execute("DELETE FROM notification_observation_admissions")
- assert len(send(env))==1
+ assert len(send(env))==2
 
 def test_log_and_stored_snapshot_canaries_excluded(env,capsys):
  from loguru import logger
@@ -295,7 +301,7 @@ replay(st)
 H.dp.verification_tick(st,lambda *a:(_ for _ in ()).throw(AssertionError('NO_LIVE_CLIENT')))
 store=H.ob.NotificationOutboxStore(st.VERIFIED_NOTIFICATIONS_DB_PATH)
 with FrozenWireObserver(store) as o:H.dp.flush_outbox(st)
-r=o.finish();assert len(r)==1
+r=o.finish();assert len(r)==2
 Path(sys.argv[2]).write_text(json.dumps(r),encoding='utf-8')
 """
  child=subprocess.run([sys.executable,'-c',code,env.st.VERIFIED_NOTIFICATIONS_DB_PATH,str(output)],cwd=Path(__file__).resolve().parents[2],capture_output=True,timeout=25)
@@ -308,7 +314,7 @@ def test_restore_old_v4_new_observation_sidecar_blocks_post(env,tmp_path):
  from exchange.verified_pnl.intake import restore_preflight
  s=store(env);backup=tmp_path/'old_v4.sqlite'
  with sqlite3.connect(s.db_path) as a,sqlite3.connect(backup) as b:a.backup(b)
- emit(env,'BINANCE','buy','150');emit(env,'BINANCE','sell','160');assert len(send(env))==1
+ emit(env,'BINANCE','buy','150');emit(env,'BINANCE','sell','160');assert len(send(env))==2
  # Controlled independent SQLite snapshot replacement (no production files).
  with sqlite3.connect(backup) as a,sqlite3.connect(s.db_path) as b:a.backup(b)
  I._BOOT_CHECKED.discard(s.db_path)
@@ -377,7 +383,7 @@ def test_observation_admission_tamper_quarantines_without_post(env):
 
 
 def test_sold_event_never_changes_sent_bytes_on_new_observation(env):
- emit(env,'BINANCE','buy','150');oid,_,_=emit(env,'BINANCE','sell','160');assert len(send(env))==1
+ emit(env,'BINANCE','buy','150');oid,_,_=emit(env,'BINANCE','sell','160');assert len(send(env))==2
  s=store(env)
  with s._connect_read() as c:before=c.execute('SELECT wire,wire_digest,message_id,status FROM vpnl_deliveries').fetchall()
  emit(env,'BINANCE','sell','161',oid=oid);assert send(env)==[]

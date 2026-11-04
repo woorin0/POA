@@ -181,7 +181,7 @@ class SpotExecutionBootstrap:
                 for t in page.trades:
                     if not isinstance(t,dict) or not t.get('id') or str(t['id']) in ids or str(t.get('order') or '')!=oid or t.get('symbol')!=self.scope.symbol:raise ValueError('trade_scope')
                     ids.add(str(t['id']));fee=self._fee(t,True)
-                    clean={k:copy.deepcopy(t[k]) for k in ('id','order','symbol','price','amount','timestamp') if k in t}
+                    clean={k:copy.deepcopy(t[k]) for k in ('id','order','symbol','price','amount','timestamp','cost','cost_currency') if k in t}
                     clean['fee']={'currency':self.scope.settlement,'cost':str(fee)};trades.append(clean)
                 nxt=page.next_cursor
                 if nxt is None:break
@@ -190,7 +190,7 @@ class SpotExecutionBootstrap:
             else:raise ValueError('page_limit')
             last=self._snapshot(oid)
             if first!=last:raise ValueError('unstable_snapshot')
-            data={k:copy.deepcopy(first.order[k]) for k in ('id','symbol','status','side','amount','filled','remaining','average','fee','fees','paid_fee','type','timestamp','lastTradeTimestamp') if k in first.order}
+            data={k:copy.deepcopy(first.order[k]) for k in ('id','symbol','status','side','amount','filled','remaining','average','fee','fees','paid_fee','type','timestamp','lastTradeTimestamp','cost','cost_currency') if k in first.order}
             self._fee(data,False);data['trades']=trades
             filled=_decimal(data['filled']);requested=_decimal(data['amount'])
             qty=sum((_decimal(t['amount']) for t in trades),Decimal(0))
