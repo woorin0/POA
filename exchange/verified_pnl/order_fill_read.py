@@ -330,7 +330,11 @@ class ReadHost:
             reader = UpbitNotificationReads(native_scope, getter, lambda c: AuthenticatedAccount('UPBIT', native_scope.account, native_scope.subaccount, frozenset({'read'})), pocket_uuid=pocket, as_of_ms=int(time.time()*1000))
             snap = reader.read_notification_order(reader, scope['order_id'], scope['symbol'])
             order = snap.order
-            if order['status'] != 'closed' or order['side'] != scope['side'] or number(order['remaining']) != 0:
+            if order['side'] != scope['side']:
+                raise ReadRejected('FILL_ORDER_SCOPE')
+            if order['status'] == 'open':
+                raise ReadRejected('FILL_ORDER_PENDING')
+            if order['status'] != 'closed' or number(order['remaining']) != 0:
                 raise ReadRejected('FILL_ORDER_NOT_FINAL')
             source.append(snap.snapshot_id)
             for t in order['trades']:
@@ -348,10 +352,16 @@ class ReadHost:
             if not envelope['result']['list']:
                 envelope = get('v5/order/realtime', 'private', params)
             result = envelope['result']
-            if envelope.get('retCode') != 0 or result.get('category') != category or result.get('nextPageCursor') or len(result['list']) != 1:
+            if envelope.get('retCode') != 0 or result.get('category') != category or result.get('nextPageCursor') or len(result['list']) > 1:
                 raise ReadRejected('FILL_ORDER_SCOPE')
+            if not result['list']:
+                raise ReadRejected('FILL_ORDER_PENDING')  # authenticated order history may lag realtime
             order = result['list'][0]
-            if (text(order['orderId']), order['symbol'], order['side'].lower(), order['orderStatus']) != (scope['order_id'], instrument, scope['side'], 'Filled') or number(order.get('leavesQty', '0')) != 0:
+            if (text(order['orderId']), order['symbol'], order['side'].lower()) != (scope['order_id'], instrument, scope['side']):
+                raise ReadRejected('FILL_ORDER_SCOPE')
+            if order['orderStatus'] in ('Created', 'New', 'PartiallyFilled', 'Untriggered', 'Triggered', 'Active', 'PendingCancel'):
+                raise ReadRejected('FILL_ORDER_PENDING')
+            if order['orderStatus'] != 'Filled' or number(order.get('leavesQty', '0')) != 0:
                 raise ReadRejected('FILL_ORDER_NOT_FINAL')
             filled, average, quote_total = order['cumExecQty'], order['avgPrice'], number(order['cumExecValue'])
             start_ms, end_ms = order['createdTime'], order['updatedTime']
@@ -380,7 +390,11 @@ class ReadHost:
         elif exchange == 'BINANCE':
             api = 'fapiPrivate' if scope['market_type'] == 'linear' else 'private'
             order = get('order', api, dict(symbol=instrument, orderId=scope['order_id']))
-            if (text(order['orderId']), order['symbol'], order['side'].lower(), order['status']) != (scope['order_id'], instrument, scope['side'], 'FILLED'):
+            if (text(order['orderId']), order['symbol'], order['side'].lower()) != (scope['order_id'], instrument, scope['side']):
+                raise ReadRejected('FILL_ORDER_SCOPE')
+            if order['status'] in ('NEW', 'PARTIALLY_FILLED', 'PENDING_NEW'):
+                raise ReadRejected('FILL_ORDER_PENDING')
+            if order['status'] != 'FILLED':
                 raise ReadRejected('FILL_ORDER_NOT_FINAL')
             filled = order['executedQty']
             if number(order['origQty'], positive=True) != number(filled, positive=True):
@@ -406,7 +420,11 @@ class ReadHost:
             envelope = get('trade/order', 'private', dict(instId=instrument, ordId=scope['order_id']))
             if envelope.get('code') != '0' or len(envelope['data']) != 1: raise ReadRejected('FILL_ORDER_SCOPE')
             order = envelope['data'][0]
-            if (order['ordId'], order['instId'], order['instType'], order['side'], order['state']) != (scope['order_id'], instrument, kind, scope['side'], 'filled'):
+            if (order['ordId'], order['instId'], order['instType'], order['side']) != (scope['order_id'], instrument, kind, scope['side']):
+                raise ReadRejected('FILL_ORDER_SCOPE')
+            if order['state'] in ('live', 'partially_filled'):
+                raise ReadRejected('FILL_ORDER_PENDING')
+            if order['state'] != 'filled':
                 raise ReadRejected('FILL_ORDER_NOT_FINAL')
             if kind == 'SPOT' and order.get('tdMode') != 'cash': raise ReadRejected('FILL_MARKET_UNSUPPORTED')
             if kind == 'SWAP':
