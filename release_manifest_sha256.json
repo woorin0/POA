@@ -246,13 +246,13 @@
   },
   {
     "Path": "exchange/verified_pnl/order_fill_confirmation.py",
-    "Bytes": 26912,
-    "SHA256": "E949854085EC1A4DB7CEEFDB86471E4437EEAD5A713561DF57598FA486DB1CD8"
+    "Bytes": 27752,
+    "SHA256": "C41132B51B0325A3B92127D164FD35D8C31A079166114EA2507CCABBF4F2A450"
   },
   {
     "Path": "exchange/verified_pnl/order_fill_read.py",
-    "Bytes": 30377,
-    "SHA256": "7C885B11811854A5BA6545E120EFA50DD7985FEAEC9E27C2A86BDB8998BF500B"
+    "Bytes": 31344,
+    "SHA256": "C1E5D81686647A74BF9EDA143005107D9EA033ABB7777154B721211C29353ECF"
   },
   {
     "Path": "exchange/verified_pnl/outbox.py",
