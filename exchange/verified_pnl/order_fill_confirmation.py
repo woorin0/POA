@@ -408,7 +408,7 @@ def render(payload):
     from decimal import Decimal
     currency = '원' if s['settlement'] == 'KRW' else ' USDT'
     base = s['symbol'].split('/')[0]
-    direction = ('매수' if s['side'] == 'buy' else '매도') if s['market_type'] == 'spot' else (proof['position'] if proof['position'] != '확인 중' else ('매수' if s['side'] == 'buy' else '매도')+' · 포지션 구분 확인 중')
+    direction = ('매수' if s['side'] == 'buy' else '매도') if s['market_type'] == 'spot' else ((proof['position']+' ('+('매수' if s['side'] == 'buy' else '매도')+')') if proof['position'] != '확인 중' else ('매수' if s['side'] == 'buy' else '매도')+' · 포지션 구분 확인 중')
     label = ('실제 총 매수액' if s['side'] == 'buy' else '실제 총 매도액') if s['market_type'] == 'spot' else '계약 명목가치'
     fees = '확인 중' if proof['fees'] is None else ', '.join(clean(money(v)+' '+k) for k,v in sorted(proof['fees'].items())) or '확인 중'
     lines = ['전략: '+clean(s['strategy']), '실제 평균 체결가: '+money(proof['average'])+currency,
