@@ -50,3 +50,37 @@ jobs:
         run: |
           python -B audit_artifacts/readonly_audit_v2/test_windows_audit_v2.py --pinned-root "$env:POA_AUDIT_PINNED"
           if ($LASTEXITCODE -ne 0) { throw 'Synthetic audit smoke failed' }
+      # Dependency downloads finish before the offline audit hook is installed.
+      - name: Install the exact PR4 runtime for genuine POA functions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m pip install pip==26.3 setuptools==84.2.1
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to prepare pip' }
+          python -m pip install -r (Join-Path $env:POA_AUDIT_PINNED 'requirements.txt')
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to install product dependencies' }
+          python -m pip install pytest==9.1.1 PyYAML==6.0.3
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to install isolated offline test tools' }
+          python -m pip check
+          if ($LASTEXITCODE -ne 0) { throw 'Python dependency conflict' }
+      - name: Genuine POA ReadHost validate and Discord render, offline (49 cases)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Copy-Item 'release_checks/test_readonly_audit_v2_real.py' (Join-Path $env:POA_AUDIT_PINNED 'release_checks/test_readonly_audit_v2_real.py')
+          Push-Location $env:POA_AUDIT_PINNED
+          try {
+            # The repo's existing isolation plugin installs socket/DNS and
+            # non-temporary SQLite audit hooks before collecting the tests.
+            python -B -c "import sys; sys.path.insert(0, 'release_checks'); import isolation, pytest; sys.exit(pytest.main(['--confcutdir=release_checks','-p','no:cacheprovider','-q','--tb=short','--junitxml=readonly-v2-real.xml','release_checks/test_readonly_audit_v2_real.py'], plugins=[isolation]))"
+            if ($LASTEXITCODE -ne 0) { throw 'Real POA offline audit failed; check pytest log' }
+          } finally {
+            Pop-Location
+          }
+      - name: Upload Windows synthetic and real source test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: poa-pr5-windows-real-evidence
+          path: ${{ runner.temp }}/poa-pr4-pinned/readonly-v2-real.xml
+          if-no-files-found: ignore
