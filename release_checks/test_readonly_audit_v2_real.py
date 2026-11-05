@@ -18,7 +18,7 @@ from exchange.verified_pnl.order_fill_read import (
     ReadHost, ReadRejected, request_scope, validate,
 )
 
-EXPECTED_PRODUCT = "881c3252b93baf5dc10f2cbfa1769a237c493ba7"
+EXPECTED_PRODUCT = "d7af452a1621b7789476f428f96377c06c5d37ae"
 MARKETS = [
     ("UPBIT", False), ("BYBIT", False), ("BYBIT", True),
     ("BINANCE", False), ("BINANCE", True),
