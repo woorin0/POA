@@ -6,11 +6,13 @@ on:
     paths:
       - '.github/workflows/readonly_audit_v2_windows.yml'
       - 'audit_artifacts/readonly_audit_v2/**'
+      - 'release_checks/test_discord_wire_e2e.py'
   pull_request:
     branches: [feat/order-fill-confirmation-v1]
     paths:
       - '.github/workflows/readonly_audit_v2_windows.yml'
       - 'audit_artifacts/readonly_audit_v2/**'
+      - 'release_checks/test_discord_wire_e2e.py'
 
 permissions:
   contents: read
@@ -77,10 +79,24 @@ jobs:
           } finally {
             Pop-Location
           }
+      - name: Real POA to Discord PreparedRequest E2E (no sockets, synthetic HTTP endpoint)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Copy-Item 'release_checks/test_discord_wire_e2e.py' (Join-Path $env:POA_AUDIT_PINNED 'release_checks/test_discord_wire_e2e.py')
+          Push-Location $env:POA_AUDIT_PINNED
+          try {
+            python -B -c "import sys; sys.path.insert(0, 'release_checks'); import isolation, pytest; sys.exit(pytest.main(['--confcutdir=release_checks','-p','no:cacheprovider','-q','--tb=short','--junitxml=readonly-v2-discord-e2e.xml','release_checks/test_discord_wire_e2e.py'], plugins=[isolation]))"
+            if ($LASTEXITCODE -ne 0) { throw 'Actual DiscordSender/Requests offline wire E2E failed' }
+          } finally {
+            Pop-Location
+          }
       - name: Upload Windows synthetic and real source test evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: poa-pr5-windows-real-evidence
-          path: ${{ runner.temp }}/poa-pr4-pinned/readonly-v2-real.xml
+          path: |
+            ${{ runner.temp }}/poa-pr4-pinned/readonly-v2-real.xml
+            ${{ runner.temp }}/poa-pr4-pinned/readonly-v2-discord-e2e.xml
           if-no-files-found: ignore
