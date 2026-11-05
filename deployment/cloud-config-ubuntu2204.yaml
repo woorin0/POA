@@ -11,7 +11,7 @@
       "path": "/root/poa-stage-input.json",
       "owner": "root:root",
       "permissions": "0600",
-      "content": "{\n  \"install_mode\": \"NEW_SERVER_STAGE_ONLY\",\n  \"repo_ref\": \"150ea89b8fcc9567fbab812d57f97493c7f89e37\",\n  \"release_manifest_sha256\": \"5745672dcd232bee80e82550177bb9b8704197fd7bf8de2655ea289e4fa1c85e\"\n}"
+      "content": "{\n  \"install_mode\": \"NEW_SERVER_STAGE_ONLY\",\n  \"repo_ref\": \"47c65a7c6c429c7ccb0c6c327288d5ee2e1977dd\",\n  \"release_manifest_sha256\": \"f993a0c88bdbc6580a6fe13c40cfff0b4a91924a022a9d89423567baaa33b52e\"\n}"
     },
     {
       "path": "/usr/local/lib/poa/install_once.py",
