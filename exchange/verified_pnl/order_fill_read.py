@@ -206,7 +206,8 @@ class ReadHost:
             if response.status==403:raise ReadRejected('FILL_PERMISSION_REJECTED')
             if response.status in (418,429):raise ReadRejected('FILL_RATE_LIMITED')
             if 300<=response.status<400:raise ReadRejected('FILL_REDIRECT_REJECTED')
-            if response.status!=200:raise ReadRejected('FILL_READ_FAILED')
+            if response.status!=200:
+                raise ReadRejected('FILL_TEMPORARY_UNAVAILABLE' if 500<=response.status<600 else 'FILL_READ_FAILED')
             if (response.getheader('Content-Type') or 'application/json').split(';')[0].strip().lower()!='application/json':
                 raise ReadRejected('FILL_RESPONSE_INVALID')
             if (response.getheader('Content-Encoding') or 'identity').lower() not in ('','identity'):
@@ -232,6 +233,7 @@ class ReadHost:
         except (TimeoutError,socket.timeout):raise ReadRejected('FILL_TIMEOUT') from None
         except ssl.SSLError:raise ReadRejected('FILL_TLS_REJECTED') from None
         except ReadRejected:raise
+        except OSError:raise ReadRejected('FILL_TEMPORARY_UNAVAILABLE') from None
         except Exception:raise ReadRejected('FILL_READ_FAILED') from None
         finally:
             if connection is not None:
@@ -261,7 +263,8 @@ class ReadHost:
             import ccxt
             code = 'FILL_READ_FAILED'
             if isinstance(exc, UpbitGETError):
-                code = {'AUTHENTICATION_REJECTED': 'FILL_AUTH_REJECTED', 'IP_REJECTED': 'FILL_IP_REJECTED', 'PERMISSION_REJECTED': 'FILL_PERMISSION_REJECTED', 'RATE_LIMITED': 'FILL_RATE_LIMITED', 'READ_TIMEOUT': 'FILL_TIMEOUT'}.get(exc.code, code)
+                code = {'AUTHENTICATION_REJECTED': 'FILL_AUTH_REJECTED', 'IP_REJECTED': 'FILL_IP_REJECTED', 'PERMISSION_REJECTED': 'FILL_PERMISSION_REJECTED', 'RATE_LIMITED': 'FILL_RATE_LIMITED', 'READ_TIMEOUT': 'FILL_TIMEOUT',
+                        'UPBIT_SERVER_UNAVAILABLE': 'FILL_TEMPORARY_UNAVAILABLE', 'READ_CONNECTION_FAILED': 'FILL_TEMPORARY_UNAVAILABLE'}.get(exc.code, code)
             elif isinstance(exc, ccxt.PermissionDenied): code = 'FILL_PERMISSION_REJECTED'
             elif isinstance(exc, ccxt.AuthenticationError): code = 'FILL_AUTH_REJECTED'
             elif isinstance(exc, ccxt.RateLimitExceeded): code = 'FILL_RATE_LIMITED'
