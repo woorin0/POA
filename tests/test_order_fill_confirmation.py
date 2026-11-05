@@ -12,5 +12,5 @@ def test_four_venue_fill_confirmation_independent_e2e(tmp_path):
     assert result.returncode==0,result.stdout[-6000:]+result.stderr[-1500:]
     import xml.etree.ElementTree as ET
     suites=list(ET.parse(tmp_path/'fill_confirmation.xml').getroot().iter('testsuite'))
-    assert sum(int(s.get('tests',0)) for s in suites)==292
+    assert sum(int(s.get('tests',0)) for s in suites)==384
     assert all(int(s.get('failures',0))==int(s.get('errors',0))==int(s.get('skipped',0))==0 for s in suites)
