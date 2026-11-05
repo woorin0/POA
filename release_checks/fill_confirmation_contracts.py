@@ -629,3 +629,163 @@ def test_previous_store_opens_additive_schema_and_fails_closed_on_new_pending_ki
         assert c.execute('SELECT status FROM vpnl_deliveries').fetchone()==('QUARANTINED',)
         assert c.execute('SELECT count(*) FROM vpnl_fill_submissions').fetchone()[0]==1
         assert c.execute('SELECT version FROM vpnl_schema').fetchone()==(4,)
+
+
+# Genuine open -> done and partial -> done are not financial assertions.
+# Native GET responses change; real Intake, durable retry state and Discord
+# Outbox execute without mocking the confirmation validator or its ACK/CAS.
+
+def _set_native_pending(r, *, partial=False):
+    order=r.state['order']
+    first=r.state['trades'][0] if r.info.exchange!='UPBIT' else order['trades'][0]
+    q=r.amount/D(2)
+    if r.info.exchange=='UPBIT':
+        order['state']='wait'
+        order['executed_volume']=str(q if partial else D(0))
+        order['remaining_volume']=str(r.amount-(q if partial else D(0)))
+        order['trades']=order['trades'][:1] if partial else []
+        order['trades_count']=len(order['trades'])
+        order['paid_fee']='0'
+    elif r.info.exchange=='BYBIT':
+        order['orderStatus']='PartiallyFilled' if partial else 'New'
+        order['cumExecQty']=str(q if partial else D(0))
+        order['cumExecValue']=str(D(first['execPrice'])*q if partial else D(0))
+        order['avgPrice']=first['execPrice'] if partial else ''
+        order['leavesQty']=str(r.amount-(q if partial else D(0)))
+        r.state['trades']=r.state['trades'][:1] if partial else []
+    elif r.info.exchange=='BINANCE':
+        order['status']='PARTIALLY_FILLED' if partial else 'NEW'
+        order['executedQty']=str(q if partial else D(0))
+        order['cumQuote']=str(D(first['price'])*q if partial else D(0))
+        order['cummulativeQuoteQty']=order['cumQuote']
+        order['avgPrice']=first['price'] if partial else '0'
+        r.state['trades']=r.state['trades'][:1] if partial else []
+    else:
+        order['state']='partially_filled' if partial else 'live'
+        order['accFillSz']=first['fillSz'] if partial else '0'
+        order['avgPx']=first['fillPx'] if partial else ''
+        r.state['trades']=r.state['trades'][:1] if partial else []
+
+
+@pytest.mark.parametrize('exchange,future',MARKETS)
+@pytest.mark.parametrize('side',['buy','sell'])
+@pytest.mark.parametrize('delay',[10,60,300,1800])
+def test_limit_order_fills_after_delay(tmp_path,monkeypatch,exchange,future,side,delay):
+    r=setup(tmp_path,monkeypatch,exchange,future,side,count=2)
+    final=copy.deepcopy(r.state)
+    _set_native_pending(r)
+    clock=[time.time()]
+    monkeypatch.setattr(C.time,'time',lambda:clock[0])
+    feed(r)
+    tick(r);DP.flush_outbox(r.st)
+    with r.store()._connect_read() as c:
+        assert c.execute('SELECT state,error,attempts FROM vpnl_fill_requests').fetchone()==('WAIT_READ','FILL_ORDER_PENDING',1)
+    assert confirmation_posts(r)==[]
+    clock[0]+=delay
+    r.state.clear();r.state.update(final)
+    tick(r);DP.flush_outbox(r.st)
+    posts=confirmation_posts(r)
+    assert len(posts)==1
+    fields=posts[0]['embeds'][0]['description']
+    label='계약 명목가치' if future else '실제 총 매수액' if side=='buy' else '실제 총 매도액'
+    assert '실제 평균 체결가: '+str(r.average) in fields
+    assert '실제 체결수량: '+str(r.amount) in fields
+    assert label+': '+str(r.total) in fields
+    tick(r);DP.flush_outbox(r.st)
+    assert len(confirmation_posts(r))==1
+
+
+@pytest.mark.parametrize('exchange,future',MARKETS)
+@pytest.mark.parametrize('side',['buy','sell'])
+def test_partial_order_becomes_complete(tmp_path,monkeypatch,exchange,future,side):
+    r=setup(tmp_path,monkeypatch,exchange,future,side,count=2)
+    final=copy.deepcopy(r.state)
+    _set_native_pending(r,partial=True)
+    clock=[time.time()]
+    monkeypatch.setattr(C.time,'time',lambda:clock[0])
+    feed(r);tick(r);DP.flush_outbox(r.st)
+    assert confirmation_posts(r)==[]
+    with r.store()._connect_read() as c:
+        assert c.execute('SELECT state,error FROM vpnl_fill_requests').fetchone()==('WAIT_READ','FILL_ORDER_PENDING')
+    clock[0]+=60
+    r.state.clear();r.state.update(final)
+    tick(r);DP.flush_outbox(r.st)
+    assert len(confirmation_posts(r))==1
+
+
+@pytest.mark.parametrize('exchange,future',MARKETS)
+@pytest.mark.parametrize('failure',['429','timeout'])
+def test_transient_api_failure_recovers_to_confirmed_fill(tmp_path,monkeypatch,exchange,future,failure):
+    r=setup(tmp_path,monkeypatch,exchange,future)
+    clock=[time.time()]
+    monkeypatch.setattr(C.time,'time',lambda:clock[0])
+    calls=[0]
+    if exchange=='UPBIT':
+        original=HTTPSOrderGETTransport.__call__
+        def flaky(self,request):
+            calls[0]+=1
+            if calls[0]==1:
+                if failure=='429':return OrderGETResponse(429,b'',{'retry-after':'60'})
+                raise TimeoutError('SYNTHETIC_SECRET_NOT_TO_LOG')
+            return original(self,request)
+        monkeypatch.setattr(HTTPSOrderGETTransport,'__call__',flaky)
+    else:
+        import ccxt
+        original=r.host._http
+        def flaky(venue,signed):
+            calls[0]+=1
+            if calls[0]==1:
+                cls=ccxt.RateLimitExceeded if failure=='429' else ccxt.RequestTimeout
+                raise cls('SYNTHETIC_SECRET_NOT_TO_LOG')
+            return original(venue,signed)
+        monkeypatch.setattr(r.host,'_http',flaky)
+    feed(r);tick(r);DP.flush_outbox(r.st)
+    with r.store()._connect_read() as c:
+        row=c.execute('SELECT state,error,attempts FROM vpnl_fill_requests').fetchone()
+        assert row==('WAIT_READ','FILL_RATE_LIMITED' if failure=='429' else 'FILL_TIMEOUT',1)
+    assert confirmation_posts(r)==[]
+    clock[0]+=60
+    tick(r);DP.flush_outbox(r.st)
+    assert len(confirmation_posts(r))==1 and calls[0]>=2
+
+
+@pytest.mark.parametrize('exchange,future',MARKETS)
+def test_repeated_open_polls_do_not_exhaust_read_budget(tmp_path,monkeypatch,exchange,future):
+    r=setup(tmp_path,monkeypatch,exchange,future)
+    final=copy.deepcopy(r.state)
+    _set_native_pending(r)
+    clock=[time.time()]
+    monkeypatch.setattr(C.time,'time',lambda:clock[0])
+    feed(r)
+    for _ in range(9):
+        tick(r)
+        clock[0]+=240
+        with r.store()._connect_read() as c:
+            state,error=c.execute('SELECT state,error FROM vpnl_fill_requests').fetchone()
+            assert (state,error)==('WAIT_READ','FILL_ORDER_PENDING')
+        assert confirmation_posts(r)==[]
+    r.state.clear();r.state.update(final)
+    tick(r);DP.flush_outbox(r.st)
+    assert len(confirmation_posts(r))==1
+    with r.store()._connect_read() as c:
+        assert c.execute('SELECT attempts FROM vpnl_fill_requests').fetchone()[0]==10
+
+
+def test_pending_then_one_abandoned_lease_still_recovers(tmp_path,monkeypatch):
+    r=setup(tmp_path,monkeypatch)
+    final=copy.deepcopy(r.state)
+    _set_native_pending(r)
+    clock=[time.time()]
+    monkeypatch.setattr(C.time,'time',lambda:clock[0])
+    feed(r)
+    for _ in range(4):
+        tick(r);clock[0]+=240
+    with r.store()._connect() as c:
+        c.execute("UPDATE vpnl_fill_requests SET state='READING',lease='synthetic-crash',expires=0,error='FILL_ORDER_PENDING'")
+    tick(r)
+    with r.store()._connect_read() as c:
+        assert c.execute('SELECT state,error FROM vpnl_fill_requests').fetchone()==('WAIT_READ','FILL_READ_LEASE_EXPIRED')
+    clock[0]+=10
+    r.state.clear();r.state.update(final)
+    tick(r);DP.flush_outbox(r.st)
+    assert len(confirmation_posts(r))==1
