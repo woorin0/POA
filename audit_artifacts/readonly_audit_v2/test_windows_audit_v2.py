@@ -22,7 +22,7 @@ import unittest
 from decimal import Decimal, localcontext
 from unittest.mock import patch
 
-PIN = '881c3252b93baf5dc10f2cbfa1769a237c493ba7'
+PIN = 'd7af452a1621b7789476f428f96377c06c5d37ae'
 
 def fixture():
     return {'orders': [
