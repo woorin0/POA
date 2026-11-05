@@ -415,4 +415,4 @@ def render(payload):
              '실제 체결수량: '+money(proof['filled'])+' '+base, label+': '+money(proof['total'])+currency+' (수수료 제외)',
              '수수료/리베이트: '+fees, '상태: 완료 주문의 전체 체결 확인', '확인 방식: 거래소 인증 체결 조회',
              '금융 손익 검증 영수증이 아닌 조회 기반 확인', '시각: '+format_kst_full(proof['observed_at'])]
-    return enforce_embed_bounds(Embed(title='['+s['exchange']+'] '+clean(s['symbol'])+' '+direction+' 체결 확인', description='\n'.join(lines), color=0x2563EB))
+    return enforce_embed_bounds(Embed(title='['+s['exchange']+'] '+clean(s['symbol'])+' '+('현물 ' if s['market_type']=='spot' else '선물 ')+direction+' 체결 확인', description='\n'.join(lines), color=0x2563EB))
