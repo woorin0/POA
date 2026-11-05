@@ -6,5 +6,5 @@
   "exchange/verified_pnl/delivery_store.py": "6b5aa397854d09003ea6d28b1aca306e67bce314248f6410bac209e88fde1586",
   "exchange/verified_pnl/alert_presentation.py": "1a401ed67d7b69203cc4f3dfb80347ab808ea105d66a35a547d4805ac1ec8f28",
   "exchange/verified_pnl/order_fill_read.py": "1ac29eb986bb3fd2dbc48647a243b088cc3c99df827b451f87251a0e3ce89afd",
-  "exchange/verified_pnl/order_fill_confirmation.py": "973a9a8c0ee79d021e4d0ee8301f4186176ac7e541fe2f84afcfb22c8182e915"
+  "exchange/verified_pnl/order_fill_confirmation.py": "2430685c8208a276c78d406fba98a1c98ecd1e359ece749dd09121207ba7ac55"
 }
