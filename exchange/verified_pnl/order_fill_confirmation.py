@@ -326,8 +326,11 @@ def tick(settings, store):
     with store._connect() as c:
         if not c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='vpnl_fill_requests'").fetchone():
             return
-        c.execute("UPDATE vpnl_fill_requests SET state='REVIEW',lease=NULL,error='FILL_READ_ATTEMPTS_EXHAUSTED' WHERE state='READING' AND expires<? AND attempts>=2",(time.time(),))
-        c.execute("UPDATE vpnl_fill_requests SET state='WAIT_READ',lease=NULL WHERE state='READING' AND expires<? AND attempts<2", (time.time(),))
+        now = time.time()
+        # Two consecutive abandoned read leases are a fault. Completed pending
+        # reads and recoverable HTTP errors must not exhaust this crash guard.
+        c.execute("UPDATE vpnl_fill_requests SET state='REVIEW',lease=NULL,error='FILL_READ_ATTEMPTS_EXHAUSTED' WHERE state='READING' AND expires<? AND (error='FILL_READ_LEASE_EXPIRED' OR (attempts>=2 AND error IS NULL))",(now,))
+        c.execute("UPDATE vpnl_fill_requests SET state='WAIT_READ',lease=NULL,error='FILL_READ_LEASE_EXPIRED',due=? WHERE state='READING' AND expires<?", (now+5,now))
         jobs = c.execute("SELECT id,state FROM vpnl_fill_requests WHERE (state='PROVED' OR (state='WAIT_READ' AND due<=?)) AND id NOT IN (SELECT id FROM vpnl_fill_reviews) ORDER BY enrolled,id LIMIT 20", (time.time(),)).fetchall()
     for job, state in jobs:
         if state == 'PROVED':
@@ -336,7 +339,7 @@ def tick(settings, store):
         lease = uuid.uuid4().hex
         with store._connect() as c:
             expires=time.time()+120
-            if not c.execute("UPDATE vpnl_fill_requests SET state='READING',lease=?,expires=?,attempts=attempts+1 WHERE id=? AND state='WAIT_READ' AND attempts<2", (lease, expires, job)).rowcount:
+            if not c.execute("UPDATE vpnl_fill_requests SET state='READING',lease=?,expires=?,attempts=attempts+1 WHERE id=? AND state='WAIT_READ'", (lease, expires, job)).rowcount:
                 continue
             epoch=c.execute('SELECT attempts FROM vpnl_fill_requests WHERE id=?',(job,)).fetchone()[0]
             c.execute('INSERT INTO vpnl_fill_read_attempts VALUES(?,?,?,?)',(job,epoch,digest(lease),expires))
@@ -360,8 +363,15 @@ def tick(settings, store):
             store.enqueue_confirmation(job)
         except Exception as exc:
             code = exc.code if isinstance(exc, ReadRejected) else 'FILL_CONFIRMATION_REVIEW'
+            retryable = code in ('FILL_ORDER_PENDING','FILL_RATE_LIMITED','FILL_TIMEOUT','FILL_READ_FAILED')
             with store._connect() as c:
-                c.execute("UPDATE vpnl_fill_requests SET state='REVIEW',lease=NULL,error=? WHERE id=? AND lease=?", (code, job, lease))
+                if retryable:
+                    # Bounded request rate, not a bounded order lifetime: valid
+                    # GTC/limit orders may fill well after their first observation.
+                    backoff = min(120, 5 * 2 ** min(epoch - 1, 5))
+                    c.execute("UPDATE vpnl_fill_requests SET state='WAIT_READ',lease=NULL,due=?,error=? WHERE id=? AND state='READING' AND lease=?",(time.time()+backoff,code,job,lease))
+                else:
+                    c.execute("UPDATE vpnl_fill_requests SET state='REVIEW',lease=NULL,error=? WHERE id=? AND state='READING' AND lease=?", (code, job, lease))
             from .dispatcher import warning
             warning(code)
 
