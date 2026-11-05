@@ -363,7 +363,7 @@ def tick(settings, store):
             store.enqueue_confirmation(job)
         except Exception as exc:
             code = exc.code if isinstance(exc, ReadRejected) else 'FILL_CONFIRMATION_REVIEW'
-            retryable = code in ('FILL_ORDER_PENDING','FILL_RATE_LIMITED','FILL_TIMEOUT','FILL_READ_FAILED')
+            retryable = code in ('FILL_ORDER_PENDING','FILL_RATE_LIMITED','FILL_TIMEOUT','FILL_TEMPORARY_UNAVAILABLE')
             with store._connect() as c:
                 if retryable:
                     # Bounded request rate, not a bounded order lifetime: valid
