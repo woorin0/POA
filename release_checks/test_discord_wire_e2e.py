@@ -238,6 +238,7 @@ def test_partial_is_never_early_confirmed(tmp_path,monkeypatch,exchange,future):
 def test_real_sender_http_status_policy(tmp_path,monkeypatch,outcome,expected,capsys):
     """4: genuine DiscordSender handles remote 429/500/timeout/401 and records DB state."""
     r=F.setup(tmp_path,monkeypatch,"UPBIT",False,side="sell")
+    r.st.DISCORD_RETRY_ENABLED=True
     http=connected_fake_http(r,monkeypatch,responses=[outcome])
     ready_and_send(r)
     assert len(http.confirmations)==1
@@ -256,6 +257,7 @@ def test_real_sender_http_status_policy(tmp_path,monkeypatch,outcome,expected,ca
 def test_retry_after_429_then_sent_once(tmp_path,monkeypatch):
     """429 retries once without duplicate after successful ack."""
     r=F.setup(tmp_path,monkeypatch,"BYBIT",False,side="buy")
+    r.st.DISCORD_RETRY_ENABLED=True
     http=connected_fake_http(r,monkeypatch,responses=[429,200])
     ready_and_send(r)
     assert len(http.confirmations)==1
