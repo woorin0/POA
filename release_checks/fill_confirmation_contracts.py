@@ -444,7 +444,7 @@ def test_unregistered_producer_cannot_enroll(tmp_path,monkeypatch):
     with pytest.raises(ValueError,match='FILL_PRODUCER_REJECTED'):C.enroll(r.st,iid,object())
 
 
-@pytest.mark.parametrize('status,expected',[(200,None),(401,'FILL_AUTH_REJECTED'),(403,'FILL_PERMISSION_REJECTED'),(429,'FILL_RATE_LIMITED'),(500,'FILL_READ_FAILED'),(302,'FILL_REDIRECT_REJECTED')])
+@pytest.mark.parametrize('status,expected',[(200,None),(401,'FILL_AUTH_REJECTED'),(403,'FILL_PERMISSION_REJECTED'),(429,'FILL_RATE_LIMITED'),(500,'FILL_TEMPORARY_UNAVAILABLE'),(302,'FILL_REDIRECT_REJECTED')])
 def test_real_tls_transport_preserves_status_and_never_follows_redirect(tmp_path,monkeypatch,status,expected):
     from exchange.verified_pnl.order_fill_read import ReadHost,ReadRejected
     import ssl
@@ -714,7 +714,7 @@ def test_partial_order_becomes_complete(tmp_path,monkeypatch,exchange,future,sid
 
 
 @pytest.mark.parametrize('exchange,future',MARKETS)
-@pytest.mark.parametrize('failure',['429','timeout'])
+@pytest.mark.parametrize('failure',['429','timeout','500'])
 def test_transient_api_failure_recovers_to_confirmed_fill(tmp_path,monkeypatch,exchange,future,failure):
     r=setup(tmp_path,monkeypatch,exchange,future)
     clock=[time.time()]
@@ -724,9 +724,9 @@ def test_transient_api_failure_recovers_to_confirmed_fill(tmp_path,monkeypatch,e
         original=HTTPSOrderGETTransport.__call__
         def flaky(self,request):
             calls[0]+=1
-            if calls[0]==1:
-                if failure=='429':return OrderGETResponse(429,b'',{'retry-after':'60'})
-                raise TimeoutError('SYNTHETIC_SECRET_NOT_TO_LOG')
+            if failure=='429' and calls[0]==1:return OrderGETResponse(429,b'',{'retry-after':'60'})
+            if failure=='timeout' and calls[0]<=2:raise TimeoutError('SYNTHETIC_SECRET_NOT_TO_LOG')
+            if failure=='500' and calls[0]<=2:return OrderGETResponse(503,b'',{})
             return original(self,request)
         monkeypatch.setattr(HTTPSOrderGETTransport,'__call__',flaky)
     else:
@@ -735,6 +735,9 @@ def test_transient_api_failure_recovers_to_confirmed_fill(tmp_path,monkeypatch,e
         def flaky(venue,signed):
             calls[0]+=1
             if calls[0]==1:
+                if failure=='500':
+                    from exchange.verified_pnl.order_fill_read import ReadRejected
+                    raise ReadRejected('FILL_TEMPORARY_UNAVAILABLE')
                 cls=ccxt.RateLimitExceeded if failure=='429' else ccxt.RequestTimeout
                 raise cls('SYNTHETIC_SECRET_NOT_TO_LOG')
             return original(venue,signed)
@@ -742,7 +745,7 @@ def test_transient_api_failure_recovers_to_confirmed_fill(tmp_path,monkeypatch,e
     feed(r);tick(r);DP.flush_outbox(r.st)
     with r.store()._connect_read() as c:
         row=c.execute('SELECT state,error,attempts FROM vpnl_fill_requests').fetchone()
-        assert row==('WAIT_READ','FILL_RATE_LIMITED' if failure=='429' else 'FILL_TIMEOUT',1)
+        assert row==('WAIT_READ','FILL_RATE_LIMITED' if failure=='429' else 'FILL_TIMEOUT' if failure=='timeout' else 'FILL_TEMPORARY_UNAVAILABLE',1)
     assert confirmation_posts(r)==[]
     clock[0]+=60
     tick(r);DP.flush_outbox(r.st)
