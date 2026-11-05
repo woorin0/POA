@@ -5,6 +5,6 @@
   "exchange/verified_pnl/intake.py": "1d423f6057ea3b9e04ffdee03aa4bfa0c46b6d5326c209b448163b0c44b9c65b",
   "exchange/verified_pnl/delivery_store.py": "6b5aa397854d09003ea6d28b1aca306e67bce314248f6410bac209e88fde1586",
   "exchange/verified_pnl/alert_presentation.py": "1a401ed67d7b69203cc4f3dfb80347ab808ea105d66a35a547d4805ac1ec8f28",
-  "exchange/verified_pnl/order_fill_read.py": "7c885b11811854a5ba6545e120efa50dd7985feaec9e27c2a86bdb8998bf500b",
-  "exchange/verified_pnl/order_fill_confirmation.py": "e949854085ec1a4db7ceefdb86471e4437eead5a713561df57598fa486db1cd8"
+  "exchange/verified_pnl/order_fill_read.py": "c1e5d81686647a74bf9eda143005107d9ea033abb7777154b721211c29353ecf",
+  "exchange/verified_pnl/order_fill_confirmation.py": "c41132b51b0325a3b92127d164fd35d8c31a079166114ea2507ccabbf4f2a450"
 }
