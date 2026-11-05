@@ -16,6 +16,8 @@ PINS = {
 
 
 def restore_http_source(path, raw):
+    from release_checks.fill_source_contract import restore_notification_source
+    raw=restore_notification_source(path,raw)
     if path not in PINS:
         return raw
     assert hashlib.sha256(raw).hexdigest() == PINS[path], 'Unapproved HTTP/v1 source: ' + path

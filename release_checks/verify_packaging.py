@@ -27,7 +27,9 @@ def verify():
     assert manifest == (ROOT/'release_manifest_sha256.json').read_bytes()
     assert hashlib.sha256(manifest).hexdigest() == digest
     entries = json.loads(manifest)
-    assert len(entries) == 70
+    original = json.loads(subprocess.check_output(['git', 'show', '77ec5dabd00639e8e6cb4f1bb81f6c7bcca8e140:release_manifest_sha256.json'], cwd=ROOT))
+    from release_checks.fill_source_contract import NEW
+    assert len(entries) == 72 and {e['Path'] for e in entries} == {e['Path'] for e in original} | set(NEW)
     assert not {'release_manifest_sha256.json', 'deployment/cloud-config-ubuntu2204.yaml'} & {e['Path'] for e in entries}
     for e in entries:
         raw = blob(e['Path'])

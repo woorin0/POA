@@ -191,15 +191,16 @@ class NotificationPayload(BaseModel):
     # Notification-only observations; never included in signed fill/finance facts.
     notification_type: Optional[str] = None
     estimated_pnl: Optional[Dict[str, Any]] = None
+    fill_confirmation: Optional[Dict[str, Any]] = None
 
     def dict(self,*args,**kwargs):
         result=super().dict(*args,**kwargs)
-        for name in ('notification_type','estimated_pnl'):
+        for name in ('notification_type','estimated_pnl','fill_confirmation'):
             if getattr(self,name) is None:result.pop(name,None)
         return result
 
     def json(self,*args,**kwargs):
-        omitted={n for n in ('notification_type','estimated_pnl') if getattr(self,n) is None}
+        omitted={n for n in ('notification_type','estimated_pnl','fill_confirmation') if getattr(self,n) is None}
         if omitted:
             old=kwargs.get('exclude')
             kwargs['exclude']={**old,**{n:True for n in omitted}} if isinstance(old,dict) else set(old or ())|omitted

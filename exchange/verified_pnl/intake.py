@@ -95,7 +95,7 @@ class IntakeStore:
         except BaseException:c.rollback();raise
         finally:
             if reused is None:c.close()
-    def record(self,data,*,observation=None,producer=None):
+    def record(self,data,*,observation=None,producer=None,confirmation_host=None):
         request,review=normalized_request(data)
         if observation is not None:
             from .estimated_pnl import producer_allowed,validate_snapshot
@@ -131,6 +131,9 @@ class IntakeStore:
                 old=c.execute('SELECT observation_digest,scope_digest,sidecar_id,producer FROM notification_observation_admissions WHERE request_id=?',(key,)).fetchone()
                 if old is None:c.execute('INSERT INTO notification_observation_admissions VALUES(?,?,?,?,?)',(key,*row))
                 elif old!=row:raise ValueError('producer_admission_conflict')
+            if confirmation_host is not None and not review:
+                from .order_fill_confirmation import record_intent
+                record_intent(c,key,request,producer,confirmation_host)
         return key
     def rows(self,limit=40,only=None):
         with self.connect() as c:

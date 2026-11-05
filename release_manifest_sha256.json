@@ -61,8 +61,8 @@
   },
   {
     "Path": "exchange/model/schemas.py",
-    "Bytes": 12277,
-    "SHA256": "973225FBC000C486F98973EE93A401FDB9D572980CEB10F9F5CB64BBCE5FDFDF"
+    "Bytes": 12334,
+    "SHA256": "0CAD042E2352C734E16CB33CA64E9BB0D3AAEE17C8BF5B611D14D8C7E85E6D45"
   },
   {
     "Path": "exchange/okx.py",
@@ -141,8 +141,8 @@
   },
   {
     "Path": "exchange/verified_pnl/alert_presentation.py",
-    "Bytes": 11810,
-    "SHA256": "BCB19659E18DEF234CEF6DCCD7C9483AD23634E77B39510AEBBF941A1F2EE0D5"
+    "Bytes": 11983,
+    "SHA256": "1A401ED67D7B69203CC4F3DFB80347AB808EA105D66A35A547D4805AC1EC8F28"
   },
   {
     "Path": "exchange/verified_pnl/binance_spot_read.py",
@@ -171,13 +171,13 @@
   },
   {
     "Path": "exchange/verified_pnl/delivery_store.py",
-    "Bytes": 71713,
-    "SHA256": "609B9BC941F6DD4C713AF141E5AA555F8369145333A8D356C95DA3B27F575D1C"
+    "Bytes": 72710,
+    "SHA256": "6B5AA397854D09003EA6D28B1ACA306E67BCE314248F6410BAC209E88FDE1586"
   },
   {
     "Path": "exchange/verified_pnl/dispatcher.py",
-    "Bytes": 54624,
-    "SHA256": "3175DA6E34A2B0A4808BB915E9E1CBF32F3FE559CE7C9A481B53E166C60D7408"
+    "Bytes": 56549,
+    "SHA256": "DF3ACA7997B99F0100A9D8488C8CD03EB31CB62E2D66375DACD83A969D7A209B"
   },
   {
     "Path": "exchange/verified_pnl/estimated_pnl.py",
@@ -211,8 +211,8 @@
   },
   {
     "Path": "exchange/verified_pnl/intake.py",
-    "Bytes": 45094,
-    "SHA256": "949EDBF4C38CF8F26B21396C11B0914C890025B833848AD35724D6092875EEDE"
+    "Bytes": 45317,
+    "SHA256": "1D423F6057EA3B9E04FFDEE03AA4BFA0C46B6D5326C209B448163B0C44B9C65B"
   },
   {
     "Path": "exchange/verified_pnl/ledger.py",
@@ -226,8 +226,8 @@
   },
   {
     "Path": "exchange/verified_pnl/models.py",
-    "Bytes": 7181,
-    "SHA256": "6BD68367727915804EA3D45537A8D0BB3C3FBE808DF3961390D7AF239510F902"
+    "Bytes": 7276,
+    "SHA256": "3BB60EBAF6623A17CAA2E7EE3AAFC20FE2526BC47410F54C892BC2C8A21A41AD"
   },
   {
     "Path": "exchange/verified_pnl/notification_origin.py",
@@ -243,6 +243,16 @@
     "Path": "exchange/verified_pnl/operational_alerts.py",
     "Bytes": 15298,
     "SHA256": "587D11FA451B2091C636EEA439BB63A6DEEDDF81593FCDC238FAE9F34811C424"
+  },
+  {
+    "Path": "exchange/verified_pnl/order_fill_confirmation.py",
+    "Bytes": 26912,
+    "SHA256": "E949854085EC1A4DB7CEEFDB86471E4437EEAD5A713561DF57598FA486DB1CD8"
+  },
+  {
+    "Path": "exchange/verified_pnl/order_fill_read.py",
+    "Bytes": 30377,
+    "SHA256": "7C885B11811854A5BA6545E120EFA50DD7985FEAEC9E27C2A86BDB8998BF500B"
   },
   {
     "Path": "exchange/verified_pnl/outbox.py",

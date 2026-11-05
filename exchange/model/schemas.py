@@ -128,6 +128,7 @@ class Settings(BaseSettings):
     # Notification read opt-in. Reusing trading keys requires a separate explicit mode.
     POA_NOTIFICATION_SERVER_ALIAS: str | None = None
     POA_UPBIT_ESTIMATED_READ_ENABLED: bool = False
+    POA_EXCHANGE_FILL_CONFIRMATION_ENABLED: bool = False
     POA_UPBIT_READ_CREDENTIAL_MODE: str = "disabled"
     POA_UPBIT_READ_BINDING_FILE: str = "/etc/poa/upbit-notification-binding.json"
     POA_UPBIT_READ_BINDING_SHA256: str = ""

@@ -52,12 +52,16 @@ def assert_dependency_source_pin(root=ROOT):
 
 
 def verify():
+    from release_checks.fill_source_contract import verify as verify_confirmation,NEW
+    verify_confirmation()
     assert_deployment_source_pins()
     assert_dependency_source_pin()
     from release_checks.http_source_contract import restore_http_source,assert_http_source_pins
     assert_http_source_pins()
     entries=json.loads((ROOT/'release_manifest_sha256.json').read_text(encoding='utf-8'))
-    assert len(entries)==70 and len({e['Path'] for e in entries})==70
+    baseline=json.loads(subprocess.check_output(['git','show','77ec5dabd00639e8e6cb4f1bb81f6c7bcca8e140:release_manifest_sha256.json'],cwd=ROOT))
+    expected={e['Path'] for e in baseline}|set(NEW)
+    assert len(entries)==72 and len({e['Path'] for e in entries})==72 and {e['Path'] for e in entries}==expected
     for e in entries:
         p=ROOT/e['Path'];assert ROOT in p.resolve().parents
         raw=p.read_bytes();assert len(raw)==e['Bytes'] and hashlib.sha256(raw).hexdigest().upper()==e['SHA256'],e['Path']
@@ -68,6 +72,6 @@ def verify():
         if n=='requirements.txt':continue # Exact four-version patch asserted above.
         original=subprocess.check_output(['git','show','de969040dec42a369274adb1a59a3d44a2ba3aa6:'+n],cwd=ROOT)
         assert restore_http_source(n,(ROOT/n).read_bytes())==original,n
-    print('MANIFEST_70=PASS; PROTECTED_APP_FILES='+str(len(protected)-1)+'; EXACT_DEPENDENCY_PATCH=PASS')
+    print('MANIFEST_72=PASS; PROTECTED_APP_FILES='+str(len(protected)-1)+'; EXACT_DEPENDENCY_PATCH=PASS')
     print('MANIFEST_SHA256='+hashlib.sha256((ROOT/'release_manifest_sha256.json').read_bytes()).hexdigest())
 if __name__=='__main__':verify()

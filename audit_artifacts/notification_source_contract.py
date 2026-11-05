@@ -90,8 +90,10 @@ PRESENTATION_MODULES={
 
 
 def _presentation_modules():
+    from release_checks.http_source_contract import restore_http_source
     for path,expected in PRESENTATION_MODULES.items():
-        assert hashlib.sha256((ROOT/path).read_bytes()).hexdigest()==expected, 'unapproved presentation/operational authority module: '+path
+        reviewed=restore_http_source(path,(ROOT/path).read_bytes())
+        assert hashlib.sha256(reviewed).hexdigest()==expected, 'unapproved presentation/operational authority module: '+path
 
 
 def _presentation_delta(path,current):
