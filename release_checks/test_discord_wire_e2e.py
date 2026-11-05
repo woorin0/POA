@@ -94,7 +94,7 @@ def connected_fake_http(r, monkeypatch, responses=()):
     endpoint = FakeDiscordEndpoint(responses)
     monkeypatch.setattr(requests, "post", genuine_requests_post)
     assert outbox.requests.post is genuine_requests_post
-    monkeypatch.setattr(HTTPAdapter, "send", endpoint.send)
+    monkeypatch.setattr(HTTPAdapter, "send", lambda adapter, prepared, **kwargs: endpoint.send(adapter, prepared, **kwargs))
     return endpoint
 
 
