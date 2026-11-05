@@ -43,7 +43,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $pinned = Join-Path $env:RUNNER_TEMP 'poa-pr4-pinned'
-          git worktree add --detach $pinned 881c3252b93baf5dc10f2cbfa1769a237c493ba7
+          git worktree add --detach $pinned d7af452a1621b7789476f428f96377c06c5d37ae
           if ($LASTEXITCODE -ne 0) { throw 'Cannot checkout pinned product' }
           Copy-Item 'audit_artifacts/readonly_audit_v2/poa_readonly_audit_v2.py' (Join-Path $pinned 'poa_readonly_audit_v2.py')
           "POA_AUDIT_PINNED=$pinned" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
