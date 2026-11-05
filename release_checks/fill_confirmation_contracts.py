@@ -690,7 +690,7 @@ def test_limit_order_fills_after_delay(tmp_path,monkeypatch,exchange,future,side
     label='계약 명목가치' if future else '실제 총 매수액' if side=='buy' else '실제 총 매도액'
     assert '실제 평균 체결가: '+str(r.average) in fields
     assert '실제 체결수량: '+str(r.amount) in fields
-    assert label+': '+str(r.total) in fields
+    assert label+': '+format(r.total.normalize(),'f') in fields
     tick(r);DP.flush_outbox(r.st)
     assert len(confirmation_posts(r))==1
 
