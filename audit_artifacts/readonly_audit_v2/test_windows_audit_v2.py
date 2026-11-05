@@ -57,7 +57,7 @@ def fake_modules(audit, rows, tamper=False, omit_side=False):
             info=request['info'];order=request['result']['id']
             item=next(x for x in rows['orders'] if x['exchange']==info['exchange'] and x['order_id']==order)
             fills=[{'price':v['price'],'quantity':v['quantity_base']} for v in item['reference_fills']]
-            if tamper and info['exchange']=='UPBIT':fills[0]['quantity']='0.125'
+            if tamper and info['exchange']=='UPBIT':fills[0]['quantity']='0.75'
             with localcontext() as ctx:
                 ctx.prec=512
                 quantity=sum((Decimal(v['quantity']) for v in fills),Decimal(0))
