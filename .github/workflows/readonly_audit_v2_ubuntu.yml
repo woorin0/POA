@@ -1,0 +1,68 @@
+name: POA phase2 historical read-only audit - Ubuntu offline
+
+on:
+  pull_request:
+    branches: [test/poa-readonly-audit-windows]
+    paths:
+      - '.github/workflows/readonly_audit_v2_ubuntu.yml'
+      - '.github/workflows/readonly_audit_v2_windows.yml'
+      - 'audit_artifacts/readonly_audit_v2/**'
+      - 'release_checks/test_readonly_audit_v2_real.py'
+      - 'release_checks/test_discord_wire_e2e.py'
+
+permissions:
+  contents: read
+
+jobs:
+  ubuntu-readonly-offline:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONIOENCODING: utf-8
+      POA_EXCHANGE_FILL_CONFIRMATION_ENABLED: 'false'
+      VERIFIED_DISCORD_ALERTS: 'false'
+      DISCORD_OUTBOX_ENABLED: 'false'
+    steps:
+      - name: Preserve exact Git bytes
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Create immutable clean PR4 product worktree
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/poa-pr4-pinned" bf6e66e259c7ebbd5099e78b24089caa94936ec9
+          cp audit_artifacts/readonly_audit_v2/poa_readonly_audit_v2.py "$RUNNER_TEMP/poa-pr4-pinned/poa_readonly_audit_v2.py"
+          cp release_checks/test_readonly_audit_v2_real.py "$RUNNER_TEMP/poa-pr4-pinned/release_checks/test_readonly_audit_v2_real.py"
+          cp release_checks/test_discord_wire_e2e.py "$RUNNER_TEMP/poa-pr4-pinned/release_checks/test_discord_wire_e2e.py"
+      - name: Install isolated Python test dependencies
+        run: |
+          python -m pip install pip==26.3 setuptools==84.2.1
+          python -m pip install -r "$RUNNER_TEMP/poa-pr4-pinned/requirements.txt"
+          python -m pip install pytest==9.1.1 PyYAML==6.0.3
+          python -m pip check
+      - name: Synthetic preflight, negative transport and consent tests
+        env:
+          POA_AUDIT_PINNED: ${{ runner.temp }}/poa-pr4-pinned
+        run: python -B audit_artifacts/readonly_audit_v2/test_windows_audit_v2.py --pinned-root "$POA_AUDIT_PINNED"
+      - name: Real POA reader, independent source, scope and Discord preview
+        working-directory: ${{ runner.temp }}/poa-pr4-pinned
+        run: |
+          python -B -c "import sys; sys.path.insert(0, 'release_checks'); import isolation,pytest; sys.exit(pytest.main(['--confcutdir=release_checks','-p','no:cacheprovider','-q','--tb=short','--junitxml=readonly-v2-real.xml','release_checks/test_readonly_audit_v2_real.py'], plugins=[isolation]))"
+      - name: Real POA Discord sender wire E2E (mock transport, no POST)
+        working-directory: ${{ runner.temp }}/poa-pr4-pinned
+        run: |
+          python -B -c "import sys; sys.path.insert(0, 'release_checks'); import isolation,pytest; sys.exit(pytest.main(['--confcutdir=release_checks','-p','no:cacheprovider','-q','--tb=short','--junitxml=readonly-v2-discord-e2e.xml','release_checks/test_discord_wire_e2e.py'], plugins=[isolation]))"
+      - name: Upload only synthetic JUnit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: poa-phase2-ubuntu-readonly
+          path: |
+            ${{ runner.temp }}/poa-pr4-pinned/readonly-v2-real.xml
+            ${{ runner.temp }}/poa-pr4-pinned/readonly-v2-discord-e2e.xml
+          if-no-files-found: ignore
