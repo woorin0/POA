@@ -92,8 +92,13 @@ def test_user_data_secret_free_and_embedded_sources_match():
     import yaml
     ci=yaml.load((ROOT/'.github/workflows/pr_verification.yml').read_text(encoding='utf-8'),Loader=yaml.BaseLoader)
     assert ci['on']['push']['branches']==['main']
-    assert ci['on']['pull_request']['branches']==['main','fix/poa-release-safety-pr3']
+    assert ci['on']['pull_request']['branches']==['main','fix/poa-release-safety-pr3','feat/order-fill-confirmation-v1','test/poa-readonly-hardening-phase3']
     steps=ci['jobs']['offline']['steps']
+    full=next(s for s in steps if s.get('name')=='Full Windows regression')
+    assert full['if']=="runner.os == 'Windows'"
+    assert full['run']=='python -m pytest -q --tb=short --ignore=release_checks --ignore=audit_artifacts/readonly_audit_v2 --junitxml=full.xml'
+    assert next(s for s in steps if s.get('name')=='Independent Ed25519, amount, admission and installer gates (no legacy bridge)')['run'].startswith('python release_checks/run.py ')
+    assert next(s for s in steps if s.get('name')=='Independent four-venue native fill confirmation')['run'].startswith('python release_checks/run_fill_confirmation.py ')
     install=next(s['run'] for s in steps if s.get('name')=='Install isolated test dependencies')
     assert 'pip==26.3 setuptools==84.2.1' in install and "m.version('setuptools') == '84.2.1'" in install
     audit=next(s['run'] for s in steps if s.get('name')=='Audit complete installed Python environment (no suppressions)')
@@ -143,3 +148,75 @@ def test_unapproved_installer_change_rejected(tmp_path):
     target=tmp_path/'deployment/install_once.py'
     target.write_bytes(target.read_bytes()+b'\n# unauthorized mutation\n')
     with pytest.raises(AssertionError):assert_deployment_source_pins(tmp_path)
+
+def test_unfiltered_main_ci_includes_release_readonly_and_discord_security():
+    """Merge and push must not bypass source-pinned release, history or Discord gates."""
+    import yaml
+    paths = {
+        '.github/workflows/pr_verification.yml': {'offline'},
+        '.github/workflows/readonly_audit_v2_windows.yml': {'windows-synthetic-offline'},
+        '.github/workflows/readonly_audit_v2_ubuntu.yml': {'ubuntu-readonly-offline'},
+        '.github/workflows/readonly_audit_v3_security_ubuntu.yml':
+            {'audit-ubuntu-full-offline', 'audit-windows-full-offline'},
+    }
+    workflows = {}
+    for filename, expected_jobs in paths.items():
+        raw = (ROOT / filename).read_text(encoding='utf-8')
+        config = yaml.load(raw, Loader=yaml.BaseLoader)
+        assert config['permissions'] == {'contents': 'read'}, filename
+        for event in ('pull_request', 'push'):
+            rule = config['on'][event]
+            assert 'main' in rule['branches'], (filename, event)
+            assert not {'paths', 'paths-ignore', 'branches-ignore', 'tags', 'tags-ignore', 'types'} & set(rule), (filename, event)
+        assert set(config['jobs']) == expected_jobs, filename
+        for job in config['jobs'].values():
+            checkouts = [s for s in job['steps'] if
+                         s.get('uses', '').startswith('actions/checkout@')]
+            assert len(checkouts) == 1, filename
+            assert checkouts[0]['with']['persist-credentials'] == 'false', filename
+            assert checkouts[0]['with']['fetch-depth'] == '0', filename
+        assert 'secrets.' not in raw, filename
+        workflows[filename] = config
+
+    release = workflows['.github/workflows/pr_verification.yml']['jobs']['offline']
+    assert release['strategy']['matrix']['os'] == ['windows-latest', 'ubuntu-22.04']
+    release_steps = {s['name']: s for s in release['steps'] if 'name' in s}
+    assert 'Full Windows regression' in release_steps
+    assert '--ignore=release_checks' in release_steps['Full Windows regression']['run']
+    assert '--ignore=audit_artifacts/readonly_audit_v2' in release_steps['Full Windows regression']['run']
+    assert "runner.os == 'Windows'" in release_steps['Full Windows regression']['if']
+    assert 'Independent four-venue native fill confirmation' in release_steps
+    assert "runner.os == 'Linux'" in release_steps['Independent four-venue native fill confirmation']['if']
+    assert 'release_checks/run.py' in release_steps['Independent Ed25519, amount, admission and installer gates (no legacy bridge)']['run']
+    manifest = release_steps['Manifest and exact protected application source']['run']
+    assert 'verify_release.py' in manifest and 'verify_packaging.py' in manifest
+
+    windows = workflows['.github/workflows/readonly_audit_v2_windows.yml']['jobs']['windows-synthetic-offline']
+    names = {s.get('name', '') for s in windows['steps']}
+    assert {'Genuine POA ReadHost validate and Discord render, offline (49 cases)',
+            'Real POA to Discord PreparedRequest E2E (no sockets, synthetic HTTP endpoint)',
+            'PR7 independent offline endpoint, secrets, fee and native response regression'} <= names
+
+    ubuntu = workflows['.github/workflows/readonly_audit_v2_ubuntu.yml']['jobs']['ubuntu-readonly-offline']
+    names = {s.get('name', '') for s in ubuntu['steps']}
+    assert {'Real POA reader, independent source, scope and Discord preview',
+            'Real POA Discord sender wire E2E (mock transport, no POST)'} <= names
+
+    phase = workflows['.github/workflows/readonly_audit_v3_security_ubuntu.yml']['jobs']
+    expected = {
+        'audit-ubuntu-full-offline': {'PR4 genuine product order-fill and crash contracts (whole suite)',
+                                      'Independent security, genuine reader and Discord E2E matrix',
+                                      'Rehearse Vultr-style nonroot install and explicit no-credential refusal'},
+        'audit-windows-full-offline': {'Genuine PR4 order-fill and crash contracts (all relevant cases)',
+                                       'Independent security, native reader and Discord wire E2E'},
+    }
+    for jobname, required in expected.items():
+        steps = {s.get('name', '') for s in phase[jobname]['steps']}
+        assert required <= steps
+    for filename in paths:
+        if filename.endswith('pr_verification.yml'):
+            continue
+        for job in workflows[filename]['jobs'].values():
+            env = job['env']
+            assert env['POA_EXCHANGE_FILL_CONFIRMATION_ENABLED'] == 'false'
+            assert env['DISCORD_OUTBOX_ENABLED'] == 'false'
