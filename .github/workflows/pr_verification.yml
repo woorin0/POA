@@ -1,7 +1,7 @@
 name: Release safety offline verification
 on:
   pull_request:
-    branches: [main, fix/poa-release-safety-pr3]
+    branches: [main, fix/poa-release-safety-pr3, test/poa-readonly-hardening-phase3]
   push:
     branches: [main]
 permissions:
