@@ -267,7 +267,8 @@ def compare_proof_to_reference(item: dict, proof: dict, embed: dict) -> list[str
                   else base + 'USDT')
     if proof.get('instrument') != instrument:
         issues.append('native instrument mismatch')
-    if market == 'linear' and scope.get('is_close') != item['is_close']:
+    if market == 'linear' and (type(item.get('is_close')) is not bool
+                               or scope.get('is_close') != item.get('is_close')):
         issues.append('futures close flag mismatch')
     if item.get('reference_position') is not None and proof.get('position') != item['reference_position']:
         issues.append('independent futures position mismatch')
