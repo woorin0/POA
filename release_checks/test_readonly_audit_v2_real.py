@@ -1,6 +1,6 @@
 """Windows-only independent, genuine POA fill math/proof/Discord render verification.
 
-Runs in an isolated checkout of PR4 e5986ba... with release_checks.isolation:
+Runs in an isolated checkout of PR4 bf6e66e... with release_checks.isolation:
 - Real ReadHost.observe(), request_scope(), validate(), make_payload(), render()
 - Synthetic authenticated venue-native HTTP replies only (fixture already tested in PR4)
 - No order execution, exchange API calls, operational DB, or actual Discord POST.
@@ -18,7 +18,7 @@ from exchange.verified_pnl.order_fill_read import (
     ReadHost, ReadRejected, request_scope, validate,
 )
 
-EXPECTED_PRODUCT = "d7af452a1621b7789476f428f96377c06c5d37ae"
+EXPECTED_PRODUCT = "bf6e66e259c7ebbd5099e78b24089caa94936ec9"
 MARKETS = [
     ("UPBIT", False), ("BYBIT", False), ("BYBIT", True),
     ("BINANCE", False), ("BINANCE", True),

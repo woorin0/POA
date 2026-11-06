@@ -20,7 +20,7 @@ import json
 from pathlib import Path
 import sys
 
-EXPECTED_SHA = "d7af452a1621b7789476f428f96377c06c5d37ae"
+EXPECTED_SHA = "bf6e66e259c7ebbd5099e78b24089caa94936ec9"
 VENUES = {"UPBIT", "BYBIT", "BINANCE", "OKX"}
 READ_HOSTS = frozenset({"api.upbit.com", "api.bybit.com", "api.binance.com", "fapi.binance.com", "www.okx.com"})
 SUPPORTED = {

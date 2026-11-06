@@ -246,8 +246,8 @@
   },
   {
     "Path": "exchange/verified_pnl/order_fill_confirmation.py",
-    "Bytes": 27762,
-    "SHA256": "385A16C551B9E26A1E57169815E978A52D1B11144C5FF910E9CE6AB075618442"
+    "Bytes": 27875,
+    "SHA256": "2430685C8208A276C78D406FBA98A1C98ECD1E359ECE749DD09121207BA7AC55"
   },
   {
     "Path": "exchange/verified_pnl/order_fill_read.py",
