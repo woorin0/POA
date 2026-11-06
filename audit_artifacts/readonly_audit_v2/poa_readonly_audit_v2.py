@@ -12,6 +12,8 @@ import argparse
 from collections import Counter
 import http.client
 import os
+import re
+import stat
 import subprocess
 from unittest.mock import patch
 from decimal import Decimal, InvalidOperation, localcontext
@@ -53,6 +55,20 @@ def finite_decimal(x: str) -> Decimal:
     return y
 
 
+def signed_fee_decimal(value: str) -> Decimal:
+    """Allow rebates as negative fees while rejecting nonfinite/unbounded amounts."""
+    if type(value) not in (str, int):
+        raise ValueError('fee must be a signed decimal string')
+    try:
+        result = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        raise ValueError('invalid independent fee decimal') from None
+    if (not result.is_finite() or len(result.as_tuple().digits) > 128
+            or abs(result.as_tuple().exponent) > 128):
+        raise ValueError('nonfinite or unbounded fee')
+    return result
+
+
 def money(x: str) -> str:
     a = format(Decimal(x), 'f')
     return a.rstrip('0').rstrip('.') if '.' in a else a
@@ -61,6 +77,11 @@ def money(x: str) -> str:
 def require_order(row: dict) -> None:
     if type(row) is not dict:
         raise ValueError('each order must be an object')
+    keys = {'exchange', 'market', 'symbol', 'side', 'order_id', 'client_order_id',
+            'is_close', 'contract_size', 'reference_source', 'reference_fills',
+            'reference_total', 'reference_quantity', 'reference_fees', 'reference_position'}
+    if set(row) - keys:
+        raise ValueError('unexpected historical order fields')
     if row.get('reference_source') not in ('exchange_csv', 'exchange_statement'):
         raise ValueError('reference_source must identify independent exchange CSV or statement')
     client_id = row.get('client_order_id')
@@ -78,8 +99,11 @@ def require_order(row: dict) -> None:
     if row['order_id'].startswith('REPLACE_'):
         raise ValueError('replace the example order_id before preflight')
     symbol = row.get('symbol')
-    if not isinstance(symbol, str) or not symbol.count('/') == 1:
+    if not isinstance(symbol, str) or symbol.count('/') != 1:
         raise ValueError('expected unified symbol')
+    base = symbol.split('/')[0]
+    if not re.fullmatch(r'[A-Z0-9]{1,20}', base):
+        raise ValueError('unsupported base symbol')
     expected_quote = 'KRW' if exchange == 'UPBIT' else 'USDT'
     if symbol.split('/')[-1] != (expected_quote+':USDT' if market=='linear' else expected_quote):
         raise ValueError('symbol does not match supported settlement')
@@ -106,6 +130,40 @@ def require_order(row: dict) -> None:
                                  for f in row['reference_fills']), Decimal(0))
     if computed_total != finite_decimal(row['reference_total']) or computed_quantity != finite_decimal(row['reference_quantity']):
         raise ValueError('independent reference statement does not reconcile with fills')
+    fees = row.get('reference_fees')
+    if fees is not None:
+        if type(fees) is not dict or not 1 <= len(fees) <= 16:
+            raise ValueError('invalid independent fee currency map')
+        for currency, value in fees.items():
+            if type(currency) is not str or not re.fullmatch(r'[A-Z0-9]{1,12}', currency):
+                raise ValueError('invalid independent fee currency')
+            signed_fee_decimal(value)
+    position = row.get('reference_position')
+    if position is not None and (row['market'] != 'linear' or position not in
+                                 ('롱 진입', '롱 청산', '숏 진입', '숏 청산')):
+        raise ValueError('invalid independent futures position')
+
+
+def read_private_manifest(path: Path):
+    """Open once, reject symlinks and shared files, bound bytes before JSON parsing."""
+    if path.is_symlink():
+        raise ValueError('manifest symlink forbidden')
+    flags = os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0)
+    fd = os.open(str(path), flags)
+    try:
+        metadata = os.fstat(fd)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError('manifest must be a regular file')
+        if not 0 < metadata.st_size <= 2_000_000:
+            raise ValueError('manifest must be nonempty and at most 2 MB')
+        if os.name == 'posix' and (metadata.st_uid != os.geteuid() or metadata.st_mode & 0o077):
+            raise ValueError('manifest must be user-owned and mode 0600 or stricter')
+        with os.fdopen(fd, 'r', encoding='utf-8') as stream:
+            fd = -1
+            return json.load(stream)
+    finally:
+        if fd != -1:
+            os.close(fd)
 
 
 def verify_checkout(root: Path) -> None:
@@ -149,7 +207,7 @@ def limit_network_to_exchange_gets() -> None:
 
 def _confirm_live_read() -> bool:
     """Require interactive approval; operator must provision read-only keys."""
-    if not sys.stdin.isatty() or not sys.stderr.isatty():
+    if not sys.stdin.isatty() or not sys.stderr.isatty() or not sys.stdout.isatty():
         return False
     try:
         return input('Type READ_ONLY_KEYS to enable historical authenticated GET (no orders): ').strip() == 'READ_ONLY_KEYS'
@@ -203,6 +261,22 @@ def compare_proof_to_reference(item: dict, proof: dict, embed: dict) -> list[str
         issues.append('Discord preview exchange or symbol mismatch')
     if ('매수' if side == 'buy' else '매도') not in title:
         issues.append('Discord preview buy/sell direction mismatch')
+    base = symbol.split('/')[0]
+    instrument = ('KRW-' + base if venue == 'UPBIT' else
+                  base + '-USDT' + ('-SWAP' if market == 'linear' else '') if venue == 'OKX'
+                  else base + 'USDT')
+    if proof.get('instrument') != instrument:
+        issues.append('native instrument mismatch')
+    if market == 'linear' and (type(item.get('is_close')) is not bool
+                               or scope.get('is_close') != item.get('is_close')):
+        issues.append('futures close flag mismatch')
+    if item.get('reference_position') is not None and proof.get('position') != item['reference_position']:
+        issues.append('independent futures position mismatch')
+    if item.get('reference_fees') is not None:
+        actual_fees = proof.get('fees')
+        if actual_fees is None or {k: signed_fee_decimal(v) for k, v in actual_fees.items()} != {
+                k: signed_fee_decimal(v) for k, v in item['reference_fees'].items()}:
+            issues.append('independent fee summary differs or is unverified')
     return issues
 
 def main() -> int:
@@ -214,9 +288,9 @@ def main() -> int:
     args = ap.parse_args()
     try:
         verify_checkout(Path.cwd())
-        if args.manifest.stat().st_size > 2_000_000:
-            raise ValueError('manifest too large; maximum 2 MB')
-        document=json.loads(args.manifest.read_text(encoding='utf-8'))
+        document=read_private_manifest(args.manifest)
+        if type(document) is not dict or set(document) != {'orders'}:
+            raise ValueError('manifest must contain only orders')
         orders=document['orders']
         if not isinstance(orders,list) or not 1 <= len(orders) <= 100:
             raise ValueError('orders must contain 1..100 entries')
@@ -229,7 +303,8 @@ def main() -> int:
             seen.add(identity_key)
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError,
             subprocess.SubprocessError) as e:
-        print('PREFLIGHT_FAILED:',type(e).__name__,str(e),file=sys.stderr)
+        detail = str(e) if isinstance(e, ValueError) and not isinstance(e, json.JSONDecodeError) else 'manifest rejected'
+        print('PREFLIGHT_FAILED:',type(e).__name__,detail,file=sys.stderr)
         return 2
     if args.preflight:
         print(f'PREFLIGHT_PASS: exact clean PR4 checkout {EXPECTED_SHA}; {len(orders)} order references valid. No API request performed.')
@@ -250,9 +325,13 @@ def main() -> int:
     exchange_creds={}
     for exchange in dict.fromkeys(x['exchange'] for x in orders):
         print(f'Enter a READ-ONLY {exchange} API key (inputs are not saved):',file=sys.stderr)
-        key=getpass.getpass('  API key: ')
-        secret=getpass.getpass('  Secret: ')
-        passphrase=getpass.getpass('  OKX passphrase: ') if exchange=='OKX' else None
+        try:
+            key=getpass.getpass('  API key: ')
+            secret=getpass.getpass('  Secret: ')
+            passphrase=getpass.getpass('  OKX passphrase: ') if exchange=='OKX' else None
+        except (EOFError, KeyboardInterrupt):
+            print('CREDENTIAL_INPUT_ABORTED',file=sys.stderr)
+            return 2
         if not key or not secret or (exchange=='OKX' and not passphrase):
             print('MISSING_READ_ONLY_CREDENTIAL:',exchange,file=sys.stderr)
             return 2
@@ -268,9 +347,13 @@ def main() -> int:
         configuration[f'{exchange}_KEY']=key
         configuration[f'{exchange}_SECRET']=secret
         if exchange=='OKX':configuration['OKX_PASSPHRASE']=passphrase
-    with patch.dict(os.environ, {}, clear=True):
-        st=Settings(_env_file=None,**configuration)
-    host=ReadHost(st)
+    try:
+        with patch.dict(os.environ, {}, clear=True):
+            st=Settings(_env_file=None,**configuration)
+        host=ReadHost(st)
+    except Exception:
+        print('READONLY_CONFIGURATION_REJECTED',file=sys.stderr)
+        return 2
     failed=0
     for i,item in enumerate(orders,1):
         venue=item['exchange']; market=item['market']; side=item['side']; symbol=item['symbol']
@@ -296,10 +379,7 @@ def main() -> int:
             desc=embed.get('description', '')
             issues=compare_proof_to_reference(item,proof,embed)
             print(('PASS' if not issues else 'FAIL')+' '+label)
-            print('  qty='+money(proof['filled'])+' avg='+money(proof['average'])+' total='+money(proof['total'])+' '+('KRW' if venue=='UPBIT' else 'USDT'))
-            print('  Discord preview (NO POST):')
-            print('  '+embed.get('title',''))
-            print('  '+' | '.join(s for s in desc.splitlines() if s.startswith(('실제 평균 체결가:','실제 체결수량:','실제 총 매수액:','실제 총 매도액:','계약 명목가치:'))))
+            print('  Independent fills, totals, scope and Discord preview checked locally; no POST or amount disclosure.')
             if issues:
                 failed+=1
                 for issue in issues:print('  ISSUE: '+issue)

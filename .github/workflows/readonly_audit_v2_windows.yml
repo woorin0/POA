@@ -8,13 +8,15 @@ on:
       - 'audit_artifacts/readonly_audit_v2/**'
       - 'release_checks/test_discord_wire_e2e.py'
       - 'release_checks/test_readonly_audit_v2_real.py'
+      - 'release_checks/test_readonly_security_v3.py'
   pull_request:
-    branches: [feat/order-fill-confirmation-v1, test/poa-readonly-audit-windows]
+    branches: [feat/order-fill-confirmation-v1, test/poa-readonly-audit-windows, test/poa-readonly-audit-phase2]
     paths:
       - '.github/workflows/readonly_audit_v2_windows.yml'
       - 'audit_artifacts/readonly_audit_v2/**'
       - 'release_checks/test_discord_wire_e2e.py'
       - 'release_checks/test_readonly_audit_v2_real.py'
+      - 'release_checks/test_readonly_security_v3.py'
 
 permissions:
   contents: read
@@ -93,6 +95,18 @@ jobs:
           } finally {
             Pop-Location
           }
+      - name: PR7 independent offline endpoint, secrets, fee and native response regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Copy-Item 'release_checks/test_readonly_security_v3.py' (Join-Path $env:POA_AUDIT_PINNED 'release_checks/test_readonly_security_v3.py')
+          Push-Location $env:POA_AUDIT_PINNED
+          try {
+            python -B -c "import sys; sys.path.insert(0,'release_checks'); import isolation,pytest; sys.exit(pytest.main(['--confcutdir=release_checks','-p','no:cacheprovider','-q','--tb=short','--junitxml=readonly-v3-security-windows.xml','release_checks/test_readonly_security_v3.py'],plugins=[isolation]))"
+            if ($LASTEXITCODE -ne 0) { throw 'Independent security audit regression failed' }
+          } finally {
+            Pop-Location
+          }
       - name: Upload Windows synthetic and real source test evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -101,4 +115,5 @@ jobs:
           path: |
             ${{ runner.temp }}/poa-pr4-pinned/readonly-v2-real.xml
             ${{ runner.temp }}/poa-pr4-pinned/readonly-v2-discord-e2e.xml
+            ${{ runner.temp }}/poa-pr4-pinned/readonly-v3-security-windows.xml
           if-no-files-found: ignore
