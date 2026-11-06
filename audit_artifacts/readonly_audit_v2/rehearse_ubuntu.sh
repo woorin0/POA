@@ -5,6 +5,8 @@ umask 077
 PRODUCT_SHA=bf6e66e259c7ebbd5099e78b24089caa94936ec9
 ROOT_SOURCE="${GITHUB_WORKSPACE:?GitHub runner workspace required}"
 RUN_ROOT="${RUNNER_TEMP:?GitHub runner temp required}"
+# RUNNER_TEMP lives under /home/runner and cannot be traversed by the isolated user.
+# /tmp is traversable; mktemp mode 0700 keeps the private working directory closed.
 PY="$(command -v python)"
 if [[ "$(id -u)" == 0 ]]; then
   echo "REHEARSAL_BLOCKED: run as nonroot GitHub runner" >&2
@@ -20,7 +22,7 @@ if id "$NAME" >/dev/null 2>&1; then
   exit 2
 fi
 
-WORK="$(mktemp -d "$RUN_ROOT/poa-readonly-rehearsal.XXXXXX")"
+WORK="$(mktemp -d /tmp/poa-readonly-rehearsal.XXXXXX)"
 USER_CREATED=0
 cleanup() {
   status=$?
@@ -46,7 +48,8 @@ cmp -s "$ROOT_SOURCE/audit_artifacts/readonly_audit_v2/poa_readonly_audit_v2.py"
 sudo useradd --no-create-home --shell /usr/sbin/nologin "$NAME"
 USER_CREATED=1
 sudo chown -R "$NAME:$NAME" "$WORK"
-sudo -u "$NAME" env WORK="$WORK" PY="$PY" bash -euo pipefail <<'AUDIT_NONROOT'
+pushd "$WORK" >/dev/null
+sudo -u "$NAME" env WORK="$WORK" PY="$PY" HOME="$WORK" bash -euo pipefail <<'AUDIT_NONROOT'
 umask 077
 mkdir -m 700 -p "$WORK/private"
 cat > "$WORK/private/orders.json" <<'SYNTHETIC_ORDER'
@@ -102,3 +105,4 @@ rm -f "$WORK/private/orders.json" "$WORK/private/live.out" \
 [[ ! -e "$WORK/private/orders.json" ]]
 echo "REHEARSAL_PASS: nonroot, isolated venv, immutable PR4, private synthetic manifest, no live read"
 AUDIT_NONROOT
+popd >/dev/null
