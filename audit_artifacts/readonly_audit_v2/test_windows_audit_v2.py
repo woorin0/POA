@@ -64,9 +64,14 @@ def fake_modules(audit, rows, tamper=False, omit_side=False):
                 total=sum((Decimal(v['price'])*Decimal(v['quantity']) for v in fills),Decimal(0))
             scope={'exchange':info['exchange'],'order_id':order,'symbol':info['unified_symbol'],
                    'side':info['side'],'market_type':'linear' if info['is_futures'] else 'spot',
-                   'settlement':'KRW' if info['exchange']=='UPBIT' else 'USDT'}
-            return Observation({'scope':scope,'trades':fills,'filled':str(quantity),
-                                'total':str(total),'average':str(total/quantity)})
+                   'settlement':'KRW' if info['exchange']=='UPBIT' else 'USDT',
+                   'is_close': info.get('is_close', False)}
+            base=info['unified_symbol'].split('/')[0]
+            native=('KRW-'+base if info['exchange']=='UPBIT' else
+                    base+'-USDT'+('-SWAP' if info['is_futures'] else '')
+                    if info['exchange']=='OKX' else base+'USDT')
+            return Observation({'scope':scope,'instrument':native,'trades':fills,'filled':str(quantity),
+                                'total':str(total),'average':str(total/quantity),'fees':None})
     class Embed:
         def __init__(self,d):self.data=d
     def render(proof):
@@ -108,6 +113,7 @@ class WindowsAuditV2(unittest.TestCase):
         self.save()
     def save(self):
         self.manifest.write_text(json.dumps(self.data),encoding='utf-8')
+        self.manifest.chmod(0o600)
     def preflight(self,cwd=None):
         return subprocess.run([sys.executable,'-I',str(self.root/'poa_readonly_audit_v2.py'),
                                str(self.manifest),'--preflight'],
@@ -177,6 +183,49 @@ class WindowsAuditV2(unittest.TestCase):
             finally:
                 os.chdir(old)
         return status,out.getvalue(),err.getvalue()
+    def test_manifest_rejects_world_readable_file(self):
+        if os.name != 'posix':
+            self.skipTest('POSIX ownership/mode enforcement only')
+        self.manifest.chmod(0o644)
+        r = self.preflight()
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('mode 0600', r.stderr)
+
+    def test_manifest_rejects_symlink(self):
+        link = Path(self.tmp.name)/'linked.json'
+        try:
+            link.symlink_to(self.manifest)
+        except (OSError, NotImplementedError):
+            self.skipTest('no symlink capability')
+        r = subprocess.run([sys.executable,'-I',str(self.root/'poa_readonly_audit_v2.py'),
+                            str(link),'--preflight'],
+                           cwd=self.root,capture_output=True,text=True,timeout=30)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('manifest symlink forbidden', r.stderr)
+
+    def test_manifest_rejects_unknown_secret_fields(self):
+        self.data['orders'][0]['api_secret'] = 'should-not-be-here'
+        self.save()
+        r = self.preflight()
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('unexpected historical order fields',r.stderr)
+        self.assertNotIn('should-not-be-here',r.stderr+r.stdout)
+
+    def test_manifest_rejects_invalid_base_symbol(self):
+        self.data['orders'][0]['symbol'] = '../SOL/KRW'
+        self.save()
+        r = self.preflight()
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('expected unified symbol',r.stderr)
+
+    def test_manifest_rejects_extra_document_root(self):
+        self.data['webhook'] = 'must-never-send'
+        self.save()
+        r=self.preflight()
+        self.assertEqual(r.returncode,2)
+        self.assertIn('manifest must contain only orders',r.stderr)
+        self.assertNotIn('must-never-send',r.stderr+r.stdout)
+
     def test_no_implicit_network_mode(self):
         r = subprocess.run([sys.executable, '-I', str(self.root/'poa_readonly_audit_v2.py'),
                             str(self.manifest)], cwd=self.root,
@@ -219,6 +268,10 @@ class WindowsAuditV2(unittest.TestCase):
         self.assertIn('FINAL: 3/3',out)
         self.assertEqual(sum(x.startswith('PASS ') for x in out.splitlines()),3)
         self.assertNotIn('fake-secret',out+err)
+        self.assertNotIn('fake-key',out+err)
+        self.assertNotIn(self.data['orders'][0]['order_id'],out+err)
+        self.assertNotIn('100250',out+err)
+        self.assertNotIn('Discord preview (NO POST):',out+err)
     def test_quantity_mutation_fails_closed(self):
         status,out,_=self.run_mock(tamper=True)
         self.assertEqual(status,1,out)
