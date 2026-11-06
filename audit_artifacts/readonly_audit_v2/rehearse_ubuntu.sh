@@ -47,8 +47,9 @@ cmp -s "$ROOT_SOURCE/audit_artifacts/readonly_audit_v2/poa_readonly_audit_v2.py"
 
 sudo useradd --no-create-home --shell /usr/sbin/nologin "$NAME"
 USER_CREATED=1
-sudo chown -R "$NAME:$NAME" "$WORK"
+# Enter while still owned by the runner; ownership becomes exclusive immediately after.
 pushd "$WORK" >/dev/null
+sudo chown -R "$NAME:$NAME" "$WORK"
 sudo -u "$NAME" env WORK="$WORK" PY="$PY" HOME="$WORK" bash -euo pipefail <<'AUDIT_NONROOT'
 umask 077
 mkdir -m 700 -p "$WORK/private"
