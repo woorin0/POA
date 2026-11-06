@@ -1,14 +1,11 @@
 name: POA phase2 historical read-only audit - Ubuntu offline
 
 on:
+  # No path filtering: independent history and Discord checks are required for main.
+  push:
+    branches: [main]
   pull_request:
-    branches: [test/poa-readonly-audit-windows]
-    paths:
-      - '.github/workflows/readonly_audit_v2_ubuntu.yml'
-      - '.github/workflows/readonly_audit_v2_windows.yml'
-      - 'audit_artifacts/readonly_audit_v2/**'
-      - 'release_checks/test_readonly_audit_v2_real.py'
-      - 'release_checks/test_discord_wire_e2e.py'
+    branches: [main, test/poa-readonly-audit-windows, test/poa-readonly-hardening-phase3]
 
 permissions:
   contents: read
