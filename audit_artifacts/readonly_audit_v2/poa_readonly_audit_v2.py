@@ -55,6 +55,20 @@ def finite_decimal(x: str) -> Decimal:
     return y
 
 
+def signed_fee_decimal(value: str) -> Decimal:
+    """Allow rebates as negative fees while rejecting nonfinite/unbounded amounts."""
+    if type(value) not in (str, int):
+        raise ValueError('fee must be a signed decimal string')
+    try:
+        result = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        raise ValueError('invalid independent fee decimal') from None
+    if (not result.is_finite() or len(result.as_tuple().digits) > 128
+            or abs(result.as_tuple().exponent) > 128):
+        raise ValueError('nonfinite or unbounded fee')
+    return result
+
+
 def money(x: str) -> str:
     a = format(Decimal(x), 'f')
     return a.rstrip('0').rstrip('.') if '.' in a else a
@@ -123,7 +137,7 @@ def require_order(row: dict) -> None:
         for currency, value in fees.items():
             if type(currency) is not str or not re.fullmatch(r'[A-Z0-9]{1,12}', currency):
                 raise ValueError('invalid independent fee currency')
-            finite_decimal(value)
+            signed_fee_decimal(value)
     position = row.get('reference_position')
     if position is not None and (row['market'] != 'linear' or position not in
                                  ('롱 진입', '롱 청산', '숏 진입', '숏 청산')):
@@ -259,8 +273,8 @@ def compare_proof_to_reference(item: dict, proof: dict, embed: dict) -> list[str
         issues.append('independent futures position mismatch')
     if item.get('reference_fees') is not None:
         actual_fees = proof.get('fees')
-        if actual_fees is None or {k: finite_decimal(v) for k, v in actual_fees.items()} != {
-                k: finite_decimal(v) for k, v in item['reference_fees'].items()}:
+        if actual_fees is None or {k: signed_fee_decimal(v) for k, v in actual_fees.items()} != {
+                k: signed_fee_decimal(v) for k, v in item['reference_fees'].items()}:
             issues.append('independent fee summary differs or is unverified')
     return issues
 
