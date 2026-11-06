@@ -293,6 +293,7 @@ def main() -> int:
             if not validate(proof):
                 raise ValueError('read proof validation rejected')
             embed=render(make_payload(proof)).data
+            desc=embed.get('description', '')
             issues=compare_proof_to_reference(item,proof,embed)
             print(('PASS' if not issues else 'FAIL')+' '+label)
             print('  qty='+money(proof['filled'])+' avg='+money(proof['average'])+' total='+money(proof['total'])+' '+('KRW' if venue=='UPBIT' else 'USDT'))
