@@ -1,15 +1,11 @@
 name: POA phase3 read-only security, full venue regression and Ubuntu rehearsal
 
 on:
+  # Both Windows and Ubuntu security matrices run on every main PR and push.
+  push:
+    branches: [main]
   pull_request:
-    branches: [test/poa-readonly-audit-phase2]
-    paths:
-      - '.github/workflows/readonly_audit_v3_security_ubuntu.yml'
-      - '.github/workflows/readonly_audit_v2_windows.yml'
-      - 'audit_artifacts/readonly_audit_v2/**'
-      - 'release_checks/test_readonly_security_v3.py'
-      - 'release_checks/test_readonly_audit_v2_real.py'
-      - 'release_checks/test_discord_wire_e2e.py'
+    branches: [main, test/poa-readonly-audit-phase2, test/poa-readonly-hardening-phase3]
 
 permissions:
   contents: read
