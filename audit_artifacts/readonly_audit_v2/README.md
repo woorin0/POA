@@ -24,10 +24,12 @@ Coin-M/inverse, 다른 결제통화, 만기형, 미체결·진행 중·부분취
 
 ## 실행 순서 (신뢰할 수 있는 로컬 PC)
 
+**독립 감사 교정:** 아래 감사 스크립트는 PR #7에서 검증한 고정 커밋 `3c617ef6bfbc92c1e07784f9791cba69e1c962db`에서 추출한다. 이전 PR #6 브랜치에서 가져오면 최신 파일 권한·민감정보 보호 검증이 누락되므로 사용하지 않는다. 제품은 별도의 PR #4 SHA로 고정하며, 두 SHA의 역할을 혼동하지 않는다.
+
 ```bash
-git fetch origin feat/order-fill-confirmation-v1 test/poa-readonly-audit-phase2
+git fetch origin feat/order-fill-confirmation-v1 test/poa-readonly-hardening-phase3
 git worktree add --detach ../poa-historical-readonly bf6e66e259c7ebbd5099e78b24089caa94936ec9
-git show origin/test/poa-readonly-audit-phase2:audit_artifacts/readonly_audit_v2/poa_readonly_audit_v2.py > ../poa-historical-readonly/poa_readonly_audit_v2.py
+git show 3c617ef6bfbc92c1e07784f9791cba69e1c962db:audit_artifacts/readonly_audit_v2/poa_readonly_audit_v2.py > ../poa-historical-readonly/poa_readonly_audit_v2.py
 cd ../poa-historical-readonly
 python -m venv .venv
 # 운영체제에 맞게 .venv 활성화 후 실행
