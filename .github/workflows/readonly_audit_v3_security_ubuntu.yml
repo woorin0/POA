@@ -1,0 +1,77 @@
+name: POA phase3 read-only security, full venue regression and Ubuntu rehearsal
+
+on:
+  pull_request:
+    branches: [test/poa-readonly-audit-phase2]
+    paths:
+      - '.github/workflows/readonly_audit_v3_security_ubuntu.yml'
+      - '.github/workflows/readonly_audit_v2_windows.yml'
+      - 'audit_artifacts/readonly_audit_v2/**'
+      - 'release_checks/test_readonly_security_v3.py'
+      - 'release_checks/test_readonly_audit_v2_real.py'
+      - 'release_checks/test_discord_wire_e2e.py'
+
+permissions:
+  contents: read
+
+jobs:
+  audit-ubuntu-full-offline:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONIOENCODING: utf-8
+      POA_EXCHANGE_FILL_CONFIRMATION_ENABLED: 'false'
+      VERIFIED_DISCORD_ALERTS: 'false'
+      VERIFIED_FILL_PRICE: 'false'
+      DISCORD_OUTBOX_ENABLED: 'false'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - name: Avoid Git CRLF rewrites
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Immutable PR4 and audit-only test overlay
+        run: |
+          set -euo pipefail
+          git worktree add --detach "$RUNNER_TEMP/poa-pr4-pinned" bf6e66e259c7ebbd5099e78b24089caa94936ec9
+          cp audit_artifacts/readonly_audit_v2/poa_readonly_audit_v2.py "$RUNNER_TEMP/poa-pr4-pinned/poa_readonly_audit_v2.py"
+          cp release_checks/test_readonly_audit_v2_real.py "$RUNNER_TEMP/poa-pr4-pinned/release_checks/test_readonly_audit_v2_real.py"
+          cp release_checks/test_readonly_security_v3.py "$RUNNER_TEMP/poa-pr4-pinned/release_checks/test_readonly_security_v3.py"
+          cp release_checks/test_discord_wire_e2e.py "$RUNNER_TEMP/poa-pr4-pinned/release_checks/test_discord_wire_e2e.py"
+          test "$(git -C "$RUNNER_TEMP/poa-pr4-pinned" rev-parse HEAD)" = bf6e66e259c7ebbd5099e78b24089caa94936ec9
+          test -z "$(git -C "$RUNNER_TEMP/poa-pr4-pinned" status --porcelain --untracked-files=no)"
+      - name: Install pinned runtime and pytest dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install pip==26.3 setuptools==84.2.1
+          python -m pip install -r "$RUNNER_TEMP/poa-pr4-pinned/requirements.txt"
+          python -m pip install pytest==9.1.1 PyYAML==6.0.3
+          python -m pip check
+      - name: Audit CLI synthetic inputs and denial tests
+        env:
+          POA_AUDIT_PINNED: ${{ runner.temp }}/poa-pr4-pinned
+        run: python -B audit_artifacts/readonly_audit_v2/test_windows_audit_v2.py --pinned-root "$POA_AUDIT_PINNED"
+      - name: PR4 genuine product order-fill and crash contracts (whole suite)
+        working-directory: ${{ runner.temp }}/poa-pr4-pinned
+        run: python -B release_checks/run_fill_confirmation.py -q --tb=short --junitxml=readonly-v3-fill-contracts.xml
+      - name: Independent security, genuine reader and Discord E2E matrix
+        working-directory: ${{ runner.temp }}/poa-pr4-pinned
+        run: |
+          python -B -c "import sys; sys.path.insert(0,'release_checks'); import isolation,pytest; sys.exit(pytest.main(['--confcutdir=release_checks','-p','no:cacheprovider','-q','--tb=short','--junitxml=readonly-v3-security.xml','release_checks/test_readonly_security_v3.py','release_checks/test_readonly_audit_v2_real.py','release_checks/test_discord_wire_e2e.py'],plugins=[isolation]))"
+      - name: Rehearse Vultr-style nonroot install and explicit no-credential refusal
+        run: bash audit_artifacts/readonly_audit_v2/rehearse_ubuntu.sh
+      - name: JUnit evidence only, never credentials or manifests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: poa-phase3-ubuntu-security-regression
+          path: |
+            ${{ runner.temp }}/poa-pr4-pinned/readonly-v3-fill-contracts.xml
+            ${{ runner.temp }}/poa-pr4-pinned/readonly-v3-security.xml
+          if-no-files-found: ignore
