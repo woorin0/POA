@@ -226,7 +226,7 @@ class WindowsAuditV2(unittest.TestCase):
     def test_futures_direction_omission_fails_closed(self):
         status,out,_=self.run_mock(omit_side=True)
         self.assertEqual(status,1,out)
-        self.assertIn('Futures title does not explicitly display buy/sell side',out)
+        self.assertIn('Discord preview buy/sell direction mismatch',out)
 
 if __name__=='__main__':
     p=argparse.ArgumentParser()
