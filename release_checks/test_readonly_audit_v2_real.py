@@ -7,6 +7,7 @@ Runs in an isolated checkout of PR4 bf6e66e... with release_checks.isolation:
 - Golden values are calculated without using the reader's results or its math.
 """
 import copy
+import importlib.util
 import json
 from decimal import Decimal as D, localcontext
 from pathlib import Path
@@ -179,3 +180,44 @@ def test_real_implementation_is_pinned_and_not_a_fake():
     assert Path(C.render.__code__.co_filename).resolve() == (
         root / "exchange/verified_pnl/order_fill_confirmation.py"
     ).resolve()
+
+
+def load_phase2_audit():
+    """Load audit CLI as a pure module; never invoke main(), network, or credentials."""
+    path = Path(__file__).resolve().parents[1] / 'poa_readonly_audit_v2.py'
+    assert path.is_file(), 'audit CLI missing from isolated PR4 checkout'
+    spec = importlib.util.spec_from_file_location('poa_phase2_audit', path)
+    audit = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(audit)
+    assert audit.EXPECTED_SHA == EXPECTED_PRODUCT
+    return audit
+
+
+@pytest.mark.parametrize("exchange,future", MARKETS)
+@pytest.mark.parametrize("side", ["buy", "sell"])
+def test_independent_reference_vs_real_poa_order_and_embed(tmp_path, monkeypatch, exchange, future, side):
+    """14 real POA reader/validator/renderer paths checked against independent immutable expected rows."""
+    r = F.setup(tmp_path, monkeypatch, exchange, future, side=side, count=2, base="SOL")
+    proof, embed = actual_poa_observation(r)
+    audit = load_phase2_audit()
+    base_qty = D("0.2") if exchange == "OKX" and future else D("1")
+    ref_qty = base_qty * D(2)
+    ref_total = (D("100") + D("110")) * base_qty
+    item = {
+        "exchange": exchange, "market": "linear" if future else "spot",
+        "symbol": r.info.unified_symbol, "side": side, "order_id": r.oid,
+        "reference_source": "exchange_csv",
+        "reference_fills": [
+            {"price": "100", "quantity_base": str(base_qty)},
+            {"price": "110", "quantity_base": str(base_qty)}
+        ],
+        "reference_total": str(ref_total), "reference_quantity": str(ref_qty),
+    }
+    if future: item["is_close"] = bool(r.info.is_close)
+    if exchange == "OKX" and future: item["contract_size"] = str(r.info.contract_size)
+    audit.require_order(item)
+    assert audit.compare_proof_to_reference(item, proof, embed) == []
+    damaged = copy.deepcopy(item)
+    damaged["reference_fills"][0]["quantity_base"] = str(base_qty * 2)
+    assert any("source fill rows differ" in x for x in audit.compare_proof_to_reference(damaged, proof, embed))
+    assert r.posts == []
