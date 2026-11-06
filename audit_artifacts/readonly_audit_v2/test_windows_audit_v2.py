@@ -120,6 +120,21 @@ class WindowsAuditV2(unittest.TestCase):
                               cwd=cwd or self.root,encoding='utf-8',errors='replace',
                               capture_output=True,timeout=30,
                               env={k:v for k,v in os.environ.items() if k not in ('GITHUB_TOKEN','GH_TOKEN','DISCORD_WEBHOOK_URL')})
+    def test_operator_runbook_uses_exact_reviewed_phase3_script(self):
+        # A stale PR6 git-show command silently installs a weaker audit helper.
+        reviewed_sha = '3c617ef6bfbc92c1e07784f9791cba69e1c962db'
+        source = 'audit_artifacts/readonly_audit_v2/poa_readonly_audit_v2.py'
+        workspace = Path(__file__).resolve().parents[2]
+        runbook = (Path(__file__).parent / 'README.md').read_text(encoding='utf-8')
+        instructions = [line.strip() for line in runbook.splitlines()
+                        if line.strip().startswith('git show ')]
+        self.assertEqual(instructions, [
+            f'git show {reviewed_sha}:{source} > ../poa-historical-readonly/poa_readonly_audit_v2.py'])
+        self.assertIn('git fetch origin feat/order-fill-confirmation-v1 test/poa-readonly-hardening-phase3', runbook)
+        reviewed_bytes = subprocess.check_output(
+            ['git', 'show', f'{reviewed_sha}:{source}'], cwd=workspace)
+        self.assertEqual((self.root / 'poa_readonly_audit_v2.py').read_bytes(), reviewed_bytes)
+
     def test_clean_pr4_preflight_no_api_credentials(self):
         r=self.preflight()
         self.assertEqual(r.returncode,0,r.stdout+'\n'+r.stderr)
