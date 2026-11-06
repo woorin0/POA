@@ -177,6 +177,7 @@ def test_unfiltered_main_ci_includes_release_readonly_and_discord_security():
     assert release['strategy']['matrix']['os'] == ['windows-latest', 'ubuntu-22.04']
     release_steps = {s['name']: s for s in release['steps'] if 'name' in s}
     assert 'Full Windows regression' in release_steps
+    assert '--ignore=release_checks' in release_steps['Full Windows regression']['run']
     assert "runner.os == 'Windows'" in release_steps['Full Windows regression']['if']
     assert 'Independent four-venue native fill confirmation' in release_steps
     assert "runner.os == 'Linux'" in release_steps['Independent four-venue native fill confirmation']['if']
