@@ -92,8 +92,13 @@ def test_user_data_secret_free_and_embedded_sources_match():
     import yaml
     ci=yaml.load((ROOT/'.github/workflows/pr_verification.yml').read_text(encoding='utf-8'),Loader=yaml.BaseLoader)
     assert ci['on']['push']['branches']==['main']
-    assert ci['on']['pull_request']['branches']==['main','fix/poa-release-safety-pr3','test/poa-readonly-hardening-phase3']
+    assert ci['on']['pull_request']['branches']==['main','fix/poa-release-safety-pr3','feat/order-fill-confirmation-v1','test/poa-readonly-hardening-phase3']
     steps=ci['jobs']['offline']['steps']
+    full=next(s for s in steps if s.get('name')=='Full Windows regression')
+    assert full['if']=="runner.os == 'Windows'"
+    assert full['run']=='python -m pytest -q --tb=short --ignore=release_checks --ignore=audit_artifacts/readonly_audit_v2 --junitxml=full.xml'
+    assert next(s for s in steps if s.get('name')=='Independent Ed25519, amount, admission and installer gates (no legacy bridge)')['run'].startswith('python release_checks/run.py ')
+    assert next(s for s in steps if s.get('name')=='Independent four-venue native fill confirmation')['run'].startswith('python release_checks/run_fill_confirmation.py ')
     install=next(s['run'] for s in steps if s.get('name')=='Install isolated test dependencies')
     assert 'pip==26.3 setuptools==84.2.1' in install and "m.version('setuptools') == '84.2.1'" in install
     audit=next(s['run'] for s in steps if s.get('name')=='Audit complete installed Python environment (no suppressions)')
