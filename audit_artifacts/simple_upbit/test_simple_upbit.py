@@ -111,7 +111,7 @@ def test_simple_installer_no_manual_scope_inputs():
  assert env['POA_UPBIT_ESTIMATED_READ_ENABLED'] is True and env['POA_UPBIT_READ_CREDENTIAL_MODE']=='simple' and record is None
  assert env['POA_UPBIT_READ_BINDING_SHA256']==''
  assert not I.upbit_read_configuration({}, {})[0]['POA_UPBIT_ESTIMATED_READ_ENABLED']
- cloud=yaml.safe_load((ROOT/'deployment/cloud-config-ubuntu2204.yaml').read_text(encoding='utf-8'));files={x['path']:x for x in cloud['write_files']};inp=json.loads(files['/root/poa-install-input.json']['content'])
+ cloud=yaml.safe_load((ROOT/'deployment/cloud-config-ubuntu2204.yaml').read_text(encoding='utf-8'));files={x['path']:x for x in cloud['write_files']};inp=json.loads(files['/root/poa-stage-input.json']['content'])
  assert 'upbit_estimated_read' not in inp and not any(x in inp for x in ('account_uuid','pocket_uuid','strategy','allowed_ips','evidence'))
  assert files['/usr/local/lib/poa/install_once.py']['content'].rstrip()==(ROOT/'deployment/install_once.py').read_text(encoding='utf-8').rstrip()
 

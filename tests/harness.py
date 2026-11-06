@@ -50,7 +50,7 @@ def setup(root=ROOT):
         if name == "exchange" or name.startswith("exchange."):
             del sys.modules[name]
     try:
-        from pydantic import class_validators
+        from pydantic.v1 import class_validators
         if hasattr(class_validators, "_FUNCS"):
             class_validators._FUNCS.clear()
     except Exception:

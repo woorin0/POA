@@ -1,6 +1,6 @@
 from enum import Enum
 from typing import Literal
-from pydantic import BaseModel
+from pydantic.v1 import BaseModel
 
 korea_stocks = ("KRX")
 us_stocks = ("NASDAQ", "NYSE", "AMEX")

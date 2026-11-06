@@ -5,6 +5,9 @@ from pprint import pprint
 from fastapi import FastAPI, Request, status, BackgroundTasks
 from fastapi.responses import ORJSONResponse, RedirectResponse
 from fastapi.exceptions import RequestValidationError
+from pydantic.v1 import ValidationError
+from pydantic.v1.fields import ModelField
+import json
 import httpx
 from exchange.stock.kis import KoreaInvestment
 from exchange.model import MarketOrder, PriceRequest, HedgeData, OrderRequest
@@ -236,7 +239,49 @@ async def welcome():
     return "hi!!"
 
 
+async def _v1_request(request: Request, model):
+    # Preserve the existing v1 validators and sanitized 422 contract. FastAPI
+    # no longer accepts v1 models as route parameters; no order fields change.
+    import email.message
+    from starlette.exceptions import HTTPException
+    try:
+        raw = await request.body()
+        body = None
+        if raw:
+            body = raw
+            content_type = request.headers.get("content-type")
+            if not content_type:
+                body = await request.json()
+            else:
+                message = email.message.Message()
+                message["content-type"] = content_type
+                if message.get_content_maintype() == "application":
+                    subtype = message.get_content_subtype()
+                    if subtype == "json" or subtype.endswith("+json"):
+                        body = await request.json()
+    except json.JSONDecodeError as exc:
+        raise RequestValidationError([{"loc": ("body", exc.pos),
+                                       "type": "json_invalid"}]) from None
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=400, detail="There was an error parsing the body") from None
+    if body is None:
+        raise RequestValidationError([{"loc": ("body",), "type": "value_error.missing"}])
+    field = ModelField.infer(name="body", value=..., annotation=model,
+                             class_validators=None, config=model.__config__)
+    value, errors = field.validate(body, {}, loc=("body",))
+    if errors:
+        errors = errors if isinstance(errors, list) else [errors]
+        raise RequestValidationError(ValidationError(errors, model).errors())
+    return value
+
+
 @app.post("/price")
+async def _price_http(request: Request, background_tasks: BackgroundTasks):
+    return await price(await _v1_request(request, PriceRequest), background_tasks)
+
+
 async def price(price_req: PriceRequest, background_tasks: BackgroundTasks):
     exchange = get_exchange(price_req.exchange)
     price = exchange.dict()[price_req.exchange].fetch_price(
@@ -289,6 +334,10 @@ def schedule_order_log(background_tasks, exchange_name, result, order_info):
 
 @app.post("/order")
 @app.post("/")
+async def _order_http(request: Request, background_tasks: BackgroundTasks):
+    return await order(await _v1_request(request, MarketOrder), background_tasks)
+
+
 async def order(order_info: MarketOrder, background_tasks: BackgroundTasks):
     order_result = None
     try:
@@ -370,6 +419,10 @@ def get_hedge_records(base):
 
 
 @app.post("/hedge")
+async def _hedge_http(request: Request, background_tasks: BackgroundTasks):
+    return await hedge(await _v1_request(request, HedgeData), background_tasks)
+
+
 async def hedge(hedge_data: HedgeData, background_tasks: BackgroundTasks):
     if settings.SAFE_RETRY_ENABLED:
         # Hedge submits multiple legs outside the single-order lifecycle.

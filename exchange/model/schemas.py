@@ -1,4 +1,4 @@
-from pydantic import BaseModel, BaseSettings, validator, root_validator
+from pydantic.v1 import BaseModel, BaseSettings, validator, root_validator
 from typing import Literal
 import os
 from pathlib import Path

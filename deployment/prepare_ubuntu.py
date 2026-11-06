@@ -15,16 +15,16 @@ def command(args):
 
 
 def prepare():
-    from install_once import runtime_for_os, validate
+    from install_once import runtime_for_os, validate_stage, assert_fresh_stage, STAGE_INPUT
     if os.geteuid() != 0:
         raise RuntimeError('ROOT_REQUIRED')
     if runtime_for_os(Path('/etc/os-release').read_text()) != 'python3.10':
         raise RuntimeError('UBUNTU2204_REQUIRED')
-    if any(Path(p).exists() for p in ('/root/POA', '/root/db', '/root/POA_INSTALL_RESULT.json')):
-        raise RuntimeError('EXISTING_INSTALLATION_PRESERVED_STOP')
-    validate(json.loads(Path('/root/poa-install-input.json').read_text()))
+    assert_fresh_stage()
+    validate_stage(json.loads(STAGE_INPUT.read_text()))
     if command(['dpkg', '--print-architecture']).strip() != b'amd64':
         raise RuntimeError('AMD64_REQUIRED')
+    command(['systemctl', 'mask', '--runtime', 'poa.service', 'pocketbase.service'])
     # Only the Caddy snap is disabled; other snaps and their data are untouched.
     if Path('/snap/caddy/current').exists():
         command(['snap', 'stop', '--disable', 'caddy'])

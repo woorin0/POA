@@ -250,7 +250,8 @@ def verify_source(expected_manifest=None):
         file = (APP / name).resolve()
         if not file.is_relative_to(APP.resolve()) or not file.is_file():
             raise InstallError('SOURCE_MANIFEST_INVALID')
-        if hashlib.sha256(file.read_bytes()).hexdigest().upper() != entry['SHA256']:
+        if (type(entry.get('Bytes')) is not int or file.stat().st_size != entry['Bytes']
+                or hashlib.sha256(file.read_bytes()).hexdigest().upper() != entry['SHA256']):
             raise InstallError('SOURCE_HASH_MISMATCH:' + name)
     if expected_manifest and not {'main.py', 'run.py', 'requirements.txt'}.issubset(seen):
         raise InstallError('SOURCE_MANIFEST_MISSING_APP_FILES')
@@ -265,7 +266,84 @@ def runtime_for_os(content):
     return supported[identity]
 
 
+# Ubuntu staging never consumes credentials or starts an application service.
+STAGE_EXISTING = ('/root/POA', '/root/db', '/root/pb_data',
+                  '/root/POA_INSTALL_RESULT.json', '/etc/poa',
+                  '/etc/systemd/system/poa.service', '/etc/systemd/system/pocketbase.service')
+STAGE_INPUT = Path('/root/poa-stage-input.json')
+STAGE_RESULT = Path('/root/POA_INSTALL_RESULT.json')
+PB_SHA256 = '1b461b6e558884b0c6ccd558c4c989c48944dfdb9c719c467306008b5baa1b1e'
+
+
+def validate_stage(data):
+    if not isinstance(data, dict) or set(data) != {'install_mode', 'repo_ref', 'release_manifest_sha256'}:
+        raise InstallError('STAGING_INPUT_NO_CREDENTIALS')
+    if data['install_mode'] != 'NEW_SERVER_STAGE_ONLY':
+        raise InstallError('REINSTALL_REQUIRES_EXTERNAL_RESTORE_REVIEW')
+    if not re.fullmatch('[0-9a-f]{40}', str(data['repo_ref'])):
+        raise InstallError('EXACT_RELEASE_COMMIT_REQUIRED')
+    if not re.fullmatch('[0-9a-f]{64}', str(data['release_manifest_sha256'])):
+        raise InstallError('EXACT_MANIFEST_REQUIRED')
+
+
+def assert_fresh_stage():
+    if any(Path(p).exists() or Path(p).is_symlink() for p in STAGE_EXISTING):
+        raise InstallError('EXISTING_INSTALLATION_PRESERVED_STOP')
+
+
+def stage_ubuntu(data):
+    validate_stage(data)
+    assert_fresh_stage()
+    os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
+    if os.geteuid() != 0 or runtime_for_os(Path('/etc/os-release').read_text()) != 'python3.10':
+        raise InstallError('NEW_UBUNTU2204_ROOT_REQUIRED')
+    if run(['dpkg', '--print-architecture'], 'ARCH_CHECK_FAILED').strip() != b'amd64':
+        raise InstallError('AMD64_REQUIRED')
+    # Stop-on-failure; retain partial installation for review, never erase or retry.
+    run(['git', 'init', str(APP)], 'GIT_INIT_FAILED')
+    run(['git', '-C', str(APP), 'config', 'core.autocrlf', 'false'], 'GIT_EOL_CONFIG_FAILED')
+    run(['git', '-C', str(APP), 'remote', 'add', 'origin', 'https://github.com/woorin0/POA.git'], 'GIT_REMOTE_FAILED')
+    run(['git', '-C', str(APP), 'fetch', '--depth', '1', 'origin', data['repo_ref']], 'GIT_FETCH_FAILED')
+    run(['git', '-C', str(APP), 'checkout', '--detach', 'FETCH_HEAD'], 'GIT_CHECKOUT_FAILED')
+    commit = run(['git', '-C', str(APP), 'rev-parse', 'HEAD'], 'COMMIT_CHECK_FAILED').decode().strip()
+    if commit != data['repo_ref']:
+        raise InstallError('SOURCE_COMMIT_MISMATCH')
+    verify_source(data['release_manifest_sha256'])
+    python = str(APP / '.venv/bin/python')
+    run(['python3.10', '-m', 'venv', str(APP / '.venv')], 'VENV_FAILED')
+    run([python, '-m', 'pip', 'install', '--no-cache-dir', 'pip==26.3', 'setuptools==84.2.1'], 'PIP_BOOTSTRAP_FAILED', timeout=300)
+    run([python, '-m', 'pip', 'install', '--no-cache-dir', '-r', str(APP / 'requirements.txt')], 'REQUIREMENTS_INSTALL_FAILED', timeout=1800)
+    run([python, '-c', "import importlib.metadata as m; print('SETUPTOOLS_VERSION=' + m.version('setuptools')); assert m.version('setuptools') == '84.2.1'"], 'SETUPTOOLS_VERSION_MISMATCH')
+    run([python, '-m', 'pip', 'check'], 'PIP_CHECK_FAILED')
+    run([python, '-c', 'import fastapi, ccxt, pocketbase, jwt, cryptography; from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey; k=Ed25519PrivateKey.generate(); k.public_key().verify(k.sign(b"offline"), b"offline")'], 'RUNTIME_IMPORT_FAILED')
+    DB.mkdir(mode=0o700)
+    archive = DB / 'pocketbase.zip'
+    run(['curl', '--fail', '--proto', '=https', '--proto-redir', '=https', '--location', '--output', str(archive),
+         'https://github.com/pocketbase/pocketbase/releases/download/v0.22.48/pocketbase_0.22.48_linux_amd64.zip'], 'POCKETBASE_DOWNLOAD_FAILED')
+    if hashlib.sha256(archive.read_bytes()).hexdigest() != PB_SHA256:
+        raise InstallError('POCKETBASE_HASH_MISMATCH')
+    with zipfile.ZipFile(archive) as z:
+        with (DB / 'pocketbase').open('xb') as binary:
+            binary.write(z.read('pocketbase'))
+    (DB / 'pocketbase').chmod(0o700)
+    # Retain the verified archive as staging provenance; no cleanup of state.
+    # Release-only test tools: not a new application dependency or live provider.
+    run([python, '-m', 'pip', 'install', '--no-cache-dir', 'pytest==9.1.1', 'PyYAML==6.0.3'], 'OFFLINE_TEST_TOOLS_FAILED', timeout=1800)
+    run([python, '-m', 'pip', 'check'], 'PIP_CHECK_FAILED')
+    run([python, str(APP / 'release_checks/run.py'), '-q', '--tb=short'], 'INDEPENDENT_OFFLINE_GATES_FAILED', cwd=str(APP), timeout=300)
+    # Do not run fix_alerts.py: modifying a verified source invalidates its manifest.
+    run(['git', '-C', str(APP), 'diff', '--exit-code', 'HEAD'], 'SOURCE_CHANGED_DURING_INSTALL')
+    verify_source(data['release_manifest_sha256'])
+    write_private(STAGE_RESULT, json.dumps({
+        'status': 'STAGED_NOT_LIVE', 'commit': commit,
+        'manifest_sha256': data['release_manifest_sha256'],
+        'RESTORE_VERIFIED': 'NO', 'OPERATING_READY': 'NO'}, sort_keys=True))
+    print('POA_STAGED_NOT_LIVE; RESTORE_VERIFIED=NO; OPERATING_READY=NO', flush=True)
+
+
 def install(data):
+    if runtime_for_os(Path('/etc/os-release').read_text()) == 'python3.10':
+        return stage_ubuntu(data)
     values = validate(data)
     if os.geteuid() != 0 or APP.exists() or DB.exists():
         raise InstallError('NEW_SERVER_ONLY')
@@ -370,7 +448,8 @@ def install(data):
 if __name__ == '__main__':
     os.umask(0o077)
     try:
-        install(json.loads(INPUT.read_text(encoding='utf-8')))
+        source = STAGE_INPUT if runtime_for_os(Path('/etc/os-release').read_text()) == 'python3.10' else INPUT
+        install(json.loads(source.read_text(encoding='utf-8')))
     except InstallError as error:
         # Only codes raised by this file; never dump command, request or secrets.
         print('POA_INSTALL_FAILED=' + str(error), file=sys.stderr)

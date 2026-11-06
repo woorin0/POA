@@ -914,8 +914,15 @@ class DiscordEmbedV2Tests(unittest.TestCase):
             "scripts/verify_vultr_runtime.py",
             "tools/safe_order_admin.py",
         ]
+        from release_checks.verify_release import assert_dependency_source_pin
+        assert_dependency_source_pin(ROOT)
+        from release_checks.http_source_contract import assert_http_source_pins
+        http_files = assert_http_source_pins(ROOT)
+        # Only the four exact security versions are admitted; all other files
+        # retain the original full diff guard. No wildcard dependency exemption.
+        unchanged_files = [p for p in protected_files if p != 'requirements.txt' and p not in http_files]
         proc = subprocess.run(
-            ["git", "diff", base_sha, "--"] + protected_files,
+            ["git", "diff", base_sha, "--"] + unchanged_files,
             cwd=ROOT,
             capture_output=True,
             text=True,

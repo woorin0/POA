@@ -1,0 +1,1564 @@
+{
+  "observations": [
+    {
+      "case": "UPBIT-BTC-buy",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "UPBIT",
+          "base": "BTC",
+          "quote": "KRW",
+          "unified_symbol": "BTC/KRW",
+          "side": "buy",
+          "amount": 0.005,
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "UPBITBTCbuy",
+          "order_name": "LL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": true,
+          "is_sell": null
+        }
+      ]
+    },
+    {
+      "case": "UPBIT-BTC-sell",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "UPBIT",
+          "base": "BTC",
+          "quote": "KRW",
+          "unified_symbol": "BTC/KRW",
+          "side": "sell",
+          "amount": 0.005,
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "UPBITBTCsell",
+          "order_name": "Close_HL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": null,
+          "is_sell": true
+        }
+      ]
+    },
+    {
+      "case": "UPBIT-XRP-buy",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "UPBIT",
+          "base": "XRP",
+          "quote": "KRW",
+          "unified_symbol": "XRP/KRW",
+          "side": "buy",
+          "amount": 0.005,
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "UPBITXRPbuy",
+          "order_name": "LL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": true,
+          "is_sell": null
+        }
+      ]
+    },
+    {
+      "case": "UPBIT-XRP-sell",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "UPBIT",
+          "base": "XRP",
+          "quote": "KRW",
+          "unified_symbol": "XRP/KRW",
+          "side": "sell",
+          "amount": 0.005,
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "UPBITXRPsell",
+          "order_name": "Close_HL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": null,
+          "is_sell": true
+        }
+      ]
+    },
+    {
+      "case": "BINANCE-BTC-buy",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "BINANCE",
+          "base": "BTC",
+          "quote": "USDT",
+          "unified_symbol": "BTC/USDT",
+          "side": "buy",
+          "amount": 0.005,
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "BINANCEBTCbuy",
+          "order_name": "LL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": true,
+          "is_sell": null
+        }
+      ]
+    },
+    {
+      "case": "BINANCE-BTC-sell",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "BINANCE",
+          "base": "BTC",
+          "quote": "USDT",
+          "unified_symbol": "BTC/USDT",
+          "side": "sell",
+          "amount": 0.005,
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "BINANCEBTCsell",
+          "order_name": "Close_HL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": null,
+          "is_sell": true
+        }
+      ]
+    },
+    {
+      "case": "BINANCE-XRP-buy",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "BINANCE",
+          "base": "XRP",
+          "quote": "USDT",
+          "unified_symbol": "XRP/USDT",
+          "side": "buy",
+          "amount": 0.005,
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "BINANCEXRPbuy",
+          "order_name": "LL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": true,
+          "is_sell": null
+        }
+      ]
+    },
+    {
+      "case": "BINANCE-XRP-sell",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "BINANCE",
+          "base": "XRP",
+          "quote": "USDT",
+          "unified_symbol": "XRP/USDT",
+          "side": "sell",
+          "amount": 0.005,
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "BINANCEXRPsell",
+          "order_name": "Close_HL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": null,
+          "is_sell": true
+        }
+      ]
+    },
+    {
+      "case": "BYBIT-BTC-buy",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "BYBIT",
+          "base": "BTC",
+          "quote": "USDT",
+          "unified_symbol": "BTC/USDT",
+          "side": "buy",
+          "amount": 0.005,
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "BYBITBTCbuy",
+          "order_name": "LL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": true,
+          "is_sell": null
+        }
+      ]
+    },
+    {
+      "case": "BYBIT-BTC-sell",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "BYBIT",
+          "base": "BTC",
+          "quote": "USDT",
+          "unified_symbol": "BTC/USDT",
+          "side": "sell",
+          "amount": 0.005,
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "BYBITBTCsell",
+          "order_name": "Close_HL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": null,
+          "is_sell": true
+        }
+      ]
+    },
+    {
+      "case": "BYBIT-XRP-buy",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "BYBIT",
+          "base": "XRP",
+          "quote": "USDT",
+          "unified_symbol": "XRP/USDT",
+          "side": "buy",
+          "amount": 0.005,
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "BYBITXRPbuy",
+          "order_name": "LL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": true,
+          "is_sell": null
+        }
+      ]
+    },
+    {
+      "case": "BYBIT-XRP-sell",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "BYBIT",
+          "base": "XRP",
+          "quote": "USDT",
+          "unified_symbol": "XRP/USDT",
+          "side": "sell",
+          "amount": 0.005,
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "BYBITXRPsell",
+          "order_name": "Close_HL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": null,
+          "is_sell": true
+        }
+      ]
+    },
+    {
+      "case": "OKX-BTC-buy",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "OKX",
+          "base": "BTC",
+          "quote": "USDT",
+          "unified_symbol": "BTC/USDT",
+          "side": "buy",
+          "amount": 0.005,
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "OKXBTCbuy",
+          "order_name": "LL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": true,
+          "is_sell": null
+        }
+      ]
+    },
+    {
+      "case": "OKX-BTC-sell",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "OKX",
+          "base": "BTC",
+          "quote": "USDT",
+          "unified_symbol": "BTC/USDT",
+          "side": "sell",
+          "amount": 0.005,
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "OKXBTCsell",
+          "order_name": "Close_HL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": null,
+          "is_sell": true
+        }
+      ]
+    },
+    {
+      "case": "OKX-XRP-buy",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "OKX",
+          "base": "XRP",
+          "quote": "USDT",
+          "unified_symbol": "XRP/USDT",
+          "side": "buy",
+          "amount": 0.005,
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "OKXXRPbuy",
+          "order_name": "LL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": true,
+          "is_sell": null
+        }
+      ]
+    },
+    {
+      "case": "OKX-XRP-sell",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "OKX",
+          "base": "XRP",
+          "quote": "USDT",
+          "unified_symbol": "XRP/USDT",
+          "side": "sell",
+          "amount": 0.005,
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "OKXXRPsell",
+          "order_name": "Close_HL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": null,
+          "is_sell": true
+        }
+      ]
+    },
+    {
+      "case": "amount-0",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "UPBIT",
+          "base": "BTC",
+          "quote": "KRW",
+          "unified_symbol": "BTC/KRW",
+          "side": "buy",
+          "amount": 1e-06,
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "UPBITBTCbuy",
+          "order_name": "LL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": true,
+          "is_sell": null
+        }
+      ]
+    },
+    {
+      "case": "amount-1",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "UPBIT",
+          "base": "BTC",
+          "quote": "KRW",
+          "unified_symbol": "BTC/KRW",
+          "side": "buy",
+          "amount": 0.0,
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "UPBITBTCbuy",
+          "order_name": "LL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": true,
+          "is_sell": null
+        }
+      ]
+    },
+    {
+      "case": "amount-2",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "UPBIT",
+          "base": "BTC",
+          "quote": "KRW",
+          "unified_symbol": "BTC/KRW",
+          "side": "buy",
+          "amount": -1.0,
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "UPBITBTCbuy",
+          "order_name": "LL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": true,
+          "is_sell": null
+        }
+      ]
+    },
+    {
+      "case": "amount-3",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "UPBIT",
+          "base": "BTC",
+          "quote": "KRW",
+          "unified_symbol": "BTC/KRW",
+          "side": "buy",
+          "amount": 1.0,
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "UPBITBTCbuy",
+          "order_name": "LL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": true,
+          "is_sell": null
+        }
+      ]
+    },
+    {
+      "case": "amount-4",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "UPBIT",
+          "base": "BTC",
+          "quote": "KRW",
+          "unified_symbol": "BTC/KRW",
+          "side": "buy",
+          "amount": null,
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "UPBITBTCbuy",
+          "order_name": "LL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": true,
+          "is_sell": null
+        }
+      ]
+    },
+    {
+      "case": "amount-5",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "UPBIT",
+          "base": "BTC",
+          "quote": "KRW",
+          "unified_symbol": "BTC/KRW",
+          "side": "buy",
+          "amount": null,
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "UPBITBTCbuy",
+          "order_name": "LL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": true,
+          "is_sell": null
+        }
+      ]
+    },
+    {
+      "case": "amount-6",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "UPBIT",
+          "base": "BTC",
+          "quote": "KRW",
+          "unified_symbol": "BTC/KRW",
+          "side": "buy",
+          "amount": {
+            "nonfinite": "inf"
+          },
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "UPBITBTCbuy",
+          "order_name": "LL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": true,
+          "is_sell": null
+        }
+      ]
+    },
+    {
+      "case": "amount-7",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "UPBIT",
+          "base": "BTC",
+          "quote": "KRW",
+          "unified_symbol": "BTC/KRW",
+          "side": "buy",
+          "amount": {
+            "nonfinite": "nan"
+          },
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "UPBITBTCbuy",
+          "order_name": "LL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": true,
+          "is_sell": null
+        }
+      ]
+    },
+    {
+      "case": "price-0",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "UPBIT",
+          "base": "BTC",
+          "quote": "KRW",
+          "unified_symbol": "BTC/KRW",
+          "side": "buy",
+          "amount": 0.005,
+          "price": 100.1,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "UPBITBTCbuy",
+          "order_name": "LL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": true,
+          "is_sell": null
+        }
+      ]
+    },
+    {
+      "case": "price-1",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "UPBIT",
+          "base": "BTC",
+          "quote": "KRW",
+          "unified_symbol": "BTC/KRW",
+          "side": "buy",
+          "amount": 0.005,
+          "price": 0.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "UPBITBTCbuy",
+          "order_name": "LL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": true,
+          "is_sell": null
+        }
+      ]
+    },
+    {
+      "case": "price-2",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "UPBIT",
+          "base": "BTC",
+          "quote": "KRW",
+          "unified_symbol": "BTC/KRW",
+          "side": "buy",
+          "amount": 0.005,
+          "price": -1.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "UPBITBTCbuy",
+          "order_name": "LL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": true,
+          "is_sell": null
+        }
+      ]
+    },
+    {
+      "case": "price-3",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "UPBIT",
+          "base": "BTC",
+          "quote": "KRW",
+          "unified_symbol": "BTC/KRW",
+          "side": "buy",
+          "amount": 0.005,
+          "price": null,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "UPBITBTCbuy",
+          "order_name": "LL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": true,
+          "is_sell": null
+        }
+      ]
+    },
+    {
+      "case": "price-4",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "UPBIT",
+          "base": "BTC",
+          "quote": "KRW",
+          "unified_symbol": "BTC/KRW",
+          "side": "buy",
+          "amount": 0.005,
+          "price": {
+            "nonfinite": "inf"
+          },
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "UPBITBTCbuy",
+          "order_name": "LL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": true,
+          "is_sell": null
+        }
+      ]
+    },
+    {
+      "case": "password-0",
+      "status": 422,
+      "response": {
+        "detail": [
+          {
+            "loc": [
+              "body",
+              "password"
+            ],
+            "msg": "Invalid request",
+            "type": "value_error"
+          }
+        ]
+      },
+      "engine_calls": []
+    },
+    {
+      "case": "password-1",
+      "status": 422,
+      "response": {
+        "detail": [
+          {
+            "loc": [
+              "body",
+              "password"
+            ],
+            "msg": "Invalid request",
+            "type": "value_error"
+          }
+        ]
+      },
+      "engine_calls": []
+    },
+    {
+      "case": "password-2",
+      "status": 422,
+      "response": {
+        "detail": [
+          {
+            "loc": [
+              "body",
+              "password"
+            ],
+            "msg": "Invalid request",
+            "type": "value_error"
+          }
+        ]
+      },
+      "engine_calls": []
+    },
+    {
+      "case": "strategy_id-0",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "UPBIT",
+          "base": "BTC",
+          "quote": "KRW",
+          "unified_symbol": "BTC/KRW",
+          "side": "buy",
+          "amount": 0.005,
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-long-strategy",
+          "signal_id": "UPBITBTCbuy",
+          "order_name": "LL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": true,
+          "is_sell": null
+        }
+      ]
+    },
+    {
+      "case": "strategy_id-1",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "UPBIT",
+          "base": "BTC",
+          "quote": "KRW",
+          "unified_symbol": "BTC/KRW",
+          "side": "buy",
+          "amount": 0.005,
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "12",
+          "signal_id": "UPBITBTCbuy",
+          "order_name": "LL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": true,
+          "is_sell": null
+        }
+      ]
+    },
+    {
+      "case": "strategy_id-2",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "UPBIT",
+          "base": "BTC",
+          "quote": "KRW",
+          "unified_symbol": "BTC/KRW",
+          "side": "buy",
+          "amount": 0.005,
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": null,
+          "signal_id": "UPBITBTCbuy",
+          "order_name": "LL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": true,
+          "is_sell": null
+        }
+      ]
+    },
+    {
+      "case": "type-0",
+      "status": 422,
+      "response": {
+        "detail": [
+          {
+            "loc": [
+              "body",
+              "type"
+            ],
+            "msg": "unexpected value; permitted: 'market'",
+            "type": "value_error.const",
+            "ctx": {
+              "given": "limit",
+              "permitted": [
+                "market"
+              ]
+            }
+          }
+        ]
+      },
+      "engine_calls": []
+    },
+    {
+      "case": "type-1",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "UPBIT",
+          "base": "BTC",
+          "quote": "KRW",
+          "unified_symbol": "BTC/KRW",
+          "side": "buy",
+          "amount": 0.005,
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "UPBITBTCbuy",
+          "order_name": "LL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": true,
+          "is_sell": null
+        }
+      ]
+    },
+    {
+      "case": "exchange-0",
+      "status": 422,
+      "response": {
+        "detail": [
+          {
+            "loc": [
+              "body",
+              "exchange"
+            ],
+            "msg": "Invalid request",
+            "type": "value_error"
+          }
+        ]
+      },
+      "engine_calls": []
+    },
+    {
+      "case": "side-0",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "UPBIT",
+          "base": "BTC",
+          "quote": "KRW",
+          "unified_symbol": "BTC/KRW",
+          "side": "buy",
+          "amount": 0.005,
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "UPBITBTCbuy",
+          "order_name": "LL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": true,
+          "is_close": null,
+          "is_buy": true,
+          "is_sell": null
+        }
+      ]
+    },
+    {
+      "case": "side-1",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "UPBIT",
+          "base": "BTC",
+          "quote": "KRW",
+          "unified_symbol": "BTC/KRW",
+          "side": "sell",
+          "amount": 0.005,
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "UPBITBTCbuy",
+          "order_name": "LL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": true,
+          "is_buy": null,
+          "is_sell": true
+        }
+      ]
+    },
+    {
+      "case": "side-2",
+      "status": 422,
+      "response": {
+        "detail": [
+          {
+            "loc": [
+              "body",
+              "side"
+            ],
+            "msg": "Invalid request",
+            "type": "value_error"
+          }
+        ]
+      },
+      "engine_calls": []
+    },
+    {
+      "case": "missing-password",
+      "status": 422,
+      "response": {
+        "detail": [
+          {
+            "loc": [
+              "body",
+              "password"
+            ],
+            "msg": "field required",
+            "type": "value_error.missing"
+          }
+        ]
+      },
+      "engine_calls": []
+    },
+    {
+      "case": "missing-amount",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "UPBIT",
+          "base": "BTC",
+          "quote": "KRW",
+          "unified_symbol": "BTC/KRW",
+          "side": "buy",
+          "amount": null,
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "UPBITBTCbuy",
+          "order_name": "LL",
+          "tv_signal": null,
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": true,
+          "is_sell": null
+        }
+      ]
+    },
+    {
+      "case": "missing-side",
+      "status": 500,
+      "response": {
+        "detail": "Internal Server Error"
+      },
+      "engine_calls": []
+    },
+    {
+      "case": "missing-quote",
+      "status": 500,
+      "response": {
+        "detail": "Internal Server Error"
+      },
+      "engine_calls": []
+    },
+    {
+      "case": "body-null",
+      "status": 422,
+      "response": {
+        "detail": [
+          {
+            "loc": [
+              "body"
+            ],
+            "msg": "field required",
+            "type": "value_error.missing"
+          }
+        ]
+      },
+      "engine_calls": []
+    },
+    {
+      "case": "body-list",
+      "status": 500,
+      "response": {
+        "detail": "Internal Server Error"
+      },
+      "engine_calls": []
+    },
+    {
+      "case": "tv-valid",
+      "status": 200,
+      "response": {
+        "result": "success"
+      },
+      "engine_calls": [
+        {
+          "exchange": "UPBIT",
+          "base": "BTC",
+          "quote": "KRW",
+          "unified_symbol": "BTC/KRW",
+          "side": "buy",
+          "amount": 0.005,
+          "price": 100.0,
+          "cost": null,
+          "percent": null,
+          "strategy_id": "synthetic-strategy",
+          "signal_id": "tv1",
+          "order_name": "LL",
+          "tv_signal": "{\"action\":\"buy\",\"kind\":\"strategy_order_fill\",\"order_id\":\"LL\",\"price\":\"100\",\"quantity\":\"0.005\",\"signal_id\":\"tv1\",\"strategy_id\":\"synthetic-strategy\"}",
+          "is_futures": null,
+          "is_coinm": null,
+          "is_entry": null,
+          "is_close": null,
+          "is_buy": true,
+          "is_sell": null
+        }
+      ]
+    },
+    {
+      "case": "tv-cross-strategy",
+      "status": 422,
+      "response": {
+        "detail": [
+          {
+            "loc": [
+              "body",
+              "__root__"
+            ],
+            "msg": "Invalid request",
+            "type": "value_error"
+          }
+        ]
+      },
+      "engine_calls": []
+    },
+    {
+      "case": "price-valid",
+      "status": 500,
+      "response": {
+        "detail": "Internal Server Error"
+      },
+      "engine_calls": []
+    },
+    {
+      "case": "price-null",
+      "status": 422,
+      "response": {
+        "detail": [
+          {
+            "loc": [
+              "body"
+            ],
+            "msg": "field required",
+            "type": "value_error.missing"
+          }
+        ]
+      },
+      "engine_calls": []
+    },
+    {
+      "case": "price-empty",
+      "status": 500,
+      "response": {
+        "detail": "Internal Server Error"
+      },
+      "engine_calls": []
+    },
+    {
+      "case": "price-list",
+      "status": 500,
+      "response": {
+        "detail": "Internal Server Error"
+      },
+      "engine_calls": []
+    },
+    {
+      "case": "price-wrong-venue",
+      "status": 500,
+      "response": {
+        "detail": "Internal Server Error"
+      },
+      "engine_calls": []
+    },
+    {
+      "case": "price-wrong-password",
+      "status": 500,
+      "response": {
+        "detail": "Internal Server Error"
+      },
+      "engine_calls": []
+    },
+    {
+      "case": "hedge-valid",
+      "status": 200,
+      "response": {
+        "result": "error"
+      },
+      "engine_calls": []
+    },
+    {
+      "case": "hedge-null",
+      "status": 422,
+      "response": {
+        "detail": [
+          {
+            "loc": [
+              "body"
+            ],
+            "msg": "field required",
+            "type": "value_error.missing"
+          }
+        ]
+      },
+      "engine_calls": []
+    },
+    {
+      "case": "hedge-empty",
+      "status": 422,
+      "response": {
+        "detail": [
+          {
+            "loc": [
+              "body",
+              "password"
+            ],
+            "msg": "field required",
+            "type": "value_error.missing"
+          },
+          {
+            "loc": [
+              "body",
+              "exchange"
+            ],
+            "msg": "field required",
+            "type": "value_error.missing"
+          },
+          {
+            "loc": [
+              "body",
+              "base"
+            ],
+            "msg": "field required",
+            "type": "value_error.missing"
+          },
+          {
+            "loc": [
+              "body",
+              "hedge"
+            ],
+            "msg": "field required",
+            "type": "value_error.missing"
+          }
+        ]
+      },
+      "engine_calls": []
+    },
+    {
+      "case": "hedge-list",
+      "status": 422,
+      "response": {
+        "detail": [
+          {
+            "loc": [
+              "body",
+              "password"
+            ],
+            "msg": "field required",
+            "type": "value_error.missing"
+          },
+          {
+            "loc": [
+              "body",
+              "exchange"
+            ],
+            "msg": "field required",
+            "type": "value_error.missing"
+          },
+          {
+            "loc": [
+              "body",
+              "base"
+            ],
+            "msg": "field required",
+            "type": "value_error.missing"
+          },
+          {
+            "loc": [
+              "body",
+              "hedge"
+            ],
+            "msg": "field required",
+            "type": "value_error.missing"
+          }
+        ]
+      },
+      "engine_calls": []
+    },
+    {
+      "case": "hedge-wrong-venue",
+      "status": 422,
+      "response": {
+        "detail": [
+          {
+            "loc": [
+              "body",
+              "exchange"
+            ],
+            "msg": "Invalid request",
+            "type": "value_error"
+          }
+        ]
+      },
+      "engine_calls": []
+    },
+    {
+      "case": "hedge-wrong-password",
+      "status": 422,
+      "response": {
+        "detail": [
+          {
+            "loc": [
+              "body",
+              "password"
+            ],
+            "msg": "Invalid request",
+            "type": "value_error"
+          }
+        ]
+      },
+      "engine_calls": []
+    },
+    {
+      "case": "raw-''",
+      "status": 422,
+      "response": {
+        "detail": [
+          {
+            "loc": [
+              "body"
+            ],
+            "msg": "field required",
+            "type": "value_error.missing"
+          }
+        ]
+      },
+      "engine_calls": []
+    },
+    {
+      "case": "raw-'{'",
+      "status": 422,
+      "response": {
+        "detail": [
+          {
+            "loc": [
+              "body",
+              1
+            ],
+            "msg": "Invalid request",
+            "type": "value_error"
+          }
+        ]
+      },
+      "engine_calls": []
+    },
+    {
+      "case": "raw-'[1]'",
+      "status": 422,
+      "response": {
+        "detail": [
+          {
+            "loc": [
+              "body"
+            ],
+            "msg": "Invalid request",
+            "type": "value_error"
+          }
+        ]
+      },
+      "engine_calls": []
+    },
+    {
+      "case": "raw-'\"text\"'",
+      "status": 422,
+      "response": {
+        "detail": [
+          {
+            "loc": [
+              "body"
+            ],
+            "msg": "Invalid request",
+            "type": "value_error"
+          }
+        ]
+      },
+      "engine_calls": []
+    }
+  ],
+  "whitelist_unapproved_status": 403
+}

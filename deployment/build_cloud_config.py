@@ -3,6 +3,42 @@ import json
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+
+def build_ubuntu(commit, manifest):
+    """No secrets, no live activation, no code patching after verification."""
+    import re
+    if not re.fullmatch('[0-9a-f]{40}', commit) or not re.fullmatch('[0-9a-f]{64}', manifest):
+        raise ValueError('exact_release_pin_required')
+    config = dict(package_update=False, timezone='UTC',
+                  packages=['python3', 'ca-certificates'], write_files=[],
+                  runcmd=[['bash', '-euc', 'umask 077; python3 /usr/local/lib/poa/prepare_ubuntu.py; python3 /usr/local/lib/poa/install_once.py']])
+    def put(path, content, mode='0600'):
+        config['write_files'].append(dict(path=path, owner='root:root', permissions=mode, content=content))
+    put('/root/poa-stage-input.json', json.dumps(dict(install_mode='NEW_SERVER_STAGE_ONLY', repo_ref=commit, release_manifest_sha256=manifest), indent=2))
+    for name in ('install_once.py', 'prepare_ubuntu.py'):
+        put('/usr/local/lib/poa/'+name, (HERE/name).read_text(encoding='utf-8'))
+    # Units are masked by preparation. No enable marker or credentials are shipped.
+    for unit, working, command in (
+        ('poa', '/root/POA', '/root/POA/.venv/bin/python run.py --host=127.0.0.1 --port=8000'),
+        ('pocketbase', '/root/db', '/root/db/pocketbase serve --http=127.0.0.1:8090')):
+        # No automatic path to OPERATING_READY. An approved external restore and
+        # configuration review must replace this staging interlock separately.
+        put('/usr/local/lib/poa/'+unit+'.service.staged',
+            '[Unit]\nDescription=POA staged only\nConditionPathExists=/etc/poa/RESTORE_VERIFIED\n'
+            '[Service]\nType=simple\nUser=root\nUMask=0077\nWorkingDirectory='+working+'\n'
+            'ExecStartPre=/usr/bin/false\nExecStart='+command+'\nRestart=no\n')
+    config['final_message'] = 'STAGED_NOT_LIVE only. User Data cannot preserve pre-reinstall data. RESTORE_VERIFIED=NO OPERATING_READY=NO'
+    return '#cloud-config\n'+json.dumps(config, ensure_ascii=False, indent=2)+'\n'
+
+
+if __name__ == '__main__':
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == '--ubuntu':
+        if len(sys.argv) != 4:
+            raise SystemExit('usage: build_cloud_config.py --ubuntu COMMIT MANIFEST_SHA256')
+        (HERE/'cloud-config-ubuntu2204.yaml').write_text(build_ubuntu(sys.argv[2], sys.argv[3]), encoding='utf-8', newline='\n')
+        raise SystemExit(0)
+
 files = []
 def add(path, content, permissions='0644'):
     files.append(dict(path=path, owner='root:root', permissions=permissions, content=content))

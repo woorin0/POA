@@ -1,100 +1,81 @@
-name: PR #2 Offline Verification
-
+name: Release safety offline verification
 on:
   pull_request:
-    branches: [ main ]
+    branches: [main]
   push:
-    branches: [ feat/discord-executed-amount-only-20261103 ]
-
+    branches: [main]
 permissions:
   contents: read
-
 jobs:
-  verify-windows:
-    name: Offline Verification (Windows)
-    runs-on: windows-latest
+  offline:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONIOENCODING: utf-8
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Disable AutoCRLF and checkout files as stored
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: pip
+      # Package downloads happen before the test network tripwire is enabled.
+      - name: Install isolated test dependencies
+        run: |
+          python -m pip install pip==26.3 setuptools==84.2.1
+          python -m pip install -r requirements.txt
+          python -m pip install pytest==9.1.1 pytest-subtests pytest-asyncio pytest-cov cryptography PyYAML
+          python -c "import importlib.metadata as m; print('SETUPTOOLS_VERSION=' + m.version('setuptools')); assert m.version('setuptools') == '84.2.1'"
+          python -m pip check
+      - name: Audit complete installed Python environment (no suppressions)
         shell: bash
         run: |
-          git config core.autocrlf false
-          git rm --cached -r .
-          git reset --hard HEAD
-
-      - name: Set up Python 3.10
-        uses: actions/setup-python@v5
+          python -m pip freeze --all > installed-freeze.txt
+          python -m venv .audit-tool
+          if [ "$RUNNER_OS" = "Windows" ]; then TOOL=.audit-tool/Scripts/python; else TOOL=.audit-tool/bin/python; fi
+          "$TOOL" -m pip install pip==26.3 setuptools==84.2.1 pip-audit==2.10.1
+          "$TOOL" -m pip_audit --no-deps --disable-pip -r installed-freeze.txt
+      - name: Independent Ed25519, amount, admission and installer gates (no legacy bridge)
+        run: python release_checks/run.py -q --tb=short --junitxml=independent.xml
+      - name: Enable subprocess network and operating DB isolation
+        shell: python
+        run: |
+          import os
+          from pathlib import Path
+          paths = [Path.cwd()/'audit_artifacts', Path.cwd()/'tests', Path.cwd()]
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as f:
+              f.write('PYTHONPATH='+os.pathsep.join(map(str, paths))+'\n')
+      - name: Manifest 70 and exact protected application source
+        run: |
+          python release_checks/verify_release.py
+          python release_checks/verify_packaging.py
+      - name: Original 65 HTTP and shared v1 model contracts
+        run: python -m pytest tests/test_http_v1_boundary.py tests/test_dependency_security.py -q --tb=short --junitxml=http.xml
+      - name: Preserve Offline Golden stages 1-3 and offline regression suites
+        run: python tests/run_offline.py
+      - name: Admission, frozen wire, source pins and Safe Retry
+        run: python -m pytest tests/test_executed_amount_notification.py audit_artifacts/source_pin_gate/test_source_pin_guards.py tests/test_safe_retry.py tests/test_upbit_safe_retry.py audit_artifacts/upbit_krw_v5/test_krw_v5.py -q --tb=short --junitxml=core.xml
+      - name: Full Windows regression
+        if: runner.os == 'Windows'
+        run: python -m pytest -q --tb=short --junitxml=full.xml
+      - name: Upload test evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          python-version: '3.10'
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-subtests pytest-asyncio pytest-cov
-
-      - name: Verify Release Manifest (70 Product Files)
-        run: |
-          python -c "
-          import json, hashlib
-          with open('release_manifest_sha256.json', 'r', encoding='utf-8') as f:
-              manifest = json.load(f)
-          mismatches = []
-          for entry in manifest:
-              path = entry['Path']
-              expected_hash = entry['SHA256'].lower()
-              expected_bytes = entry['Bytes']
-              data = open(path, 'rb').read()
-              actual_hash = hashlib.sha256(data).hexdigest()
-              actual_bytes = len(data)
-              if actual_hash != expected_hash or actual_bytes != expected_bytes:
-                  mismatches.append((path, expected_hash, actual_hash))
-          assert not mismatches, f'Manifest mismatches: {mismatches}'
-          print(f'All {len(manifest)} product files match manifest perfectly!')
-          "
-
-      - name: Run Offline Golden Runner (Stage 1-3)
-        run: |
-          python tests/run_offline.py
-
-      - name: Run Required Security & PnL Gates
-        run: |
-          python -m pytest tests/test_executed_amount_notification.py audit_artifacts/source_pin_gate/test_source_pin_guards.py tests/test_safe_retry.py -q --tb=short
-
-      - name: Run Full Pytest Regression
-        run: |
-          python -m pytest -q --tb=short
-
-  verify-ubuntu:
-    name: Offline Verification (Ubuntu)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up Python 3.10
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-subtests pytest-asyncio pytest-cov
-
-      - name: Run Offline Golden Runner
-        run: |
-          python tests/run_offline.py
-
-      - name: Run Executed Amount Contract Tests
-        run: |
-          python -m pytest tests/test_executed_amount_notification.py tests/test_safe_retry.py -q --tb=short
+          name: offline-${{ matrix.os }}
+          path: |
+            independent.xml
+            core.xml
+            full.xml
+            http.xml
+          if-no-files-found: ignore

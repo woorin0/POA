@@ -54,7 +54,7 @@ class HTTPProbe:
 @pytest.fixture
 def route(env):
  e=env;root=Path.cwd();tree=ast.parse((root/'main.py').read_text(encoding='utf-8-sig'))
- nodes=[n for n in tree.body if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef)) and n.name in ('order','log','is_verified_exchange','get_error','schedule_order_log')]
+ nodes=[n for n in tree.body if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef)) and n.name in ('_v1_request','_order_http','order','log','is_verified_exchange','get_error','schedule_order_log')]
  e.app=FastAPI();e.executions=[];e.post_count=0;e.latest_oid=None;e.result_extra={}
  class FakeOrderAdapter:
   def init_info(self,info):self.order_info=info
@@ -67,6 +67,11 @@ def route(env):
   def market_close(self,i):return self.execute(i,'market_close')
  bot=FakeOrderAdapter()
  namespace=dict(app=e.app,settings=e.st,MarketOrder=H.t.MarketOrder,BackgroundTasks=BackgroundTasks,get_bot=lambda *a:bot)
+ from fastapi import Request
+ from fastapi.exceptions import RequestValidationError
+ from pydantic.v1 import ValidationError
+ from pydantic.v1.fields import ModelField
+ namespace.update(Request=Request,RequestValidationError=RequestValidationError,ValidationError=ValidationError,ModelField=ModelField,json=json)
  exec(compile(ast.Module(body=nodes,type_ignores=[]),str(root/'main.py'),'exec'),namespace)
  e.namespace=namespace;e.password='isolated-audit-password'
  with patch.dict(H.t.MarketOrder.__validators__['password'][0].func.__globals__,Settings=lambda:NS(PASSWORD=e.password)):yield e
@@ -329,7 +334,8 @@ def test_new_notifications_only_ast_and_wire_guards_unchanged():
    from notification_source_contract import assert_reviewed_quote_cost_source
    assert_reviewed_quote_cost_source(p)
   else:assert Path(p).read_bytes()==subprocess.check_output(['git','show',base+':'+p]),p
- p='exchange/model/schemas.py';before=ast.parse(subprocess.check_output(['git','show',base+':'+p]).decode('utf-8-sig'));after=ast.parse(Path(p).read_text(encoding='utf-8-sig'))
+ from release_checks.http_source_contract import restore_http_source
+ p='exchange/model/schemas.py';before=ast.parse(subprocess.check_output(['git','show',base+':'+p]).decode('utf-8-sig'));after=ast.parse(restore_http_source(p,Path(p).read_bytes()).decode('utf-8-sig'))
  for tree in (before,after):
   cls=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='OrderRequest');cls.body=[n for n in cls.body if not(isinstance(n,ast.FunctionDef) and n.name=='validate_tv_binding')]
  assert ast.dump(before)==ast.dump(after),'non-notification schema/validator changed'
