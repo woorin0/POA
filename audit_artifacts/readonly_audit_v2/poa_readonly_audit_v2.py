@@ -18,11 +18,20 @@ from decimal import Decimal, InvalidOperation, localcontext
 import getpass
 import json
 from pathlib import Path
+from urllib.parse import urlsplit
 import sys
 
 EXPECTED_SHA = "bf6e66e259c7ebbd5099e78b24089caa94936ec9"
 VENUES = {"UPBIT", "BYBIT", "BINANCE", "OKX"}
-READ_HOSTS = frozenset({"api.upbit.com", "api.bybit.com", "api.binance.com", "fapi.binance.com", "www.okx.com"})
+READ_ENDPOINTS = {
+    "api.upbit.com": frozenset({"/v1/order"}),
+    "api.bybit.com": frozenset({"/v5/order/history", "/v5/order/realtime", "/v5/execution/list"}),
+    "api.binance.com": frozenset({"/api/v3/order", "/api/v3/myTrades"}),
+    "fapi.binance.com": frozenset({"/fapi/v1/order", "/fapi/v1/userTrades"}),
+    "www.okx.com": frozenset({"/api/v5/trade/order", "/api/v5/trade/fills",
+                              "/api/v5/trade/fills-history", "/api/v5/public/instruments"}),
+}
+READ_HOSTS = frozenset(READ_ENDPOINTS)
 SUPPORTED = {
     ("UPBIT", "spot"),
     ("BYBIT", "spot"), ("BYBIT", "linear"),
@@ -50,6 +59,13 @@ def money(x: str) -> str:
 
 
 def require_order(row: dict) -> None:
+    if type(row) is not dict:
+        raise ValueError('each order must be an object')
+    if row.get('reference_source') not in ('exchange_csv', 'exchange_statement'):
+        raise ValueError('reference_source must identify independent exchange CSV or statement')
+    client_id = row.get('client_order_id')
+    if client_id is not None and (type(client_id) is not str or not 1 <= len(client_id) <= 128 or not client_id.isascii() or not client_id.isprintable()):
+        raise ValueError('invalid client_order_id')
     exchange, market = row.get('exchange'), row.get('market')
     if (exchange, market) not in SUPPORTED:
         raise ValueError('unsupported exchange/market')
@@ -82,6 +98,14 @@ def require_order(row: dict) -> None:
             raise ValueError('each reference fill needs price and quantity_base')
         if finite_decimal(fill['price'])<=0 or finite_decimal(fill['quantity_base'])<=0:
             raise ValueError('reference fill must be positive')
+    with localcontext() as ctx:
+        ctx.prec = 512
+        computed_total = sum((finite_decimal(f['price']) * finite_decimal(f['quantity_base'])
+                              for f in row['reference_fills']), Decimal(0))
+        computed_quantity = sum((finite_decimal(f['quantity_base'])
+                                 for f in row['reference_fills']), Decimal(0))
+    if computed_total != finite_decimal(row['reference_total']) or computed_quantity != finite_decimal(row['reference_quantity']):
+        raise ValueError('independent reference statement does not reconcile with fills')
 
 
 def verify_checkout(root: Path) -> None:
@@ -100,11 +124,18 @@ def verify_checkout(root: Path) -> None:
 
 
 def limit_network_to_exchange_gets() -> None:
-    """Defense-in-depth transport gate; not a sandbox for arbitrary Python."""
+    """Permit only HTTPS GET to enumerated order/fill resources; not an OS sandbox."""
     original = http.client.HTTPSConnection.request
     def guarded(conn, method, url, *args, **kwargs):
-        if str(method).upper() != 'GET' or str(conn.host).lower() not in READ_HOSTS:
-            raise RuntimeError('AUDIT_NETWORK_WRITE_OR_HOST_BLOCKED')
+        host = str(getattr(conn, 'host', '')).lower()
+        target = urlsplit(str(url))
+        if (str(method).upper() != 'GET' or host not in READ_ENDPOINTS
+                or getattr(conn, 'port', 443) != 443
+                or target.scheme or target.netloc or target.fragment
+                or target.path not in READ_ENDPOINTS[host]
+                or len(str(url)) > 8192 or not str(url).startswith('/')
+                or str(url).startswith('//')):
+            raise RuntimeError('AUDIT_NETWORK_WRITE_OR_HOST_OR_PATH_BLOCKED')
         return original(conn, method, url, *args, **kwargs)
     http.client.HTTPSConnection.request = guarded
     def deny_http(*args, **kwargs):
@@ -116,10 +147,70 @@ def limit_network_to_exchange_gets() -> None:
     requests.sessions.Session.request = deny_requests
 
 
+def _confirm_live_read() -> bool:
+    """Require interactive approval; operator must provision read-only keys."""
+    if not sys.stdin.isatty() or not sys.stderr.isatty():
+        return False
+    try:
+        return input('Type READ_ONLY_KEYS to enable historical authenticated GET (no orders): ').strip() == 'READ_ONLY_KEYS'
+    except (EOFError, KeyboardInterrupt):
+        return False
+
+
+def compare_proof_to_reference(item: dict, proof: dict, embed: dict) -> list[str]:
+    """Compare real POA validated proof/preview to independent venue source."""
+    issues = []
+    scope = proof['scope']
+    expected = {
+        'exchange': item['exchange'], 'order_id': item['order_id'],
+        'symbol': item['symbol'], 'side': item['side'],
+        'market_type': item['market'],
+        'settlement': 'KRW' if item['exchange'] == 'UPBIT' else 'USDT',
+    }
+    for key, value in expected.items():
+        if scope.get(key) != value:
+            issues.append('scope mismatch: ' + key)
+    actual_fills = Counter((finite_decimal(x['price']), finite_decimal(x['quantity'])) for x in proof['trades'])
+    baseline_fills = Counter((finite_decimal(x['price']), finite_decimal(x['quantity_base']))
+                             for x in item['reference_fills'])
+    with localcontext() as ctx:
+        ctx.prec = 512
+        total = sum((price * qty for price, qty in baseline_fills.elements()), Decimal(0))
+        quantity = sum((qty for _, qty in baseline_fills.elements()), Decimal(0))
+        average = total / quantity
+    if actual_fills != baseline_fills: issues.append('source fill rows differ')
+    if finite_decimal(proof['total']) != total: issues.append('total differs')
+    if finite_decimal(proof['filled']) != quantity: issues.append('filled quantity differs')
+    if finite_decimal(proof['average']) != average: issues.append('average differs')
+    if finite_decimal(item['reference_total']) != total:
+        issues.append('exchange order summary total disagrees with independent fill rows')
+    if finite_decimal(item['reference_quantity']) != quantity:
+        issues.append('exchange order summary quantity disagrees with independent fill rows')
+    desc = embed.get('description', '')
+    side = item['side']; market = item['market']; venue = item['exchange']; symbol = item['symbol']
+    currency = '원' if venue == 'UPBIT' else ' USDT'
+    label = '계약 명목가치' if market == 'linear' else '실제 총 매수액' if side == 'buy' else '실제 총 매도액'
+    expected_fields = [
+        f'실제 평균 체결가: {money(proof["average"])}{currency}',
+        f'실제 체결수량: {money(proof["filled"])} {symbol.split("/")[0]}',
+        f'{label}: {money(proof["total"])}{currency} (수수료 제외)',
+    ]
+    for field in expected_fields:
+        if field not in desc:
+            issues.append('Discord preview field mismatch: ' + field.split(':')[0])
+    title = embed.get('title', '')
+    if venue not in title or symbol not in title:
+        issues.append('Discord preview exchange or symbol mismatch')
+    if ('매수' if side == 'buy' else '매도') not in title:
+        issues.append('Discord preview buy/sell direction mismatch')
+    return issues
+
 def main() -> int:
     ap = argparse.ArgumentParser(description='Read-only historical POA fill and Discord preview audit')
     ap.add_argument('manifest', type=Path, help='JSON of historical order IDs and independently sourced fills')
-    ap.add_argument('--preflight', action='store_true', help='validate checkout/manifest without API credentials or network')
+    mode = ap.add_mutually_exclusive_group(required=True)
+    mode.add_argument('--preflight', action='store_true', help='validate checkout/manifest without credentials or network')
+    mode.add_argument('--live-read', action='store_true', help='explicit opt-in to authenticated GET with read-only keys')
     args = ap.parse_args()
     try:
         verify_checkout(Path.cwd())
@@ -129,7 +220,13 @@ def main() -> int:
         orders=document['orders']
         if not isinstance(orders,list) or not 1 <= len(orders) <= 100:
             raise ValueError('orders must contain 1..100 entries')
-        for x in orders: require_order(x)
+        seen = set()
+        for x in orders:
+            require_order(x)
+            identity_key = (x['exchange'], x['market'], x['symbol'], x['order_id'])
+            if identity_key in seen:
+                raise ValueError('duplicate historical order reference')
+            seen.add(identity_key)
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError,
             subprocess.SubprocessError) as e:
         print('PREFLIGHT_FAILED:',type(e).__name__,str(e),file=sys.stderr)
@@ -137,6 +234,11 @@ def main() -> int:
     if args.preflight:
         print(f'PREFLIGHT_PASS: exact clean PR4 checkout {EXPECTED_SHA}; {len(orders)} order references valid. No API request performed.')
         return 0
+
+    if not _confirm_live_read():
+        print('LIVE_READ_CONFIRMATION_REQUIRED: local interactive TTY and read-only key approval required.', file=sys.stderr)
+        return 2
+    limit_network_to_exchange_gets()
 
     # Import only the GET reader, pure proof validator, and pure Embed renderer.
     # Never import main, call tick, start_worker, flush_outbox or run installers.
@@ -169,11 +271,10 @@ def main() -> int:
     with patch.dict(os.environ, {}, clear=True):
         st=Settings(_env_file=None,**configuration)
     host=ReadHost(st)
-    limit_network_to_exchange_gets()
     failed=0
     for i,item in enumerate(orders,1):
         venue=item['exchange']; market=item['market']; side=item['side']; symbol=item['symbol']
-        label=f'{i}/{len(orders)} {venue} {market} {symbol} {side} order_id=***{item["order_id"][-6:]}'
+        label=f'{i}/{len(orders)} {venue} {market} {symbol} {side} (order ID redacted)'
         try:
             key=exchange_creds[venue][0]
             info={'exchange':venue, 'unified_symbol':symbol,
@@ -191,41 +292,8 @@ def main() -> int:
             proof=json.loads(obs.encoded)
             if not validate(proof):
                 raise ValueError('read proof validation rejected')
-            if (proof['scope']['exchange'], proof['scope']['order_id'],proof['scope']['symbol'],proof['scope']['side']) != (venue,item['order_id'],symbol,side):
-                raise ValueError('scope mismatch')
-            actual_fills=Counter((finite_decimal(x['price']),finite_decimal(x['quantity'])) for x in proof['trades'])
-            baseline_fills=Counter((finite_decimal(x['price']),finite_decimal(x['quantity_base'])) for x in item['reference_fills'])
-            with localcontext() as ctx:
-                ctx.prec=512
-                total=sum((price*qty for price,qty in baseline_fills.elements()),Decimal(0))
-                quantity=sum((qty for _,qty in baseline_fills.elements()),Decimal(0))
-                average=total/quantity
-            issues=[]
-            if actual_fills!=baseline_fills:issues.append('source fill rows differ')
-            if finite_decimal(proof['total'])!=total:issues.append('total differs')
-            if finite_decimal(proof['filled'])!=quantity:issues.append('filled quantity differs')
-            if finite_decimal(proof['average'])!=average:issues.append('average differs')
-            if finite_decimal(item['reference_total'])!=total:
-                issues.append('exchange order summary total disagrees with independent fill rows')
-            if finite_decimal(item['reference_quantity'])!=quantity:
-                issues.append('exchange order summary quantity disagrees with independent fill rows')
             embed=render(make_payload(proof)).data
-            desc=embed.get('description','')
-            currency='원' if venue=='UPBIT' else ' USDT'
-            expected_fields=[f'실제 평균 체결가: {money(proof["average"])}{currency}',
-                             f'실제 체결수량: {money(proof["filled"])} {symbol.split("/")[0]}',
-                             f'{"실제 총 매수액" if side=="buy" else "실제 총 매도액" if market=="spot" else "계약 명목가치"}']
-            if market=='linear':expected_fields[-1]='계약 명목가치'
-            expected_fields[-1]+=f': {money(proof["total"])}{currency} (수수료 제외)'
-            for field in expected_fields:
-                if field not in desc:issues.append('Discord preview field mismatch: '+field.split(':')[0])
-            title=embed.get('title','')
-            if venue not in title or symbol not in title:
-                issues.append('Discord preview exchange or symbol mismatch')
-            if market=='spot' and ('매수' if side=='buy' else '매도') not in title:
-                issues.append('Discord preview buy/sell direction mismatch')
-            if market=='linear' and ('매수' if side=='buy' else '매도') not in title:
-                issues.append('Futures title does not explicitly display buy/sell side')
+            issues=compare_proof_to_reference(item,proof,embed)
             print(('PASS' if not issues else 'FAIL')+' '+label)
             print('  qty='+money(proof['filled'])+' avg='+money(proof['average'])+' total='+money(proof['total'])+' '+('KRW' if venue=='UPBIT' else 'USDT'))
             print('  Discord preview (NO POST):')
