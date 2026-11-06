@@ -30,15 +30,15 @@ def fixture():
          'order_id':'a1111111-2222-3333-4444-555555555555',
          'reference_fills':[{'price':'200000','quantity_base':'0.25'},
                             {'price':'201000','quantity_base':'0.25'}],
-         'reference_total':'100250','reference_quantity':'0.5'},
+         'reference_source':'exchange_csv','reference_total':'100250','reference_quantity':'0.5'},
         {'exchange':'BYBIT','market':'linear','symbol':'BTC/USDT:USDT','side':'sell',
          'is_close':True,'order_id':'10000002',
          'reference_fills':[{'price':'100000','quantity_base':'0.001'}],
-         'reference_total':'100','reference_quantity':'0.001'},
+         'reference_source':'exchange_csv','reference_total':'100','reference_quantity':'0.001'},
         {'exchange':'OKX','market':'linear','symbol':'BTC/USDT:USDT','side':'buy',
          'is_close':False,'order_id':'10000003','contract_size':'0.01',
          'reference_fills':[{'price':'100000','quantity_base':'0.01'}],
-         'reference_total':'1000','reference_quantity':'0.01'}]}
+         'reference_source':'exchange_csv','reference_total':'1000','reference_quantity':'0.01'}]}
 
 def fake_modules(audit, rows, tamper=False, omit_side=False):
     keys=['exchange','exchange.model','exchange.model.schemas','exchange.verified_pnl',
@@ -142,9 +142,18 @@ class WindowsAuditV2(unittest.TestCase):
             self.audit.limit_network_to_exchange_gets()
             ok=types.SimpleNamespace(host='api.upbit.com')
             self.assertEqual(http.client.HTTPSConnection.request(ok,'GET','/v1/order'),'MOCK')
-            for host,method in [('api.upbit.com','POST'),('evil.example','GET'),('api.binance.com','DELETE')]:
-                with self.assertRaisesRegex(RuntimeError,'AUDIT_NETWORK_WRITE_OR_HOST_BLOCKED'):
-                    http.client.HTTPSConnection.request(types.SimpleNamespace(host=host),method,'/x')
+            denied = [
+                ('api.upbit.com', 'POST', '/v1/order', 443),
+                ('evil.example', 'GET', '/v1/order', 443),
+                ('api.binance.com', 'DELETE', '/api/v3/order', 443),
+                ('api.upbit.com', 'GET', '/v1/accounts', 443),
+                ('api.binance.com', 'GET', '/api/v3/order', 80),
+                ('api.upbit.com', 'GET', '//evil.example/v1/order', 443),
+                ('www.okx.com', 'GET', '/api/v5/trade/order/submit', 443),
+            ]
+            for host, method, target, port in denied:
+                with self.assertRaisesRegex(RuntimeError,'AUDIT_NETWORK_WRITE_OR_HOST_OR_PATH_BLOCKED'):
+                    http.client.HTTPSConnection.request(types.SimpleNamespace(host=host, port=port), method, target)
             with self.assertRaisesRegex(RuntimeError,'AUDIT_PLAINTEXT_HTTP_BLOCKED'):
                 http.client.HTTPConnection.request(ok,'GET','/v1/order')
             with self.assertRaisesRegex(RuntimeError,'AUDIT_REQUESTS_TRANSPORT_BLOCKED'):
@@ -155,9 +164,10 @@ class WindowsAuditV2(unittest.TestCase):
         out=io.StringIO();err=io.StringIO()
         mods=fake_modules(self.audit,self.data,tamper=tamper,omit_side=omit_side)
         old=Path.cwd()
-        with patch.dict(sys.modules,mods),patch.object(sys,'argv',['poa_readonly_audit_v2.py',str(self.manifest)]), \
+        with patch.dict(sys.modules,mods),patch.object(sys,'argv',['poa_readonly_audit_v2.py',str(self.manifest),'--live-read']), \
              patch.object(self.audit.getpass,'getpass',side_effect=lambda prompt:next(inputs)), \
              patch.object(self.audit,'limit_network_to_exchange_gets',return_value=None), \
+             patch.object(self.audit,'_confirm_live_read',return_value=True), \
              patch.object(socket.socket,'connect',side_effect=AssertionError('NETWORK_BLOCKED')), \
              patch.object(socket.socket,'connect_ex',side_effect=AssertionError('NETWORK_BLOCKED')), \
              contextlib.redirect_stdout(out),contextlib.redirect_stderr(err):
@@ -167,6 +177,42 @@ class WindowsAuditV2(unittest.TestCase):
             finally:
                 os.chdir(old)
         return status,out.getvalue(),err.getvalue()
+    def test_no_implicit_network_mode(self):
+        r = subprocess.run([sys.executable, '-I', str(self.root/'poa_readonly_audit_v2.py'),
+                            str(self.manifest)], cwd=self.root,
+                           capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 2)
+        self.assertNotIn('API key:', r.stderr)
+
+    def test_live_read_refuses_noninteractive_actions(self):
+        r = subprocess.run([sys.executable, '-I', str(self.root/'poa_readonly_audit_v2.py'),
+                            str(self.manifest), '--live-read'], cwd=self.root,
+                           capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('LIVE_READ_CONFIRMATION_REQUIRED', r.stderr)
+        self.assertNotIn('API key:', r.stderr)
+
+    def test_missing_reference_provenance_fails_preflight(self):
+        self.data['orders'][0].pop('reference_source')
+        self.save()
+        r = self.preflight()
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('reference_source', r.stderr)
+
+    def test_reference_statement_mismatch_fails_preflight(self):
+        self.data['orders'][0]['reference_total'] = '999'
+        self.save()
+        r = self.preflight()
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('independent reference statement does not reconcile', r.stderr)
+
+    def test_duplicate_order_fails_preflight(self):
+        self.data['orders'].append(dict(self.data['orders'][0]))
+        self.save()
+        r = self.preflight()
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('duplicate historical order reference', r.stderr)
+
     def test_synthetic_totals_embed_and_no_secret_output(self):
         status,out,err=self.run_mock()
         self.assertEqual(status,0,out+'\n'+err)
