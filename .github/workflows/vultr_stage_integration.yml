@@ -84,9 +84,11 @@ jobs:
       - name: Confirm no live components/outputs were activated
         shell: python
         run: |
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, str(Path.cwd()))
           from poa_stage import gateway
           assert gateway.app is not None
-          from pathlib import Path
           unit=Path('deployment/poa-stage-only.service.candidate').read_text()
           assert 'ExecStartPre=/usr/bin/false' in unit
           assert 'PrivateNetwork=yes' in unit
