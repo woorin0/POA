@@ -168,7 +168,7 @@ class PinnedAuthorities:
             deny("BINDING_SIGNATURE_INVALID")
         try:
             raw = base64.b64decode(signature, validate=True)
-            if len(raw) != 64:
+            if len(raw) != 64 or base64.b64encode(raw).decode("ascii") != signature:
                 deny("BINDING_SIGNATURE_INVALID")
             signed = {k: envelope[k] for k in ("domain", "kind", "kid", "body")}
             key.verify(raw, canonical(signed))
