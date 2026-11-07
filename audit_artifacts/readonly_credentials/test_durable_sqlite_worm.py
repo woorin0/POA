@@ -23,6 +23,7 @@ from audit_artifacts.readonly_credentials import remote_worm_mock as R
 from audit_artifacts.readonly_credentials import immutable_binding as B
 from audit_artifacts.readonly_credentials import independent_witness as W
 from audit_artifacts.readonly_credentials.test_independent_witness import scene
+from audit_artifacts.readonly_credentials.test_immutable_binding import rig
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from audit_artifacts.readonly_credentials.test_remote_worm_mock import (
     net, request, first_commit, second_commit, rawframe, evidence_for,
