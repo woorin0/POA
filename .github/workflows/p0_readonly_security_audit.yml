@@ -1,0 +1,121 @@
+name: POA P0 independent read-only security and DB preservation audit
+
+on:
+  pull_request:
+    branches: [ci/verify-pr5-main-4768f3e-20261107]
+    paths:
+      - '.github/workflows/p0_readonly_security_audit.yml'
+      - 'release_checks/p0_readonly_boundary_audit.py'
+
+permissions:
+  contents: read
+
+jobs:
+  p0-offline:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONIOENCODING: utf-8
+      POA_EXCHANGE_FILL_CONFIRMATION_ENABLED: 'false'
+      VERIFIED_DISCORD_ALERTS: 'false'
+      DISCORD_OUTBOX_ENABLED: 'false'
+    steps:
+      - name: Keep exact Git bytes
+        shell: bash
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Checkout immutable integrated-main product and copy ONLY audit test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pin = 'ad88384b8b6030c1109843b09b6761395b3f2d1c'
+          $tree = '663c82e1134f592beb9c8bc652daccc7b2185975'
+          $root = Join-Path $env:RUNNER_TEMP 'poa-p0-product'
+          git worktree add --detach $root $pin
+          if ($LASTEXITCODE -ne 0) { throw 'PRODUCT_CHECKOUT_FAILED' }
+          $actual = (git -C $root rev-parse HEAD).Trim()
+          $actualTree = (git -C $root rev-parse 'HEAD^{tree}').Trim()
+          if ($actual -ne $pin -or $actualTree -ne $tree) { throw 'PRODUCT_PIN_OR_TREE_MISMATCH' }
+          if (@(git -C $root status --porcelain --untracked-files=no).Count -ne 0) { throw 'PRODUCT_DIRTY_PRE_AUDIT' }
+          $testFile = Join-Path $env:GITHUB_WORKSPACE 'release_checks/p0_readonly_boundary_audit.py'
+          $target = Join-Path $root 'release_checks/p0_readonly_boundary_audit.py'
+          if (Test-Path $target) { throw 'AUDIT_FILE_ALREADY_EXISTS_ON_FROZEN_TREE' }
+          Copy-Item $testFile $target
+          if (@(git -C $root status --porcelain --untracked-files=no).Count -ne 0) { throw 'TRACKED_PRODUCT_FILE_MODIFIED' }
+          "POA_P0_PRODUCT=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "P0_IMMUTABLE_PRODUCT_SHA=$actual"
+          Write-Host "P0_IMMUTABLE_PRODUCT_TREE=$actualTree"
+          Write-Host 'P0_PRODUCT_FILES_CHANGED=0; AUDIT_COPIED_AS_UNTRACKED_TEST=YES'
+
+      - name: Install isolated test runtime without credentials
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m pip install pip==26.3 setuptools==84.2.1
+          if ($LASTEXITCODE -ne 0) { throw 'PIP_PREPARE_FAILED' }
+          python -m pip install -r (Join-Path $env:POA_P0_PRODUCT 'requirements.txt')
+          if ($LASTEXITCODE -ne 0) { throw 'DEPENDENCIES_FAILED' }
+          python -m pip install pytest==9.1.1 pytest-subtests pytest-asyncio PyYAML==6.0.3 cryptography
+          if ($LASTEXITCODE -ne 0) { throw 'TEST_DEPENDENCIES_FAILED' }
+          python -m pip check
+          if ($LASTEXITCODE -ne 0) { throw 'DEPENDENCY_CONFLICT' }
+
+      - name: Independent P0 transport, credentials, order and DB Mock checks
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location $env:POA_P0_PRODUCT
+          try {
+            python -B -c "import sys;sys.path.insert(0,'release_checks');import isolation,pytest;sys.exit(pytest.main(['-q','-s','--tb=short','-p','no:cacheprovider','--confcutdir=release_checks','--junitxml=p0-security.xml','release_checks/p0_readonly_boundary_audit.py'], plugins=[isolation]))"
+            if ($LASTEXITCODE -ne 0) { throw 'P0_OFFLINE_AUDIT_FAILED' }
+          } finally { Pop-Location }
+
+      - name: Existing signed-fill, authority and backup Mock regressions
+        if: runner.os == 'Linux'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location $env:POA_P0_PRODUCT
+          try {
+            python -B -c "import sys;sys.path.insert(0,'release_checks');import isolation,pytest;sys.exit(pytest.main(['-q','--tb=short','-p','no:cacheprovider','--confcutdir=release_checks','--junitxml=p0-existing.xml','release_checks/fill_confirmation_contracts.py','release_checks/staging_contracts.py'], plugins=[isolation]))"
+            if ($LASTEXITCODE -ne 0) { throw 'P0_EXISTING_REGRESSION_FAILED' }
+          } finally { Pop-Location }
+
+      - name: Verify product remains bit-identical after tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = $env:POA_P0_PRODUCT
+          if ((git -C $root rev-parse HEAD).Trim() -ne 'ad88384b8b6030c1109843b09b6761395b3f2d1c') { throw 'PRODUCT_SHA_DRIFT' }
+          if ((git -C $root rev-parse 'HEAD^{tree}').Trim() -ne '663c82e1134f592beb9c8bc652daccc7b2185975') { throw 'PRODUCT_TREE_DRIFT' }
+          if (@(git -C $root diff --name-only).Count -ne 0) { throw 'PRODUCT_SOURCE_MODIFIED' }
+          Write-Host 'P0_PRODUCT_SOURCE_UNCHANGED=PASS'
+          Write-Host 'P0_REAL_EXCHANGE_PERMISSIONS=UNVERIFIED'
+          Write-Host 'P0_PRODUCTION_ORDER_KILL_SWITCH=UNVERIFIED'
+          Write-Host 'P0_OPERATING_DATABASE_RESTORE=UNVERIFIED'
+          Write-Host 'P0_REAL_EXCHANGE_FILLS=UNVERIFIED'
+
+      - name: Upload offline test evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p0-audit-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/poa-p0-product/p0-security.xml
+            ${{ runner.temp }}/poa-p0-product/p0-existing.xml
+          if-no-files-found: ignore
