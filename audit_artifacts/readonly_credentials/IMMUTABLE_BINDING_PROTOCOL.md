@@ -40,7 +40,12 @@ and independent examiner signatures to bind historical trade-ref to read-ref:
    in this conservative prototype normalize to READ+TRADE, no transfer
    or withdrawal permissions.
 5. An append proposal is produced only after validation. A mock CAS registry
-   serializes concurrent append attempts and extends its hash chain.
+   serializes concurrent append attempts and extends its hash chain. It also
+   enforces **one-to-one account-key binding** in both directions per
+   venue/market: a later fully signed approval CANNOT silently rebind one
+   historical trade key to another read key, claim one read key for a second
+   legacy identity, or reapprove the same pair. Genuine key rotation and
+   revocation need a separately audited protocol.
    **Neither the proposed link nor in-memory append is durable.**
 6. In a real future implementation the prior checkpoint MUST originate
    from an independently operated, signed, externally monotonic WORM/append
