@@ -286,14 +286,46 @@ class MockRemoteWORMServer:
         self._witness = witness
         self._checkpoint_private = checkpoint_private
         self._clock = clock
-        self._head = B.TrustedHead(0, ZERO)
-        self._records = ()
-        self._completed = {}
-        self._used_challenges = set()
-        self._by_legacy = set()
-        self._by_read = set()
+        # A single state reference swap models an atomic transaction, NOT
+        # a durable disk commit. Each component is copied on write.
+        self._atomic = (B.TrustedHead(0, ZERO), (), {},
+                        frozenset(), frozenset(), frozenset())
         self._lock = threading.RLock()
         self.fail_before_commit_once = False
+        self.fail_after_prepare_once = False
+
+    @property
+    def _head(self):
+        return self._atomic[0]
+
+    @_head.setter
+    def _head(self, value):
+        # Deliberate fault-injection compatibility for snapshot-attack tests.
+        self._atomic = (value,) + self._atomic[1:]
+
+    @property
+    def _records(self):
+        return self._atomic[1]
+
+    @_records.setter
+    def _records(self, value):
+        self._atomic = (self._atomic[0], value) + self._atomic[2:]
+
+    @property
+    def _completed(self):
+        return self._atomic[2]
+
+    @property
+    def _used_challenges(self):
+        return self._atomic[3]
+
+    @property
+    def _by_legacy(self):
+        return self._atomic[4]
+
+    @property
+    def _by_read(self):
+        return self._atomic[5]
 
     @property
     def head(self):
@@ -388,13 +420,20 @@ class MockRemoteWORMServer:
                      "request_digest": packet_digest}
             new_records = self._records + (entry,)
             new_head = proposal.successor
-            self._records = new_records
-            self._head = new_head
-            self._by_legacy.add(legacy)
-            self._by_read.add(reader)
-            self._used_challenges.add(proposal.challenge)
-            self._completed[writer_body["request_id"]] = (
+            # Construct the ENTIRE next state before publishing anything.
+            completed = dict(self._completed)
+            completed[writer_body["request_id"]] = (
                 packet_digest, (new_head, new_records))
+            next_state = (
+                new_head, new_records, completed,
+                self._used_challenges | {proposal.challenge},
+                self._by_legacy | {legacy}, self._by_read | {reader})
+            if self.fail_after_prepare_once:
+                self.fail_after_prepare_once = False
+                raise MockLinkLost("remote simulator crashed after prepare")
+            # Single atomic pointer replacement. No partial record/head/key
+            # visibility to other threads within this in-memory simulator.
+            self._atomic = next_state
             return encode(self._checkpoint(frame, purpose="APPEND"))
 
 
