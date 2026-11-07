@@ -91,7 +91,8 @@ def test_stage_only_no_service_start_no_credentials(tmp_path,monkeypatch,corrupt
 def test_user_data_secret_free_and_embedded_sources_match():
     import yaml
     ci=yaml.load((ROOT/'.github/workflows/pr_verification.yml').read_text(encoding='utf-8'),Loader=yaml.BaseLoader)
-    assert ci['on']['push']['branches']==['main'] and ci['on']['pull_request']['branches']==['main']
+    assert ci['on']['push']['branches']==['main']
+    assert ci['on']['pull_request']['branches']==['main','fix/poa-release-safety-pr3']
     steps=ci['jobs']['offline']['steps']
     install=next(s['run'] for s in steps if s.get('name')=='Install isolated test dependencies')
     assert 'pip==26.3 setuptools==84.2.1' in install and "m.version('setuptools') == '84.2.1'" in install

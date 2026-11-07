@@ -1,7 +1,7 @@
 name: Release safety offline verification
 on:
   pull_request:
-    branches: [main]
+    branches: [main, fix/poa-release-safety-pr3]
   push:
     branches: [main]
 permissions:
@@ -55,12 +55,15 @@ jobs:
           paths = [Path.cwd()/'audit_artifacts', Path.cwd()/'tests', Path.cwd()]
           with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as f:
               f.write('PYTHONPATH='+os.pathsep.join(map(str, paths))+'\n')
-      - name: Manifest 70 and exact protected application source
+      - name: Manifest and exact protected application source
         run: |
           python release_checks/verify_release.py
           python release_checks/verify_packaging.py
       - name: Original 65 HTTP and shared v1 model contracts
         run: python -m pytest tests/test_http_v1_boundary.py tests/test_dependency_security.py -q --tb=short --junitxml=http.xml
+      - name: Independent four-venue native fill confirmation
+        if: runner.os == 'Linux'
+        run: python release_checks/run_fill_confirmation.py -q --tb=short --junitxml=fill-confirmation.xml
       - name: Preserve Offline Golden stages 1-3 and offline regression suites
         run: python tests/run_offline.py
       - name: Admission, frozen wire, source pins and Safe Retry
@@ -77,5 +80,6 @@ jobs:
             independent.xml
             core.xml
             full.xml
+            fill-confirmation.xml
             http.xml
           if-no-files-found: ignore

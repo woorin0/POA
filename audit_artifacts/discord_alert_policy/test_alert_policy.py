@@ -26,8 +26,14 @@ class Probe:
   assert isinstance(kw['data'],bytes) and 'json' not in kw and kw['allow_redirects'] is False
   raw=kw['data'];wd=hashlib.sha256(raw).hexdigest()
   j=O.Journal(self.st)
-  with j.connect() as c:row=c.execute("SELECT wire,digest,status FROM ops_events WHERE digest=?",(wd,)).fetchone()
-  assert row==(raw,wd,'POSTING')
+  # Identical frozen wire bytes can occur in different incident episodes
+  # created in the same second. A digest alone is not an event identity.
+  with j.connect() as c:
+   rows=c.execute("SELECT wire,digest,status,token FROM ops_events WHERE digest=? AND status='POSTING'",(wd,)).fetchall()
+  assert len(rows)==1
+  row=rows[0]
+  assert row[:3]==(raw,wd,'POSTING')
+  assert isinstance(row[3],str) and bool(row[3])
   payload=json.loads(raw);assert payload['allowed_mentions']=={'parse':[]}
   assert payload['embeds'][0]['color'] in (C.ERROR,C.PENDING)
   assert '금융 VERIFIED' not in json.dumps(payload,ensure_ascii=False)

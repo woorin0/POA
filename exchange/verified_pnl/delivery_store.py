@@ -113,6 +113,9 @@ class NotificationOutboxStore:
         return facts
     @staticmethod
     def _scope(p):
+        from .order_fill_read import CONTRACT,validate
+        if getattr(p,'notification_type',None)==CONTRACT:
+            return p.fill_confirmation['scope'] if validate(p.fill_confirmation) else None
         if getattr(p,'notification_type',None)=='ESTIMATED':
             value=p.estimated_pnl
             return value.get('scope') if isinstance(value,dict) and value.get('status') in ('ESTIMATED','UNAVAILABLE') else None
@@ -263,6 +266,10 @@ class NotificationOutboxStore:
             from .history import record_consumer
             record_consumer(self,c,p,rid,revision,binding)
         logger.info('verified_alerts: financial_revision_recorded');return True
+    def enqueue_confirmation(self,job):
+        """Notification-only immutable submission, isolated from financial admission."""
+        from .order_fill_confirmation import enqueue
+        return enqueue(self,job)
     def get_pending(self,limit=10):
         with self._connect_read() as c:
             return [{'event_id':x[0],'payload':strict_object(x[1]),'attempts':x[2],'max_attempts':x[3]} for x in c.execute("SELECT d.id,r.payload,d.attempts,d.max_attempts FROM vpnl_deliveries d JOIN vpnl_revisions r ON r.root_id=d.root_id AND r.revision=d.revision WHERE d.status='PENDING' AND d.due<=? ORDER BY d.due,d.id LIMIT ?",(time.time(),min(limit,40)))]
@@ -293,6 +300,12 @@ class NotificationOutboxStore:
                     if prior is None or not self._withdrawal_valid(p,NotificationPayload(**strict_object(prior[0]))):raise ValueError('withdrawal_binding')
                 if digest(self._facts(p))!=fd or self._wire(p)!=wire or hashlib.sha256(wire).hexdigest()!=wd:raise ValueError('wire_binding')
                 if p.net_pnl is not None and not payload_valid(p):raise ValueError('financial_binding')
+                from .order_fill_read import CONTRACT
+                if p.notification_type==CONTRACT:
+                    from .order_fill_confirmation import send_allowed,host_for
+                    if host_for(self) is None:
+                        c.execute("UPDATE vpnl_deliveries SET due=? WHERE id=?",(time.time()+5,did));return False
+                    if not send_allowed(self,c,p,bound):raise ValueError('confirmation_admission')
                 if p.notification_type=='ESTIMATED':
                     from .upbit_spot_read import current_upbit_notification_host
                     iid=(p.estimated_pnl or {}).get('intake_id')
@@ -607,7 +620,11 @@ class NotificationOutboxStore:
 
     def _restore_ready(self,c):
         from .intake import restore_preflight_tx
-        return restore_preflight_tx(self,c)['ready']
+        ready=restore_preflight_tx(self,c)['ready']
+        if ready:
+            from .order_fill_confirmation import guard_claimed
+            guard_claimed(self,c)
+        return ready
     def submit_intake(self,key,legacy_key,data,binding_hint,intake_id,request_digest,sidecar_id):
         from .intake import IntakeStore,submission_for,make_submission,validate_submission
         with self._connect() as c:

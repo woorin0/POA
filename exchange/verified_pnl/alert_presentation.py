@@ -38,6 +38,10 @@ def colour(p):
 
 
 def apply(embed,p):
+    from .order_fill_read import CONTRACT
+    if getattr(p,'notification_type',None)==CONTRACT:
+        from .order_fill_confirmation import render
+        return render(p)
     value=colour(p)
     if value is None:return embed
     embed.color=value

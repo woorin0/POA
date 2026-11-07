@@ -68,7 +68,7 @@ def _release_identity_jobs(store):
         c.execute("INSERT INTO vpnl_recovery_cursor VALUES('identity',?) ON CONFLICT(lane) DO UPDATE SET cursor=excluded.cursor",(batch[-1][0] if batch else '',))
 
 
-def dispatch_verified_alert(exchange_name, order_result, order_info, settings, bot=None):
+def dispatch_verified_alert(exchange_name, order_result, order_info, settings, bot=None, *, producer_entry=None):
     """Only a bounded local DB write; never calls a client or Discord here."""
     if not config_valid(settings):
         warning("configuration_incomplete")
@@ -113,13 +113,36 @@ def dispatch_verified_alert(exchange_name, order_result, order_info, settings, b
         from .evidence import digest
         host_hint=_host_identity_hint(info,legacy_account,str(result.get('id') or ''))
         data['host_binding_digest']=digest(host_hint) if host_hint is not None else None
+        from .order_fill_confirmation import prepare,capture_options
+        prepare(settings)
         intake=IntakeStore(settings.VERIFIED_NOTIFICATIONS_DB_PATH)
-        intake_id=intake.record(data)
+        intake_id=intake.record(data,**capture_options(settings,producer_entry))
     except Exception as exc:
         from .intake import safe_failure
         code=safe_failure(exc)
         logger.error('verified_alerts: {}',code)
         return dict(status='PERSISTENCE_FAILED',accepted=False,code=code)
+    if producer_entry is not None:
+        try:
+            from .order_fill_confirmation import enroll
+            from .estimated_pnl import producer_token
+            enroll(settings,intake_id,producer_token(producer_entry))
+        except Exception:
+            warning('FILL_ENROLLMENT_REJECTED')
+    elif getattr(settings,'POA_EXCHANGE_FILL_CONFIRMATION_ENABLED',False):
+        # Existing main.log remains byte-identical. Its actual call frame plus
+        # the existing code-pinned producer capability authorizes enrollment.
+        import inspect
+        frame=inspect.currentframe().f_back
+        entry=frame.f_globals.get('log')
+        if callable(entry) and getattr(entry,'__code__',None) is frame.f_code:
+            try:
+                from .order_fill_confirmation import enroll
+                from .estimated_pnl import producer_token
+                enroll(settings,intake_id,producer_token(entry))
+            except Exception:
+                warning('FILL_ENROLLMENT_REJECTED')
+        del frame
     try:
         replay(settings,only=intake_id)
     except Exception:
@@ -675,6 +698,9 @@ def verification_tick(settings, client_factory):
             with store._connect() as con:
                 con.execute("UPDATE vpnl_jobs SET state=?,due=?,data=? WHERE id=? AND job_lease=?",(next_st, now+delay, saved_data, key,lease))
 
+    from .order_fill_confirmation import tick as confirmation_tick
+    confirmation_tick(settings,store)
+
 
 def flush_outbox(settings):
     store=NotificationOutboxStore(settings.VERIFIED_NOTIFICATIONS_DB_PATH)
@@ -738,6 +764,8 @@ class ReadClients:
 
 def start_worker(settings, *, execution_bootstrap=None, upbit_observation_host=None):
     if not config_valid(settings): warning("configuration_incomplete"); return None
+    from .order_fill_confirmation import prepare
+    prepare(settings)
     if settings.EXCHANGE_NATIVE_TPSL_MONITOR:
         warning("native_tpsl_monitor_not_implemented")
     from .bootstrap import configure_execution_bootstrap,current_bootstrap,execution_readiness
@@ -851,11 +879,16 @@ def dispatch_order_observation(exchange_name,order_result,order_info,settings,*,
             return dispatch_verified_alert(exchange_name,order_result,order_info,settings)
         ref=identity(exchange_name,getattr(settings,exchange_name+'_KEY',None) or 'unconfigured')
         data=dict(info=info,result={'id':str(oid)},source_account_ref=ref,host_binding_digest=None)
+        if getattr(settings,'POA_EXCHANGE_FILL_CONFIRMATION_ENABLED',False):
+            client_id=raw.get('clientOrderId') or raw.get('identifier')
+            if client_id is not None:data['result']['clientOrderId']=str(client_id)
         clean,review=normalized_request(data)
         configured=bool(getattr(settings,exchange_name+'_KEY',None)) or account_reference(exchange_name,ref) is not None
         observation=N.capture(exchange_name,raw,clean['info'],ref,configured)
+        from .order_fill_confirmation import prepare
+        confirmation_host=prepare(settings)
         intake=IntakeStore(settings.VERIFIED_NOTIFICATIONS_DB_PATH)
-        iid=intake.record(data,observation=observation,producer=token)
+        iid=intake.record(data,observation=observation,producer=token,**({'confirmation_host':confirmation_host} if confirmation_host else {}))
         with intake.connect() as c:intake_state=c.execute('SELECT status FROM notification_intake WHERE id=?',(iid,)).fetchone()[0]
         if intake_state=='REVIEW':
             warning('NOTIFICATION_INTAKE_REVIEW')
@@ -866,6 +899,11 @@ def dispatch_order_observation(exchange_name,order_result,order_info,settings,*,
         from .operational_alerts import report
         report(settings,'INTAKE_SAVE_FAILED',phase='INTAKE',info=order_info)
         return dict(accepted=False,status='PERSISTENCE_FAILED',code=safe_failure(exc))
+    try:
+        from .order_fill_confirmation import enroll
+        enroll(settings,iid,token)
+    except Exception:
+        warning('FILL_ENROLLMENT_REJECTED')
     try:replay(settings,only=iid)
     except Exception:warning('INTAKE_REPLAY_DEFERRED')
     return dict(accepted=True,status='DURABLE_REVIEW' if intake_state=='REVIEW' else 'DURABLE_ACCEPTED',intake_id=iid)
