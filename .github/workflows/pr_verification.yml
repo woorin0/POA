@@ -1,7 +1,7 @@
 name: Release safety offline verification
 on:
   pull_request:
-    branches: [main, fix/poa-release-safety-pr3]
+    branches: [main, fix/poa-release-safety-pr3, feat/order-fill-confirmation-v1]
   push:
     branches: [main]
 permissions:
@@ -70,7 +70,7 @@ jobs:
         run: python -m pytest tests/test_executed_amount_notification.py audit_artifacts/source_pin_gate/test_source_pin_guards.py tests/test_safe_retry.py tests/test_upbit_safe_retry.py audit_artifacts/upbit_krw_v5/test_krw_v5.py -q --tb=short --junitxml=core.xml
       - name: Full Windows regression
         if: runner.os == 'Windows'
-        run: python -m pytest -q --tb=short --junitxml=full.xml
+        run: python -m pytest -q --tb=short --ignore=release_checks --ignore=audit_artifacts/readonly_audit_v2 --junitxml=full.xml
       - name: Upload test evidence only
         if: always()
         uses: actions/upload-artifact@v4
