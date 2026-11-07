@@ -22,7 +22,7 @@ from audit_artifacts.readonly_credentials.test_immutable_binding import rig, NOW
 from audit_artifacts.readonly_credentials.test_independent_witness import scene
 from audit_artifacts.readonly_credentials.test_remote_worm_mock import net, request
 
-FREEZE = datetime(2026, 11, 7, 14, 0, tzinfo=timezone.utc)
+FREEZE = datetime.fromtimestamp(NOW, tz=timezone.utc)
 OWNER = "111122223333"
 BUCKET = "poa-independent-immutable-worm-test"
 PREFIX = "source-evidence"
@@ -39,6 +39,7 @@ class StubS3Backend:
         self.fake_missing_version = False
         self.force_mode = None
         self.force_retention = None
+        self.force_last_modified = None
         self.corrupt_body = False
         self.corrupt_checksum = False
         self.corrupt_metadata = False
@@ -90,6 +91,7 @@ class StubS3Client:
                 "Body": data, "VersionId": vid,
                 "ObjectLockMode": kwargs["ObjectLockMode"],
                 "ObjectLockRetainUntilDate": kwargs["ObjectLockRetainUntilDate"],
+                "LastModified":FREEZE,
                 "Metadata": dict(kwargs["Metadata"]), "ChecksumSHA256":checksum}
             self.data.versions.setdefault(key, []).append(rec)
             if self.data.drop_after_put:
@@ -120,6 +122,7 @@ class StubS3Client:
         return {"VersionId":"v-fake" if self.data.wrong_head_version else r["VersionId"],
                 "ObjectLockMode":self.data.force_mode or r["ObjectLockMode"],
                 "ObjectLockRetainUntilDate":self.data.force_retention or r["ObjectLockRetainUntilDate"],
+                "LastModified":self.data.force_last_modified or r["LastModified"],
                 "ContentLength":len(r["Body"]),
                 "Metadata":({} if self.data.corrupt_metadata else dict(r["Metadata"]))}
 
@@ -424,3 +427,42 @@ def test_no_live_network_and_no_product_operational_activation(wire):
     assert wire["producer"].__class__ is S.S3ComplianceWriter
     assert wire["net"]["server"].records
     assert wire["net"]["wanchor"].floor.sequence==1
+
+
+def test_externally_pinned_storage_policy_cannot_be_swapped_at_runtime(wire):
+    for field, value in (("owner","999988887777"),("bucket","rogue-bucket"),
+                         ("prefix","malicious-prefix"),("min_days",1),
+                         ("clock",lambda:FREEZE)):
+        fails("S3_POLICY_PIN_IMMUTABLE",setattr,wire["policy"],field,value)
+
+
+def test_archived_signed_approval_stays_verifiable_during_original_retention(wire):
+    loc,proof=committed(wire)
+    # 10 days after the 5-minute PR19 operator approval expires, historical
+    # verification uses pinned S3 LastModified, not a forged current approval.
+    late_policy = S.ObjectLockPolicy(owner=OWNER,bucket=BUCKET,prefix=PREFIX,
+                                     min_days=30,clock=lambda:FREEZE+timedelta(days=10))
+    wire["verifier"].policy = late_policy
+    assert wire["verifier"].verify(proof)==loc
+
+
+def test_storage_after_operator_grant_expires_cannot_be_attested(wire):
+    loc=wire["producer"].put(wire["frame"],wire["response"])
+    wire["backend"].force_last_modified=FREEZE+timedelta(hours=1)
+    # This also fails the bounded future-date guard; no time-travel accepted.
+    fails("S3_STORAGE_TIMESTAMP_UNTRUSTED",wire["attestor"].attest,loc)
+
+
+def test_storage_timestamp_before_original_signer_grant_is_rejected(wire):
+    loc=wire["producer"].put(wire["frame"],wire["response"])
+    wire["backend"].force_last_modified=FREEZE-timedelta(days=1)
+    fails("BINDING_STALE_OR_FUTURE",wire["attestor"].attest,loc)
+
+
+def test_expired_compliance_retention_is_not_claimed_as_active_lock(wire):
+    loc,proof=committed(wire)
+    # The bucket record still exists, but proof no longer claims active lock.
+    expired_policy = S.ObjectLockPolicy(owner=OWNER,bucket=BUCKET,prefix=PREFIX,
+                                        min_days=30,clock=lambda:FREEZE+timedelta(days=31))
+    wire["verifier"].policy = expired_policy
+    fails("S3_COMPLIANCE_VERSION_PIN_FAILED",wire["verifier"].verify,proof)
