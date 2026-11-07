@@ -238,9 +238,10 @@ def test_missing_or_bad_witness_prevents_remote_commit(net):
     frame["writer"]["body"]["evidence"]["witness"]["signature"] = "a" * 88
     frame["writer"] = R.make_envelope(net["keys"]["writer"], kid=net["pins"].kid("writer"),
                               kind="APPEND_PROOF", body=frame["writer"]["body"])
+    re_signed_writer = {"op": "APPEND", "writer": frame["writer"]}
     frame["grant"] = R.operator_grant(
             net["keys"]["operator"], net["pins"], net["scene"]["rig"]["authorities"],
-            net["scene"]["witness"], frame, issued_at=NOW - 1, expires_at=NOW + 60)
+            net["scene"]["witness"], re_signed_writer, issued_at=NOW - 1, expires_at=NOW + 60)
     error("WITNESS_SIGNATURE_INVALID", rawframe, net, frame)
     assert net["server"].head.sequence == 0
 
