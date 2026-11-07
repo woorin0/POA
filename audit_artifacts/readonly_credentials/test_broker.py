@@ -192,4 +192,18 @@ def test_integration_does_not_write_operating_store_or_import_order_server():
     import sys
     assert "main" not in sys.modules
     assert B.require_operational_authorization.__module__.endswith("isolated_broker")
-    assert not any(name.endswith("main") for name in ("",))  # intent: no app start
+
+@pytest.mark.parametrize("venue", VENUES)
+def test_unmodified_ccxt_client_uses_dedicated_key_in_mock_without_http(venue):
+    read = B.load_dedicated_key(vault(venue), venue)
+    host = ReadHost(B.OfflineReadHostSettings(read))
+    client = host._client({
+        "exchange": venue, "market_type": "spot",
+        "account": ledger.identity(venue, read.access),
+    })
+    assert client.apiKey == read.access
+    assert client.secret == read.secret
+    assert client.password == read.passphrase
+    assert client.enableRateLimit is True
+    assert host.clients[(venue, "spot")] is client
+    # No REST calls: client is configured locally only.
