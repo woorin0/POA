@@ -416,6 +416,7 @@ class MockRemoteClient:
         self._pins = pins
         self._link = link
         self.anchor = anchor
+        self._acknowledged = set()
 
     def query(self, nonce):
         if not hash_ok(nonce):
@@ -442,9 +443,13 @@ class MockRemoteClient:
             fail("REMOTE_CLIENT_ROLE_FORBIDDEN")
         if not fields(frame, {"op", "writer", "grant"}):
             fail("REMOTE_APPEND_SCHEMA")
-        if self.anchor.floor != parse_head(frame["writer"]["body"]["expected"]):
+        expected = parse_head(frame["writer"]["body"]["expected"])
+        packet_digest = B.digest(frame)
+        if self.anchor.floor != expected and packet_digest not in self._acknowledged:
             fail("REMOTE_CLIENT_STALE_ANCHOR")
-        return self._send_and_verify(frame)
+        result = self._send_and_verify(frame)
+        self._acknowledged.add(packet_digest)
+        return result
 
     def _send_and_verify(self, frame):
         raw_response = self._link.send(encode(frame))
