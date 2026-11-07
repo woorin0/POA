@@ -11,6 +11,7 @@ import hashlib
 import os
 import shutil
 import sqlite3
+from contextlib import closing
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -271,8 +272,8 @@ def test_manual_single_file_rollback_detected_after_restart_by_auditor(disk, tmp
     first_commit(disk)
     disk["auditor"].query(h("persist-auditor-seq1"))
     snap = tmp_path / "before-second.sqlite3"
-    with sqlite3.connect(disk["server_db"]) as current:
-        with sqlite3.connect(snap) as dest:
+    with closing(sqlite3.connect(disk["server_db"])) as current:
+        with closing(sqlite3.connect(snap)) as dest:
             current.backup(dest)
     disk["writer"].query(h("writer-before-second"))
     nextframe = request(disk,nonce="second-persisted-approval",
@@ -280,12 +281,11 @@ def test_manual_single_file_rollback_detected_after_restart_by_auditor(disk, tmp
     assert disk["writer"].append(nextframe).sequence == 2
     disk["auditor"].query(h("auditor-persisted-seq2"))
     assert reopen_auditor(disk).floor.sequence == 2
-    # Adversary with full file control overwrites SQLite and WAL sidecars.
-    for suffix in ("-wal", "-shm"):
-        p = Path(str(disk["server_db"]) + suffix)
-        if p.exists():
-            p.unlink()
-    shutil.copyfile(snap, disk["server_db"])
+    # Simulated DBA replaces current content with a valid older SQLite backup
+    # using SQLite's transactional backup API. No live WAL files are deleted.
+    with closing(sqlite3.connect(snap)) as previous:
+        with closing(sqlite3.connect(disk["server_db"])) as active:
+            previous.backup(active)
     restored = reopen_server(disk)
     assert restored.head.sequence == 1
     disk["link"].server = restored
@@ -312,8 +312,10 @@ def test_forked_durable_stores_detected_by_single_persisted_auditor(disk, tmp_pa
 def test_two_owners_without_shared_external_anchors_still_accept_forks(disk, tmp_path):
     alpha = disk["server"]
     beta = reopen_server(disk, path=tmp_path / "forked.sqlite3", create=True)
-    alpha.dispatch(R.encode(request(disk, nonce="isolated-owner-a")))
-    beta.dispatch(R.encode(request(disk,nonce="isolated-owner-b",new_account=True)))
+    frame_a = request(disk, nonce="isolated-owner-a")
+    frame_b = request(disk, nonce="isolated-owner-b", new_account=True)
+    alpha.dispatch(R.encode(frame_a))
+    beta.dispatch(R.encode(frame_b))
     assert alpha.head != beta.head
     auditor_b = D.DurableSQLiteAuditor(
         tmp_path / "forked-independent-auditor.sqlite3", create=True,
