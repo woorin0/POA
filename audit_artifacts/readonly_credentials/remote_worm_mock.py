@@ -90,6 +90,8 @@ def strict_decode(raw):
         if B.canonical(parsed) != raw:
             fail("REMOTE_FRAME_NONCANONICAL")
         return parsed
+    except B.BindingBlocked:
+        raise
     except (ValueError, UnicodeError, TypeError):
         fail("REMOTE_FRAME_INVALID")
 
