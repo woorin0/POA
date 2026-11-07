@@ -74,6 +74,21 @@ def sha(raw):
     return hashlib.sha256(raw).hexdigest()
 
 
+def snapshot(value):
+    """Own exact canonical bytes before hashing, verification or signing.
+
+    The caller's dict is untrusted and can be mutated by another task while
+    stub I/O is in progress. Never re-read the mutable input afterwards.
+    """
+    return R.strict_decode(R.encode(value))
+
+
+def policy_scope(policy):
+    if type(policy) is not ObjectLockPolicy:
+        deny("S3_POLICY_PIN_SWAP")
+    return (policy.owner, policy.bucket, policy.prefix, policy.min_days)
+
+
 def _source_contract(pins, sources, witness, frame, response, now_unix):
     """Independently rederive signed PR19 source and exact included append."""
     if not R.fields(frame, {"op", "writer", "grant"}) or frame["op"] != "APPEND":
@@ -198,6 +213,7 @@ class ObjectLockPolicy:
 
 
 def _canonical_document(pins, sources, witness, frame, response, now_unix):
+    frame, response = snapshot(frame), snapshot(response)
     source = _source_contract(pins, sources, witness, frame, response, now_unix)
     doc = {"domain": DOMAIN, "frame": frame, "response": response}
     raw = R.encode(doc)
@@ -289,7 +305,8 @@ def _read_version(s3, policy, locator):
     except Exception:
         deny("S3_VERSION_READ_UNVERIFIED")
     if (type(head) is not dict or type(retention) is not dict
-            or type(got) is not dict or type(retention.get("Retention")) is not dict):
+            or type(got) is not dict or type(retention.get("Retention")) is not dict
+            or type(head.get("Metadata")) is not dict):
         deny("S3_VERSION_METADATA_INVALID")
     lock = retention["Retention"]
     try:
@@ -340,6 +357,11 @@ class IndependentObjectCommitAttestor:
     Calls ONLY version-pinned GET, HEAD, retention and bucket configuration.
     Never accepts writer's S3 version metadata as evidence by itself.
     """
+    def __setattr__(self, name, value):
+        if getattr(self, "_sealed", False):
+            deny("S3_ATTESTOR_TRUST_BOUNDARY_IMMUTABLE")
+        object.__setattr__(self, name, value)
+
     def __init__(self, *, reader, policy, pins, sources, witness,
                  private_key, kid, public_key_pin, now_unix):
         key = R.pubkey(private_key)
@@ -361,8 +383,10 @@ class IndependentObjectCommitAttestor:
         self._witness = witness
         self._now_unix = now_unix
         self.kid = kid
+        self._sealed = True
 
     def attest(self, locator):
+        locator = snapshot(locator)
         document, storage_time = _read_version(self._reader, self._policy, locator)
         # Historical grants are validated at verified provider object creation
         # time; never mark a just-written object as valid using caller-supplied
@@ -375,7 +399,8 @@ class IndependentObjectCommitAttestor:
         body = {"domain": ATTESTATION_DOMAIN, "locator": locator,
                 "operator_roots": self._pins.commitment,
                 "source_roots": self._sources.root_commitment(),
-                "witness_root": self._witness._root_commitment}
+                "witness_root": self._witness._root_commitment,
+                "storage_epoch": storage_time}
         signed = {"domain": ATTESTATION_DOMAIN,
                   "attestor_kid": self.kid, "attestation": body}
         signed["signature"] = base64.b64encode(
@@ -384,7 +409,17 @@ class IndependentObjectCommitAttestor:
 
 
 class IndependentObjectProofVerifier:
-    """READ only. Rechecks the exact object VersionId on every verification."""
+    """READ only. Rechecks the exact object VersionId on every verification.
+
+    The current verification-time clock may advance, but substituting a new
+    bucket, account, path, minimum retention, signer or reader is rejected.
+    """
+    def __setattr__(self, name, value):
+        if getattr(self, "_sealed", False):
+            if name != "policy" or policy_scope(value) != self._scope:
+                deny("S3_PROOF_TRUST_BOUNDARY_IMMUTABLE")
+        object.__setattr__(self, name, value)
+
     def __init__(self, *, reader, policy, pins, sources, witness,
                  attestor_public_key, attestor_kid, pin_sha256, now_unix):
         if (type(attestor_public_key) is not bytes
@@ -404,8 +439,18 @@ class IndependentObjectProofVerifier:
         self.reader, self.policy = reader, policy
         self.pins, self.sources, self.witness = pins, sources, witness
         self.now_unix = now_unix
+        self._scope = policy_scope(policy)
+        self._last_clock = policy.now()
+        self._sealed = True
 
     def verify(self, proof):
+        proof = snapshot(proof)
+        observed_policy = self.policy
+        if policy_scope(observed_policy) != self._scope:
+            deny("S3_POLICY_PIN_SWAP")
+        current_time = observed_policy.now()
+        if current_time < self._last_clock:
+            deny("S3_AUDITOR_CLOCK_ROLLBACK")
         if not R.fields(proof, PROOF_FIELDS) or (
                 proof["domain"] != ATTESTATION_DOMAIN
                 or proof["attestor_kid"] != self._kid):
@@ -424,17 +469,32 @@ class IndependentObjectProofVerifier:
             deny("S3_PROOF_SIGNATURE_INVALID")
         body = proof["attestation"]
         if (not R.fields(body, {"domain", "locator", "operator_roots",
-                                "source_roots", "witness_root"})
+                                "source_roots", "witness_root", "storage_epoch"})
                 or body["domain"] != ATTESTATION_DOMAIN
                 or body["operator_roots"] != self.pins.commitment
                 or body["source_roots"] != self.sources.root_commitment()
                 or body["witness_root"] != self.witness._root_commitment):
             deny("S3_PROOF_ROOT_OR_DOMAIN_INVALID")
         loc = body["locator"]
-        document, storage_time = _read_version(self.reader, self.policy, loc)
+        document, storage_time = _read_version(self.reader, observed_policy, loc)
+        if storage_time != body["storage_epoch"] or type(body["storage_epoch"]) is not int:
+            deny("S3_ATTESTED_TIMESTAMP_MISMATCH")
         source = _source_contract(
             self.pins, self.sources, self.witness,
             document["frame"], document["response"], storage_time)
         if any(source[k] != loc[k] for k in source):
             deny("S3_PROOF_SOURCE_MISMATCH")
-        return loc.copy()
+        if self.policy is not observed_policy:
+            deny("S3_POLICY_PIN_SWAP")
+        object.__setattr__(self, "_last_clock", current_time)
+        return snapshot(loc)
+
+    def verify_for_request(self, proof, *, request_digest, sequence, chain_hash):
+        """Only the context-bound method is suitable for an append decision."""
+        if not ishex(request_digest) or type(sequence) is not int or not ishex(chain_hash):
+            deny("S3_EXPECTED_COMMIT_INVALID")
+        loc = self.verify(proof)
+        if (loc["request_digest"] != request_digest
+                or loc["sequence"] != sequence or loc["chain_hash"] != chain_hash):
+            deny("S3_COMMIT_CONTEXT_REPLAY")
+        return loc
