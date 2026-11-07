@@ -306,7 +306,8 @@ def _read_version(s3, policy, locator):
             or lock.get("Mode") != "COMPLIANCE"
             or until_head != until_retention
             or until_head < expect_until
-            or until_head < policy.now() + timedelta(days=policy.min_days)
+            or until_head < created_at + timedelta(days=policy.min_days)
+            or until_head <= policy.now()
             or head.get("VersionId") != version_id
             or got.get("VersionId") != version_id
             or head.get("ContentLength") != locator["object_length"]
