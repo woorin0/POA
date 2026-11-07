@@ -296,6 +296,7 @@ def test_writer_cannot_replace_auditor_highwater_after_existing_verified_checkpo
 def test_full_server_and_auditor_snapshot_reset_still_unresolved(net):
     # No local-only Mock can prove resistance when *all* local snapshots reset.
     first_commit(net)
+    assert net["auditor"].query(h("audit-pin-before-global-reset")).sequence == 1
     net["link"].server = R.MockRemoteWORMServer(
          net["pins"],net["scene"]["rig"]["authorities"],
          net["scene"]["witness"],net["keys"]["checkpoint"],lambda: NOW)
