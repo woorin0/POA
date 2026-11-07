@@ -29,7 +29,7 @@ from . import independent_witness as W
 
 DOMAIN = "POA_S3_OBJECT_LOCK_COMMIT_V1"
 ATTESTATION_DOMAIN = "POA_INDEPENDENT_S3_COMMIT_ATTESTATION_V1"
-MAX_OBJECT_BYTES = 1024 * 1024
+MAX_OBJECT_BYTES = 16384  # upstream PR19 canonical JSON frames are 16 KiB max
 LOCATOR_FIELDS = {"domain", "owner", "bucket", "key", "version_id",
                   "object_sha256", "object_length", "retained_until",
                   "sequence", "chain_hash", "request_digest"}
@@ -151,7 +151,18 @@ def _source_contract(pins, sources, witness, frame, response, now_unix):
 
 
 class ObjectLockPolicy:
-    """Out-of-band operator-controlled bucket/owner/root and UTC retention."""
+    """Out-of-band operator-controlled bucket/owner/root and UTC retention.
+
+    Fail closed on ordinary in-process pin replacement after validation.
+    Interpreter compromise still defeats this Python-level boundary.
+    """
+    __slots__ = ("owner", "bucket", "prefix", "min_days", "clock")
+
+    def __setattr__(self, name, value):
+        if name in self.__slots__ and hasattr(self, name):
+            deny("S3_POLICY_PIN_IMMUTABLE")
+        object.__setattr__(self, name, value)
+
     def __init__(self, *, owner, bucket, prefix, min_days, clock):
         if (type(owner) is not str or re.fullmatch(r"[0-9]{12}", owner) is None
                 or type(bucket) is not str
