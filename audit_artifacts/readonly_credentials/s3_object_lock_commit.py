@@ -244,6 +244,11 @@ class S3ComplianceWriter:
     This returns an UNATTESTED locator, never a claimed durable commit.
     Only an independent read-only S3 client+attestor may upgrade it to proof.
     """
+    def __setattr__(self, name, value):
+        if getattr(self, "_sealed", False):
+            deny("S3_WRITER_TRUST_BOUNDARY_IMMUTABLE")
+        object.__setattr__(self, name, value)
+
     def __init__(self, client, policy, pins, sources, witness, now_unix):
         self._s3 = client
         self.policy = policy
@@ -251,6 +256,7 @@ class S3ComplianceWriter:
         self.sources = sources
         self.witness = witness
         self.now_unix = now_unix
+        self._sealed = True
 
     def put(self, frame, response):
         raw, source = _canonical_document(
