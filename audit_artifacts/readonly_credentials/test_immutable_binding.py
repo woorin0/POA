@@ -312,8 +312,19 @@ def test_signed_successor_chain_can_append_only_with_fresh_sequence(rig):
     head1 = registry.compare_and_append(
         rig["authorities"], rig["authorities"], t, r, c,
         **{k: v for k, v in args.items() if k != "trusted_head"}).successor
+    # A legitimate next sequence must bind a *different* venue account
+    # and distinct trade/read keys; silently relinking the same pair is banned.
+    second_trade = ledger.identity("BYBIT", "second-trading-key")
+    second_read = ledger.identity("BYBIT", "second-read-key")
     t2, r2, c2, args2 = signed_bundle(
-        rig, trusted_head=head1, challenge=h("external-second-challenge"))
+        rig, trusted_head=head1, challenge=h("external-second-challenge"),
+        account=h("second-independent-account"),
+        subaccount=h("second-independent-subaccount"),
+        trade_patch=dict(key_ref=second_trade),
+        read_patch=dict(key_ref=second_read),
+        approval_patch=dict(legacy_ref=second_trade, read_ref=second_read))
+    args2["expected_legacy_ref"] = second_trade
+    args2["expected_read_ref"] = second_read
     head2 = registry.compare_and_append(
         rig["authorities"], rig["authorities"], t2, r2, c2,
         **{k: v for k, v in args2.items() if k != "trusted_head"}).successor
