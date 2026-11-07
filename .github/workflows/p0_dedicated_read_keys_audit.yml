@@ -1,0 +1,111 @@
+name: POA P0 dedicated read-only key segregation offline Mock audit
+
+on:
+  pull_request:
+    branches: [audit/p0-readonly-permissions-order-db-20261107]
+    paths:
+      - '.github/workflows/p0_dedicated_read_keys_audit.yml'
+      - 'audit_artifacts/readonly_credentials/**'
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-read-keys:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONIOENCODING: utf-8
+      POA_EXCHANGE_FILL_CONFIRMATION_ENABLED: 'false'
+      VERIFIED_DISCORD_ALERTS: 'false'
+      DISCORD_OUTBOX_ENABLED: 'false'
+    steps:
+      - name: Preserve original Git bytes
+        shell: bash
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Pin immutable PR11 merged product; install only untracked audit test files
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pin = 'ad88384b8b6030c1109843b09b6761395b3f2d1c'
+          $tree = '663c82e1134f592beb9c8bc652daccc7b2185975'
+          $root = Join-Path $env:RUNNER_TEMP 'poa-p0-readonly-keys-frozen-product'
+          git worktree add --detach $root $pin
+          if ($LASTEXITCODE -ne 0) { throw 'PRODUCT_CHECKOUT_FAILED' }
+          $actual = (git -C $root rev-parse HEAD).Trim()
+          $actualTree = (git -C $root rev-parse 'HEAD^{tree}').Trim()
+          if ($actual -ne $pin -or $actualTree -ne $tree) { throw 'PINNED_PRODUCT_MISMATCH' }
+          if (@(git -C $root status --porcelain --untracked-files=no).Count -ne 0) {
+            throw 'PRODUCT_DIRTY_BEFORE_TEST'
+          }
+          $targetDir = Join-Path $root 'audit_artifacts/readonly_credentials'
+          if (Test-Path $targetDir) { throw 'ISOLATED_FOLDER_ALREADY_EXISTS' }
+          New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+          Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'audit_artifacts/readonly_credentials/isolated_broker.py') -Destination $targetDir
+          Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'audit_artifacts/readonly_credentials/test_broker.py') -Destination $targetDir
+          if (@(git -C $root diff --name-only).Count -ne 0) { throw 'TRACKED_PRODUCT_CHANGED' }
+          "POA_FROZEN_PRODUCT=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "P0_READ_KEYS_PRODUCT_SHA=$actual"
+          Write-Host "P0_READ_KEYS_PRODUCT_TREE=$actualTree"
+          Write-Host 'P0_READ_KEYS_PRODUCT_MODIFICATIONS=0'
+
+      - name: Install offline test dependencies without any credentials
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m pip install pip==26.3 setuptools==84.2.1
+          if ($LASTEXITCODE -ne 0) { throw 'PIP_BOOTSTRAP_FAILED' }
+          python -m pip install -r (Join-Path $env:POA_FROZEN_PRODUCT 'requirements.txt')
+          if ($LASTEXITCODE -ne 0) { throw 'PRODUCT_DEPENDENCY_INSTALL_FAILED' }
+          python -m pip install pytest==9.1.1 PyYAML==6.0.3
+          if ($LASTEXITCODE -ne 0) { throw 'TEST_DEPENDENCIES_FAILED' }
+          python -m pip check
+          if ($LASTEXITCODE -ne 0) { throw 'DEPENDENCY_CONFLICT' }
+
+      - name: Verify segregated credentials, no fallback, real ReadHost Mock and activation lock
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location $env:POA_FROZEN_PRODUCT
+          try {
+            python -B -c "import sys;sys.path.insert(0,'release_checks');import isolation,pytest;sys.exit(pytest.main(['-q','-s','--tb=short','-p','no:cacheprovider','--confcutdir=audit_artifacts/readonly_credentials','--junitxml=isolated-read-keys.xml','audit_artifacts/readonly_credentials/test_broker.py'], plugins=[isolation]))"
+            if ($LASTEXITCODE -ne 0) { throw 'DEDICATED_READ_KEY_MOCK_TEST_FAILED' }
+          } finally { Pop-Location }
+
+      - name: Verify original product remains unchanged; fail closed on live capability
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = $env:POA_FROZEN_PRODUCT
+          if ((git -C $root rev-parse HEAD).Trim() -ne 'ad88384b8b6030c1109843b09b6761395b3f2d1c') { throw 'PRODUCT_COMMIT_CHANGED' }
+          if ((git -C $root rev-parse 'HEAD^{tree}').Trim() -ne '663c82e1134f592beb9c8bc652daccc7b2185975') { throw 'PRODUCT_TREE_CHANGED' }
+          if (@(git -C $root diff --name-only).Count -ne 0) { throw 'TRACKED_PRODUCT_CHANGED' }
+          Write-Host 'PRODUCT_UNCHANGED=PASS'
+          Write-Host 'READ_SECRET_NAMESPACE_SEPARATION=MOCK_ONLY'
+          Write-Host 'SAME_VENUE_ACCOUNT_BINDING=UNVERIFIED'
+          Write-Host 'EXCHANGE_KEY_READ_ONLY_PERMISSIONS=UNVERIFIED'
+          Write-Host 'LIVE_ACTIVATION=BLOCKED'
+
+      - name: Upload offline read-key test report only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dedicated-read-keys-${{ matrix.os }}
+          path: ${{ runner.temp }}/poa-p0-readonly-keys-frozen-product/isolated-read-keys.xml
+          if-no-files-found: ignore
