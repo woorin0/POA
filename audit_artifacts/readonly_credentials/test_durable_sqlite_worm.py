@@ -21,6 +21,8 @@ import pytest
 from audit_artifacts.readonly_credentials import durable_sqlite_worm as D
 from audit_artifacts.readonly_credentials import remote_worm_mock as R
 from audit_artifacts.readonly_credentials import immutable_binding as B
+from audit_artifacts.readonly_credentials import independent_witness as W
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from audit_artifacts.readonly_credentials.test_remote_worm_mock import (
     net, request, first_commit, second_commit, rawframe, evidence_for,
     NOW, h,
@@ -364,7 +366,6 @@ def test_restart_with_wrong_role_pins_is_rejected_before_any_success(disk):
     alt = R.PinnedRemoteRoles(role_entries, {
         role: hashlib.sha256(role_entries[role]["public_key"]).hexdigest()
         for role in R.ROLES})
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     # Wrong server private signer is denied at constructor if pin mismatch.
     block("REMOTE_SIGNER_PIN_MISMATCH",D.DurableSQLiteWORMServer,
        disk["server_db"],create=False,pins=alt,
