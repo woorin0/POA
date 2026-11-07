@@ -421,3 +421,52 @@ def test_error_diagnostics_do_not_include_synthetic_secrets(rig):
     assert "private-synthetic-key" not in str(err.value)
     assert "legacy-trading-key" not in str(err.value)
     assert err.value.code == "BINDING_KEY_REF_MISMATCH"
+
+
+def test_valid_newer_approval_cannot_rebind_existing_legacy_account_to_another_read_key(rig):
+    registry = M.MockAppendOnlyRegistry(M.TrustedHead(0, M.ZERO))
+    t, r, c, args = signed_bundle(rig)
+    common = {k: v for k, v in args.items() if k != "trusted_head"}
+    first = registry.compare_and_append(rig["authorities"], rig["authorities"], t, r, c, **common)
+    alternate = ledger.identity("BYBIT", "another-dedicated-read-key")
+    t2, r2, c2, args2 = signed_bundle(
+        rig, trusted_head=first.successor, challenge=h("second-signed-rebind-nonce"),
+        read_patch=dict(key_ref=alternate), approval_patch=dict(read_ref=alternate))
+    args2["expected_read_ref"] = alternate
+    blocked("BINDING_ALREADY_BOUND", registry.compare_and_append,
+            rig["authorities"], rig["authorities"], t2, r2, c2,
+            **{k: v for k, v in args2.items() if k != "trusted_head"})
+    assert registry.head == first.successor and len(registry.history) == 1
+
+
+def test_read_key_cannot_be_bound_to_another_legacy_trading_identity(rig):
+    registry = M.MockAppendOnlyRegistry(M.TrustedHead(0, M.ZERO))
+    t, r, c, args = signed_bundle(rig)
+    first = registry.compare_and_append(
+        rig["authorities"], rig["authorities"], t, r, c,
+        **{k: v for k, v in args.items() if k != "trusted_head"})
+    alternate = ledger.identity("BYBIT", "other-trading-account")
+    t2, r2, c2, args2 = signed_bundle(
+        rig, trusted_head=first.successor,
+        challenge=h("cross-legacy-account-rebind-challenge"),
+        trade_patch=dict(key_ref=alternate),
+        approval_patch=dict(legacy_ref=alternate))
+    args2["expected_legacy_ref"] = alternate
+    blocked("BINDING_ALREADY_BOUND", registry.compare_and_append,
+            rig["authorities"], rig["authorities"], t2, r2, c2,
+            **{k: v for k, v in args2.items() if k != "trusted_head"})
+    assert registry.head == first.successor and len(registry.history) == 1
+
+
+def test_duplicate_same_binding_new_sequence_is_not_implicit_rotation_or_reapproval(rig):
+    registry = M.MockAppendOnlyRegistry(M.TrustedHead(0, M.ZERO))
+    t, r, c, args = signed_bundle(rig)
+    first = registry.compare_and_append(
+        rig["authorities"], rig["authorities"], t, r, c,
+        **{k: v for k, v in args.items() if k != "trusted_head"})
+    t2, r2, c2, args2 = signed_bundle(
+        rig, trusted_head=first.successor, challenge=h("later-reapproval-challenge"))
+    blocked("BINDING_ALREADY_BOUND", registry.compare_and_append,
+            rig["authorities"], rig["authorities"], t2, r2, c2,
+            **{k: v for k, v in args2.items() if k != "trusted_head"})
+    assert registry.head == first.successor and registry.history == (first.successor.chain_hash,)
