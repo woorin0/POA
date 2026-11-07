@@ -16,6 +16,7 @@ import json
 import os
 import sqlite3
 import threading
+from contextlib import closing
 from pathlib import Path
 
 from . import immutable_binding as B
@@ -126,7 +127,7 @@ class DurableSQLiteWORMServer(R.MockRemoteWORMServer):
         super().__init__(pins, sources, witness, checkpoint_private, clock)
         expected = _root_meta(pins, sources, witness, label="server")
         try:
-            with _open(self.path) as con:
+            with closing(_open(self.path)) as con:
                 if create:
                     _initialize(con, expected)
                 _validate_meta(con, expected)
@@ -248,7 +249,7 @@ class DurableSQLiteWORMServer(R.MockRemoteWORMServer):
     def inspect_disk(self):
         """Only reports committed and fully verified disk state."""
         with self._disk_lock:
-            with _open(self.path) as con:
+            with closing(_open(self.path)) as con:
                 _validate_meta(con, _root_meta(self._pins, self._sources,
                                                self._witness, label="server"))
                 self._restore(con)
@@ -265,9 +266,11 @@ class DurableSQLiteAuditor(R.IndependentMockAnchor):
         self.path = _new_or_existing(path, create)
         self._disk_lock = threading.RLock()
         super().__init__(pins, sources, witness)
+        self._sources = sources
+        self._witness = witness
         expected = _root_meta(pins, sources, witness, label="auditor")
         try:
-            with _open(self.path) as con:
+            with closing(_open(self.path)) as con:
                 if create:
                     _initialize(con, expected, auditor=True)
                 _validate_meta(con, expected)
@@ -296,7 +299,7 @@ class DurableSQLiteAuditor(R.IndependentMockAnchor):
     @property
     def floor(self):
         with self._disk_lock:
-            with _open(self.path) as con:
+            with closing(_open(self.path)) as con:
                 _validate_meta(con, _root_meta(self.pins, self._sources,
                                                self._witness, label="auditor"))
                 self._load(con)
