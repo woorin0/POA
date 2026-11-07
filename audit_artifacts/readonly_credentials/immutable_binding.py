@@ -250,6 +250,8 @@ class MockAppendOnlyRegistry:
         self._lock = threading.Lock()
         self._head = trusted_head
         self._history = ()
+        self._by_legacy = {}
+        self._by_read = {}
 
     @property
     def head(self):
@@ -263,7 +265,17 @@ class MockAppendOnlyRegistry:
         with self._lock:
             proposal = verify_pair(observer, approver, trade, read, approval,
                                    trusted_head=self._head, **kwargs)
+            legacy = (proposal.venue, proposal.scope, proposal.legacy_ref)
+            read_key = (proposal.venue, proposal.scope, proposal.read_ref)
+            # The original ledger account reference is immutable. A valid
+            # approval at a later sequence is NOT a rotation authorization.
+            # Neither endpoint may be rebound without a separate reviewed
+            # revocation/rotation protocol.
+            if legacy in self._by_legacy or read_key in self._by_read:
+                deny("BINDING_ALREADY_BOUND")
             self._history += (proposal.successor.chain_hash,)
+            self._by_legacy[legacy] = proposal.read_ref
+            self._by_read[read_key] = proposal.legacy_ref
             self._head = proposal.successor
             return proposal
 
