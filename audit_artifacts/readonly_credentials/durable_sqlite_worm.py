@@ -76,9 +76,10 @@ def _initialize(con, meta, *, auditor=False):
             con.execute(
                 "CREATE TABLE immutable_checkpoints ("
                 "sequence INTEGER PRIMARY KEY CHECK(sequence >= 0), "
-                "chain_hash TEXT NOT NULL, prefix_digest TEXT NOT NULL)")
-            con.execute("INSERT INTO immutable_checkpoints VALUES(0, ?, ?)",
-                        (B.ZERO, _digest([])))
+                "chain_hash TEXT NOT NULL, prefix_digest TEXT NOT NULL, "
+                "signed_checkpoint BLOB NOT NULL, signed_request BLOB NOT NULL)")
+            con.execute("INSERT INTO immutable_checkpoints VALUES(0, ?, ?, ?, ?)",
+                        (B.ZERO, _digest([]), b"", b""))
             tab = "immutable_checkpoints"
         else:
             con.execute(
@@ -281,16 +282,34 @@ class DurableSQLiteAuditor(R.IndependentMockAnchor):
     def _load(self, con):
         try:
             rows = con.execute(
-                "SELECT sequence,chain_hash,prefix_digest "
+                "SELECT sequence,chain_hash,prefix_digest,"
+                "signed_checkpoint,signed_request "
                 "FROM immutable_checkpoints ORDER BY sequence").fetchall()
-            if not rows or rows[0] != (0, B.ZERO, _digest([])):
+            if not rows or rows[0] != (0, B.ZERO, _digest([]), b"", b""):
                 blocked("DURABLE_AUDITOR_GENESIS_INVALID")
             if con.execute("PRAGMA integrity_check").fetchone() != ("ok",):
                 blocked("DURABLE_AUDITOR_INTEGRITY_INVALID")
             for a, b in zip(rows, rows[1:]):
                 if b[0] != a[0] + 1 or not B.is_hash(b[1]) or not B.is_hash(b[2]):
                     blocked("DURABLE_AUDITOR_CHECKPOINT_GAP")
-            seq, head_hash, prefix = rows[-1]
+                checkpoint = R.strict_decode(b[3])
+                request = R.strict_decode(b[4])
+                body = self.pins.verify("checkpoint", checkpoint, "SIGNED_CHECKPOINT")
+                if (not R.fields(body, R.CP_FIELDS)
+                        or body["operator_roots"] != self.pins.commitment
+                        or body["source_roots"] != self.source_pin
+                        or body["witness_root"] != self.witness_pin
+                        or body["request_digest"] != _digest(request)
+                        or type(body["sequence"]) is not int
+                        or body["sequence"] < b[0]):
+                    blocked("DURABLE_AUDITOR_SIGNED_CHECKPOINT_INVALID")
+            seq, head_hash, prefix, latest_cp, latest_request = rows[-1]
+            if seq:
+                body = self.pins.verify("checkpoint",
+                                        R.strict_decode(latest_cp), "SIGNED_CHECKPOINT")
+                if (body["sequence"] != seq or body["chain_hash"] != head_hash
+                        or body["entries_digest"] != prefix):
+                    blocked("DURABLE_AUDITOR_SIGNED_CHECKPOINT_INVALID")
             self._floor = B.TrustedHead(seq, head_hash)
             self._prefix = prefix
         except sqlite3.Error:
@@ -322,8 +341,9 @@ class DurableSQLiteAuditor(R.IndependentMockAnchor):
                     for seq in range(old_head.sequence + 1, head.sequence + 1):
                         row = entries[seq - 1]
                         con.execute(
-                            "INSERT INTO immutable_checkpoints VALUES(?,?,?)",
-                            (seq, row["chain_hash"], _digest(entries[:seq])))
+                            "INSERT INTO immutable_checkpoints VALUES(?,?,?,?,?)",
+                            (seq, row["chain_hash"], _digest(entries[:seq]),
+                             R.encode(response["checkpoint"]), R.encode(sent_request)))
                 con.execute("COMMIT")
                 return head
             except BaseException:
