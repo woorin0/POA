@@ -364,3 +364,44 @@ def test_errors_never_echo_raw_synthetic_account_credentials(scene):
         verify(scene, pair, w)
     assert "SECRET_RAW_EXCHANGE_EVIDENCE" not in str(exc.value)
     assert "legacy-trading-key" not in str(exc.value)
+
+
+def _noncanonical_b64(signature):
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    assert signature.endswith("==") and len(signature) == 88
+    i = alphabet.index(signature[-3])
+    return signature[:-3] + alphabet[(i & 0x30) | ((i + 1) & 0x0f)] + "=="
+
+
+def test_noncanonical_but_equivalent_observer_signature_representation_is_rejected(scene):
+    pair, w = good(scene)
+    t, r, approval, args = pair
+    alternate = _noncanonical_b64(r["signature"])
+    assert base64.b64decode(alternate, validate=True) == base64.b64decode(r["signature"])
+    r["signature"] = alternate
+    assert_block("BINDING_SIGNATURE_INVALID", verify, scene, pair, w)
+
+
+def test_noncanonical_but_equivalent_witness_signature_representation_is_rejected(scene):
+    pair, w = good(scene)
+    alternate = _noncanonical_b64(w["signature"])
+    assert base64.b64decode(alternate, validate=True) == base64.b64decode(w["signature"])
+    w["signature"] = alternate
+    assert_block("WITNESS_SIGNATURE_INVALID", verify, scene, pair, w)
+
+
+def test_bad_signed_witness_json_type_fails_closed_without_unsafe_exception(scene):
+    pair, w = good(scene)
+    w["body"]["issued_at"] = {"not": "an integer"}
+    assert_block("WITNESS_SIGNATURE_INVALID", verify, scene, pair, w)
+
+
+def test_witnessed_registry_rejects_unsigned_manual_attestation_or_proposal(scene):
+    pair, w = good(scene)
+    witness = scene["witness"]
+    reg = W.MockWitnessedRegistry(B.TrustedHead(0, B.ZERO),
+                                  scene["rig"]["authorities"], witness)
+    forged = copy.deepcopy(w)
+    forged.pop("signature")
+    assert_block("WITNESS_ENVELOPE_INVALID", append, scene, reg, pair, forged)
+    assert reg.head == B.TrustedHead(0, B.ZERO)
