@@ -41,6 +41,7 @@ HEAD_FIELDS = {"sequence", "chain_hash"}
 CP_FIELDS = {"sequence", "chain_hash", "entries_digest", "request_digest",
              "operator_roots", "source_roots", "witness_root", "purpose"}
 ENTRY_FIELDS = {"sequence", "previous", "chain_hash", "binding_digest",
+                "trade_observation_digest", "read_observation_digest",
                 "venue", "scope", "legacy_ref", "read_ref", "challenge",
                 "request_digest"}
 
@@ -237,8 +238,9 @@ class IndependentMockAnchor:
                     or type(entry["sequence"]) is not int
                     or entry["sequence"] != i or entry["previous"] != prev
                     or any(not hash_ok(entry[k]) for k in
-                           ("previous", "chain_hash", "binding_digest", "legacy_ref",
-                            "read_ref", "challenge", "request_digest"))
+                           ("previous", "chain_hash", "binding_digest",
+                            "trade_observation_digest", "read_observation_digest",
+                            "legacy_ref", "read_ref", "challenge", "request_digest"))
                     or entry["venue"] not in B.VENUES or entry["scope"] not in B.SCOPES):
                 fail("REMOTE_ENTRIES_CHAIN_INVALID")
             prev = entry["chain_hash"]
@@ -253,6 +255,19 @@ class IndependentMockAnchor:
                 fail("REMOTE_SPLIT_VIEW")
             if B.digest(entries[:self._floor.sequence]) != self._prefix:
                 fail("REMOTE_PREFIX_REWRITTEN")
+            # The checkpoint signer is not an oracle for record integrity.
+            # Recompute the original PR16 ledger hash from independently
+            # committed observation/approval digests in EVERY signed entry.
+            # This detects fabricated but well-formed hash chains.
+            for entry in entries:
+                expected_hash = B.digest({
+                    "domain": B.DOMAIN, "sequence": entry["sequence"],
+                    "previous": entry["previous"],
+                    "approval_digest": entry["binding_digest"],
+                    "trade_observation_digest": entry["trade_observation_digest"],
+                    "read_observation_digest": entry["read_observation_digest"]})
+                if not hmac.compare_digest(expected_hash, entry["chain_hash"]):
+                    fail("REMOTE_ENTRIES_HASH_FORGED")
             self._floor = head
             self._prefix = B.digest(entries)
         return head
@@ -271,14 +286,46 @@ class MockRemoteWORMServer:
         self._witness = witness
         self._checkpoint_private = checkpoint_private
         self._clock = clock
-        self._head = B.TrustedHead(0, ZERO)
-        self._records = ()
-        self._completed = {}
-        self._used_challenges = set()
-        self._by_legacy = set()
-        self._by_read = set()
+        # A single state reference swap models an atomic transaction, NOT
+        # a durable disk commit. Each component is copied on write.
+        self._atomic = (B.TrustedHead(0, ZERO), (), {},
+                        frozenset(), frozenset(), frozenset())
         self._lock = threading.RLock()
         self.fail_before_commit_once = False
+        self.fail_after_prepare_once = False
+
+    @property
+    def _head(self):
+        return self._atomic[0]
+
+    @_head.setter
+    def _head(self, value):
+        # Deliberate fault-injection compatibility for snapshot-attack tests.
+        self._atomic = (value,) + self._atomic[1:]
+
+    @property
+    def _records(self):
+        return self._atomic[1]
+
+    @_records.setter
+    def _records(self, value):
+        self._atomic = (self._atomic[0], value) + self._atomic[2:]
+
+    @property
+    def _completed(self):
+        return self._atomic[2]
+
+    @property
+    def _used_challenges(self):
+        return self._atomic[3]
+
+    @property
+    def _by_legacy(self):
+        return self._atomic[4]
+
+    @property
+    def _by_read(self):
+        return self._atomic[5]
 
     @property
     def head(self):
@@ -364,6 +411,8 @@ class MockRemoteWORMServer:
                      "previous": proposal.predecessor.chain_hash,
                      "chain_hash": proposal.successor.chain_hash,
                      "binding_digest": proposal.binding_digest,
+                     "trade_observation_digest": B.digest(ev["trade"]),
+                     "read_observation_digest": B.digest(ev["read"]),
                      "venue": proposal.venue, "scope": proposal.scope,
                      "legacy_ref": proposal.legacy_ref,
                      "read_ref": proposal.read_ref,
@@ -371,13 +420,20 @@ class MockRemoteWORMServer:
                      "request_digest": packet_digest}
             new_records = self._records + (entry,)
             new_head = proposal.successor
-            self._records = new_records
-            self._head = new_head
-            self._by_legacy.add(legacy)
-            self._by_read.add(reader)
-            self._used_challenges.add(proposal.challenge)
-            self._completed[writer_body["request_id"]] = (
+            # Construct the ENTIRE next state before publishing anything.
+            completed = dict(self._completed)
+            completed[writer_body["request_id"]] = (
                 packet_digest, (new_head, new_records))
+            next_state = (
+                new_head, new_records, completed,
+                self._used_challenges | {proposal.challenge},
+                self._by_legacy | {legacy}, self._by_read | {reader})
+            if self.fail_after_prepare_once:
+                self.fail_after_prepare_once = False
+                raise MockLinkLost("remote simulator crashed after prepare")
+            # Single atomic pointer replacement. No partial record/head/key
+            # visibility to other threads within this in-memory simulator.
+            self._atomic = next_state
             return encode(self._checkpoint(frame, purpose="APPEND"))
 
 
@@ -456,14 +512,49 @@ class MockRemoteClient:
     def _send_and_verify(self, frame):
         raw_response = self._link.send(encode(frame))
         response = strict_decode(raw_response)
-        head = self.anchor.verify_and_pin(response, frame)
-        if (frame["op"] == "APPEND"
-                and response["checkpoint"]["body"]["purpose"] != "APPEND"):
+        # Do not advance high-water BEFORE verifying purpose and receipt.
+        if not fields(response, {"checkpoint", "entries"}):
+            fail("REMOTE_RESPONSE_SCHEMA")
+        cp = response["checkpoint"]
+        if (type(cp) is not dict or type(cp.get("body")) is not dict
+                or not fields(cp["body"], CP_FIELDS)
+                or cp["body"]["purpose"] != frame["op"]):
             fail("REMOTE_RESPONSE_PURPOSE")
-        if (frame["op"] == "HEAD"
-                and response["checkpoint"]["body"]["purpose"] != "HEAD"):
-            fail("REMOTE_RESPONSE_PURPOSE")
-        return head
+        if frame["op"] == "APPEND":
+            entries = response["entries"]
+            if type(entries) is not list:
+                fail("REMOTE_APPEND_RECEIPT_MISSING")
+            expected = parse_head(frame["writer"]["body"]["expected"])
+            request_digest = B.digest(frame)
+            matching = [e for e in entries
+                        if type(e) is dict and e.get("request_digest") == request_digest]
+            if len(matching) != 1:
+                fail("REMOTE_APPEND_RECEIPT_MISSING")
+            receipt = matching[0]
+            if (receipt.get("sequence") != expected.sequence + 1
+                    or receipt.get("previous") != expected.chain_hash):
+                fail("REMOTE_APPEND_RECEIPT_WRONG_PARENT")
+            ev = frame["writer"]["body"]["evidence"]
+            if not fields(ev, EVIDENCE_FIELDS) or not fields(ev.get("context"), CONTEXT_FIELDS):
+                fail("REMOTE_EVIDENCE_SCHEMA")
+            ctx = ev["context"]
+            source = {
+                "domain": B.DOMAIN, "sequence": expected.sequence + 1,
+                "previous": expected.chain_hash,
+                "approval_digest": B.digest(ev["approval"]),
+                "trade_observation_digest": B.digest(ev["trade"]),
+                "read_observation_digest": B.digest(ev["read"])}
+            if (receipt.get("chain_hash") != B.digest(source)
+                    or receipt.get("binding_digest") != source["approval_digest"]
+                    or receipt.get("trade_observation_digest") != source["trade_observation_digest"]
+                    or receipt.get("read_observation_digest") != source["read_observation_digest"]
+                    or receipt.get("venue") != ctx["expected_venue"]
+                    or receipt.get("scope") != ctx["expected_scope"]
+                    or receipt.get("legacy_ref") != ctx["expected_legacy_ref"]
+                    or receipt.get("read_ref") != ctx["expected_read_ref"]
+                    or receipt.get("challenge") != ctx["expected_challenge"]):
+                fail("REMOTE_APPEND_RECEIPT_MISMATCH")
+        return self.anchor.verify_and_pin(response, frame)
 
 
 def operator_grant(private, pins, sources, witness, frame, *,
