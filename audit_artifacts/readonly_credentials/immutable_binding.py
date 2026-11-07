@@ -17,6 +17,7 @@ import json
 import re
 import threading
 from dataclasses import dataclass
+from types import MappingProxyType
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
@@ -93,6 +94,7 @@ class VerifiedProposal:
     scope: str
     legacy_ref: str
     read_ref: str
+    challenge: str = ""
     externally_proven: bool = False
     operationally_authorized: bool = False
 
@@ -104,7 +106,12 @@ class PinnedAuthorities:
     pin distribution/revocation remains an unverified production dependency.
     """
 
-    __slots__ = ("_keys",)
+    __slots__ = ("_keys", "_root_commitment")
+
+    def __setattr__(self, name, value):
+        if name in self.__slots__ and hasattr(self, name):
+            deny("BINDING_ROOT_IMMUTABLE")
+        object.__setattr__(self, name, value)
 
     def __init__(self, roots, expected_sha256):
         if not (valid_fields(roots, {"observer", "approver"})
@@ -129,9 +136,27 @@ class PinnedAuthorities:
                 deny("BINDING_ROOT_PIN_INVALID")
             verified[role] = (kid, key)
             seen.add(pub)
-        self._keys = verified
+        # Protect the already-validated roots against ordinary mutable-dict
+        # substitution. Python interpreter compromise still defeats this guard.
+        self._keys = MappingProxyType(verified)
+        self._root_commitment = digest({"domain": DOMAIN, "roots": [
+            {"role": role, "kid": roots[role]["kid"],
+             "sha256": expected_sha256[role]}
+            for role in ("observer", "approver")]})
+
+    def root_commitment(self):
+        return self._root_commitment
+
+    def role_public_key(self, role):
+        if role not in self._keys:
+            deny("BINDING_ROOT_SET_INVALID")
+        from cryptography.hazmat.primitives import serialization
+        return self._keys[role][1].public_bytes(
+            serialization.Encoding.Raw, serialization.PublicFormat.Raw)
 
     def verify(self, role, envelope):
+        if role not in self._keys:
+            deny("BINDING_SIGNER_OR_DOMAIN_INVALID")
         if not valid_fields(envelope, {"domain", "kind", "kid", "body", "signature"}):
             deny("BINDING_ENVELOPE_INVALID")
         kid, key = self._keys[role]
@@ -143,7 +168,7 @@ class PinnedAuthorities:
             deny("BINDING_SIGNATURE_INVALID")
         try:
             raw = base64.b64decode(signature, validate=True)
-            if len(raw) != 64:
+            if len(raw) != 64 or base64.b64encode(raw).decode("ascii") != signature:
                 deny("BINDING_SIGNATURE_INVALID")
             signed = {k: envelope[k] for k in ("domain", "kind", "kid", "body")}
             key.verify(raw, canonical(signed))
@@ -190,6 +215,11 @@ def verify_pair(observer, approver, trade, read, approval, *,
     """
     if type(observer) is not PinnedAuthorities or approver is not observer:
         deny("BINDING_AUTHORITY_INVALID")
+    # Freeze the external JSON-shaped inputs before signature verification and
+    # digest calculation to avoid re-reading a concurrently mutable dict.
+    trade = json.loads(canonical(trade))
+    read = json.loads(canonical(read))
+    approval = json.loads(canonical(approval))
     if (expected_venue not in VENUES or expected_scope not in SCOPES
             or any(not is_hash(x) for x in (expected_legacy_ref, expected_read_ref))
             or not is_hash(expected_challenge)
@@ -238,7 +268,7 @@ def verify_pair(observer, approver, trade, read, approval, *,
     successor = TrustedHead(a["sequence"], digest(record))
     return VerifiedProposal(trusted_head, successor, digest(approval),
                             expected_venue, expected_scope, expected_legacy_ref,
-                            expected_read_ref)
+                            expected_read_ref, expected_challenge)
 
 
 class MockAppendOnlyRegistry:
@@ -252,6 +282,7 @@ class MockAppendOnlyRegistry:
         self._history = ()
         self._by_legacy = {}
         self._by_read = {}
+        self._used_challenges = set()
 
     @property
     def head(self):
@@ -261,10 +292,13 @@ class MockAppendOnlyRegistry:
     def history(self):
         return self._history
 
-    def compare_and_append(self, observer, approver, trade, read, approval, **kwargs):
-        with self._lock:
-            proposal = verify_pair(observer, approver, trade, read, approval,
-                                   trusted_head=self._head, **kwargs)
+    def _append_verified(self, proposal):
+            # A single external challenge may never be consumed twice within
+            # this process, even for a different account at a later sequence.
+            if proposal.predecessor != self._head:
+                deny("BINDING_ROLLBACK_OR_CONFLICT")
+            if proposal.challenge in self._used_challenges:
+                deny("BINDING_CHALLENGE_REPLAY")
             legacy = (proposal.venue, proposal.scope, proposal.legacy_ref)
             read_key = (proposal.venue, proposal.scope, proposal.read_ref)
             # The original ledger account reference is immutable. A valid
@@ -276,8 +310,15 @@ class MockAppendOnlyRegistry:
             self._history += (proposal.successor.chain_hash,)
             self._by_legacy[legacy] = proposal.read_ref
             self._by_read[read_key] = proposal.legacy_ref
+            self._used_challenges.add(proposal.challenge)
             self._head = proposal.successor
             return proposal
+
+    def compare_and_append(self, observer, approver, trade, read, approval, **kwargs):
+        with self._lock:
+            proposal = verify_pair(observer, approver, trade, read, approval,
+                                   trusted_head=self._head, **kwargs)
+            return self._append_verified(proposal)
 
 
 def require_operational_activation(_proposal):
