@@ -400,3 +400,43 @@ def test_external_highwater_if_both_files_rolled_back_remains_unsolved(disk):
     assert fresh.head.sequence == 0
     assert fresh_a.floor.sequence == 0
     # Full administrative storage compromise still violates immutability.
+
+
+def test_auditor_persists_original_signed_checkpoint_and_bound_query_evidence(disk):
+    first_commit(disk)
+    assert disk["auditor"].query(h("save-verifiable-checkpoint-proof")).sequence == 1
+    with closing(sqlite3.connect(disk["auditor_db"])) as con:
+        row = con.execute(
+            "SELECT signed_checkpoint,signed_request FROM immutable_checkpoints "
+            "WHERE sequence=1").fetchone()
+    assert row is not None and row[0] and row[1]
+    checkpoint, sent_request = R.strict_decode(row[0]), R.strict_decode(row[1])
+    body = disk["pins"].verify("checkpoint", checkpoint, "SIGNED_CHECKPOINT")
+    assert body["request_digest"] == B.digest(sent_request)
+    assert body["sequence"] == 1 and body["chain_hash"] == disk["server"].head.chain_hash
+    assert reopen_auditor(disk).floor.sequence == 1
+
+
+def test_tampered_signed_checkpoint_is_rejected_across_auditor_restart(disk):
+    first_commit(disk)
+    disk["auditor"].query(h("witness-then-modify-signed-proof"))
+    # DB administrator can disable local triggers: the restart verifier MUST
+    # still reject a forged checkpoint not signed by the external key.
+    with closing(sqlite3.connect(disk["auditor_db"])) as con:
+        con.execute("DROP TRIGGER immutable_checkpoints_update_blocked")
+        con.execute("UPDATE immutable_checkpoints SET signed_checkpoint=? "
+                    "WHERE sequence=1", (b'{"kind":"unsigned"}',))
+        con.commit()
+    with pytest.raises(B.BindingBlocked):
+        reopen_auditor(disk)
+
+
+def test_tampered_auditor_bound_request_is_rejected_across_restart(disk):
+    first_commit(disk)
+    disk["auditor"].query(h("witness-and-tamper-request-link"))
+    with closing(sqlite3.connect(disk["auditor_db"])) as con:
+        con.execute("DROP TRIGGER immutable_checkpoints_update_blocked")
+        con.execute("UPDATE immutable_checkpoints SET signed_request=? "
+                    "WHERE sequence=1", (R.encode({"wrong":"request"}),))
+        con.commit()
+    block("DURABLE_AUDITOR_SIGNED_CHECKPOINT_INVALID", reopen_auditor, disk)
