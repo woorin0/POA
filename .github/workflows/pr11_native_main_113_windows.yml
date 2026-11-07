@@ -1,0 +1,146 @@
+name: POA PR11 integrated-main native 113-case Windows offline E2E
+
+on:
+  pull_request:
+    branches: [ci/verify-pr5-main-4768f3e-20261107]
+    paths:
+      - '.github/workflows/pr11_native_main_113_windows.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  native-main-offline:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONIOENCODING: utf-8
+      POA_EXCHANGE_FILL_CONFIRMATION_ENABLED: 'false'
+      VERIFIED_DISCORD_ALERTS: 'false'
+      DISCORD_OUTBOX_ENABLED: 'false'
+    steps:
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Pin actual integrated-main product and prepare independent audit-only copies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $target = 'ad88384b8b6030c1109843b09b6761395b3f2d1c'
+          $expectedTree = '663c82e1134f592beb9c8bc652daccc7b2185975'
+          $old = 'bf6e66e259c7ebbd5099e78b24089caa94936ec9'
+          $root = Join-Path $env:RUNNER_TEMP 'poa-pr11-native-product'
+          git worktree add --detach $root $target
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot checkout immutable main-integrated product' }
+          $actual = (git -C $root rev-parse HEAD).Trim()
+          $tree = (git -C $root rev-parse 'HEAD^{tree}').Trim()
+          if ($actual -ne $target -or $tree -ne $expectedTree) { throw 'IMMUTABLE_PRODUCT_SHA_OR_TREE_MISMATCH' }
+          if (@(git -C $root status --porcelain --untracked-files=no).Count -ne 0) { throw 'TRACKED_FILES_DIRTY_BEFORE_TEST' }
+          $copies = @(
+            @{ Source='audit_artifacts/readonly_audit_v2/poa_readonly_audit_v2.py'; Dest='poa_readonly_audit_v2.py' },
+            @{ Source='audit_artifacts/readonly_audit_v2/test_windows_audit_v2.py'; Dest='test_windows_audit_v2_native.py' }
+          )
+          foreach ($copy in $copies) {
+            $src = Join-Path $env:GITHUB_WORKSPACE $copy.Source
+            $dst = Join-Path $root $copy.Dest
+            $content = [System.IO.File]::ReadAllText($src)
+            if ([regex]::Matches($content,[regex]::Escape($old)).Count -ne 1) {
+              throw "UNEXPECTED_HISTORICAL_PIN_COUNT: $($copy.Source)"
+            }
+            $content = $content.Replace($old,$target)
+            [System.IO.File]::WriteAllText($dst,$content,[System.Text.UTF8Encoding]::new($false))
+          }
+          if (@(git -C $root diff --name-only).Count -ne 0) { throw 'PRODUCT_MODIFIED_BEFORE_SYNTHETIC' }
+          "POA_NATIVE_MAIN_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "NATIVE_MAIN_PRODUCT_SHA=$actual"
+          Write-Host "NATIVE_MAIN_PRODUCT_TREE=$tree"
+          Write-Host 'AUDIT_ONLY_PIN_REBIND=2_FILES; PRODUCTION_FILES_CHANGED=0'
+
+      - name: Synthetic smoke and negative safeguards (7 cases) - native main
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B (Join-Path $env:POA_NATIVE_MAIN_ROOT 'test_windows_audit_v2_native.py') --pinned-root "$env:POA_NATIVE_MAIN_ROOT"
+          if ($LASTEXITCODE -ne 0) { throw 'SYNTHETIC_7_FAILED' }
+
+      - name: Install actual integrated-main POA runtime and isolated test tools
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m pip install pip==26.3 setuptools==84.2.1
+          if ($LASTEXITCODE -ne 0) { throw 'PIP_BOOTSTRAP_FAILED' }
+          python -m pip install -r (Join-Path $env:POA_NATIVE_MAIN_ROOT 'requirements.txt')
+          if ($LASTEXITCODE -ne 0) { throw 'MAIN_PRODUCT_DEPENDENCY_INSTALL_FAILED' }
+          python -m pip install pytest==9.1.1 PyYAML==6.0.3
+          if ($LASTEXITCODE -ne 0) { throw 'TEST_DEPENDENCY_INSTALL_FAILED' }
+          python -m pip check
+          if ($LASTEXITCODE -ne 0) { throw 'DEPENDENCY_CONFLICT' }
+
+      - name: Rebind only test SHA assertion to native main; protect every product file
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = $env:POA_NATIVE_MAIN_ROOT
+          $test = Join-Path $root 'release_checks/test_readonly_audit_v2_real.py'
+          $old = 'bf6e66e259c7ebbd5099e78b24089caa94936ec9'
+          $target = 'ad88384b8b6030c1109843b09b6761395b3f2d1c'
+          $content = [System.IO.File]::ReadAllText($test)
+          if ([regex]::Matches($content,[regex]::Escape($old)).Count -ne 1) {
+            throw 'UNEXPECTED_REAL_TEST_PIN_COUNT'
+          }
+          $content = $content.Replace($old,$target)
+          [System.IO.File]::WriteAllText($test,$content,[System.Text.UTF8Encoding]::new($false))
+          $changed = @(git -C $root diff --name-only)
+          if ($changed.Count -ne 1 -or $changed[0].Trim() -ne 'release_checks/test_readonly_audit_v2_real.py') {
+            throw ('PRODUCT_SOURCE_CHANGED: ' + ($changed -join ', '))
+          }
+          $sha = (git -C $root rev-parse HEAD).Trim()
+          $tree = (git -C $root rev-parse 'HEAD^{tree}').Trim()
+          if ($sha -ne $target -or $tree -ne '663c82e1134f592beb9c8bc652daccc7b2185975') {
+            throw 'PRODUCT_CHECKOUT_DRIFT'
+          }
+          Write-Host "NATIVE_MAIN_PRODUCT_SHA=$sha"
+          Write-Host "NATIVE_MAIN_PRODUCT_TREE=$tree"
+          Write-Host "TEST_ONLY_TRACKED_DIFF=$($changed[0])"
+
+      - name: Genuine integrated-main POA ReadHost and embed arithmetic (49 cases)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location $env:POA_NATIVE_MAIN_ROOT
+          try {
+            python -B -c "import sys; sys.path.insert(0, 'release_checks'); import isolation, pytest; sys.exit(pytest.main(['--confcutdir=release_checks','-p','no:cacheprovider','-q','--tb=short','--junitxml=native-main-real.xml','release_checks/test_readonly_audit_v2_real.py'], plugins=[isolation]))"
+            if ($LASTEXITCODE -ne 0) { throw 'NATIVE_MAIN_REAL_49_FAILED' }
+          } finally { Pop-Location }
+
+      - name: Genuine integrated-main POA to Discord PreparedRequest E2E (57 cases)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location $env:POA_NATIVE_MAIN_ROOT
+          try {
+            python -B -c "import sys; sys.path.insert(0, 'release_checks'); import isolation, pytest; sys.exit(pytest.main(['--confcutdir=release_checks','-p','no:cacheprovider','-q','--tb=short','--junitxml=native-main-discord.xml','release_checks/test_discord_wire_e2e.py'], plugins=[isolation]))"
+            if ($LASTEXITCODE -ne 0) { throw 'NATIVE_MAIN_DISCORD_57_FAILED' }
+          } finally { Pop-Location }
+
+      - name: Upload isolated native-main verification evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: poa-pr11-native-main-113-evidence
+          path: |
+            ${{ runner.temp }}/poa-pr11-native-product/native-main-real.xml
+            ${{ runner.temp }}/poa-pr11-native-product/native-main-discord.xml
+          if-no-files-found: ignore
