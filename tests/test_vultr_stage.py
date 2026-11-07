@@ -7,7 +7,6 @@ product's ReadHost account-ref trust check with no HTTP execution.
 """
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import os
@@ -27,6 +26,22 @@ from poa_stage.read_credentials import (
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def drive_without_event_loop(coroutine):
+    """ASGI Stub callbacks have no I/O; keep Windows socket guard enabled.
+
+    Windows asyncio.run creates an internal socketpair even for an inert ASGI
+    handler. Running the coroutine directly ensures ANY real async I/O yields
+    and fails the test instead of silently relaxing network isolation.
+    """
+    try:
+        coroutine.send(None)
+    except StopIteration:
+        return
+    else:
+        coroutine.close()
+        raise AssertionError("STAGE_ASGI_UNEXPECTED_ASYNC_IO")
+
+
 def request(method="POST", path="/order", *, incoming=None):
     sent=[]
     receive_calls=[]
@@ -36,7 +51,7 @@ def request(method="POST", path="/order", *, incoming=None):
                 "more_body": False}
     async def send(message):
         sent.append(message)
-    asyncio.run(app({
+    drive_without_event_loop(app({
         "type":"http", "http_version":"1.1",
         "path":path,"method":method,
         "headers": [(b"content-type", b"application/json")],
@@ -87,7 +102,7 @@ def test_ws_upgrade_always_denied_without_reading_message():
         raise AssertionError("must not receive live websocket data")
     async def send(message):
         sent.append(message)
-    asyncio.run(app({"type":"websocket","path":"/order","headers":[]},receive,send))
+    drive_without_event_loop(app({"type":"websocket","path":"/order","headers":[]},receive,send))
     assert sent==[{"type":"websocket.close","code":4403,"reason":"STAGE_ONLY"}]
 
 
@@ -98,7 +113,7 @@ def test_lifespan_starts_no_product_service_and_shuts_down():
         return {"type":next(events)}
     async def send(x):
         sent.append(x["type"])
-    asyncio.run(app({"type":"lifespan"},receive,send))
+    drive_without_event_loop(app({"type":"lifespan"},receive,send))
     assert sent==["lifespan.startup.complete","lifespan.shutdown.complete"]
 
 
