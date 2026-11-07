@@ -87,7 +87,7 @@ class IndependentWitness:
             B.deny("WITNESS_SIGNATURE_INVALID")
         try:
             raw = base64.b64decode(signature, validate=True)
-            if len(raw) != 64:
+            if len(raw) != 64 or base64.b64encode(raw).decode("ascii") != signature:
                 B.deny("WITNESS_SIGNATURE_INVALID")
             signed = {k: envelope[k] for k in ("domain", "kind", "kid", "body")}
             self._key.verify(raw, B.canonical(signed))
