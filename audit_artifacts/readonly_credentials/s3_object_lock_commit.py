@@ -295,8 +295,13 @@ def _read_version(s3, policy, locator):
     try:
         until_head = utc(head["ObjectLockRetainUntilDate"])
         until_retention = utc(lock["RetainUntilDate"])
+        # S3's version-pinned LastModified is the independent provider's
+        # storage-time anchor for checking short-lived PR19 grants years later.
+        created_at = utc(head["LastModified"])
     except (KeyError, TypeError):
         deny("S3_COMPLIANCE_RETENTION_NOT_VERIFIED")
+    if created_at > policy.now() + timedelta(minutes=5) or created_at >= until_head:
+        deny("S3_STORAGE_TIMESTAMP_UNTRUSTED")
     if (head.get("ObjectLockMode") != "COMPLIANCE"
             or lock.get("Mode") != "COMPLIANCE"
             or until_head != until_retention
@@ -325,7 +330,7 @@ def _read_version(s3, policy, locator):
     document = R.strict_decode(raw)
     if not R.fields(document, {"domain", "frame", "response"}) or document["domain"] != DOMAIN:
         deny("S3_IMMUTABLE_DOCUMENT_INVALID")
-    return document
+    return document, int(created_at.timestamp())
 
 
 class IndependentObjectCommitAttestor:
@@ -357,10 +362,13 @@ class IndependentObjectCommitAttestor:
         self.kid = kid
 
     def attest(self, locator):
-        document = _read_version(self._reader, self._policy, locator)
+        document, storage_time = _read_version(self._reader, self._policy, locator)
+        # Historical grants are validated at verified provider object creation
+        # time; never mark a just-written object as valid using caller-supplied
+        # historical timestamps.
         source = _source_contract(
             self._pins, self._sources, self._witness,
-            document["frame"], document["response"], self._now_unix())
+            document["frame"], document["response"], storage_time)
         if any(source[k] != locator[k] for k in source):
             deny("S3_COMMIT_SOURCE_MISMATCH")
         body = {"domain": ATTESTATION_DOMAIN, "locator": locator,
@@ -422,10 +430,10 @@ class IndependentObjectProofVerifier:
                 or body["witness_root"] != self.witness._root_commitment):
             deny("S3_PROOF_ROOT_OR_DOMAIN_INVALID")
         loc = body["locator"]
-        document = _read_version(self.reader, self.policy, loc)
+        document, storage_time = _read_version(self.reader, self.policy, loc)
         source = _source_contract(
             self.pins, self.sources, self.witness,
-            document["frame"], document["response"], self.now_unix())
+            document["frame"], document["response"], storage_time)
         if any(source[k] != loc[k] for k in source):
             deny("S3_PROOF_SOURCE_MISMATCH")
         return loc.copy()
