@@ -1,0 +1,32 @@
+# POA Phase 0–1 NEW-SERVER STAGING CANDIDATE ONLY.
+# DO NOT install/enable this file as a production unit.
+# Intentionally disabled; the unit cannot start even if enabled accidentally.
+[Unit]
+Description=POA safe-only Vultr staging ingress candidate (NO TRADING)
+After=network.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+LockPersonality=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+WorkingDirectory=/opt/poa-stage
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStartPre=/usr/bin/false
+ExecStart=/opt/poa-stage/.venv/bin/python -m uvicorn poa_stage.gateway:app --host 127.0.0.1 --port 18080 --workers 1
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

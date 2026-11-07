@@ -1,0 +1,109 @@
+name: POA Vultr Phase 0-1 immutable product + stage-only ingress Mock E2E
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'poa_stage/**'
+      - 'tests/test_vultr_stage.py'
+      - 'deployment/poa-stage-only.service.candidate'
+      - 'deployment/VULTR_PHASE01_GATE.md'
+      - '.github/workflows/vultr_stage_integration.yml'
+permissions:
+  contents: read
+
+jobs:
+  stage-offline:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONIOENCODING: utf-8
+      PYTHONUNBUFFERED: '1'
+      BASE_COMMIT_SHA: ${{ github.event.pull_request.base.sha }}
+    steps:
+      - name: Exact source bytes and clean checkout
+        shell: bash
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install offline test dependencies (network disabled during tests)
+        run: |
+          python -m pip install pip==26.3 setuptools==84.2.1
+          python -m pip install -r requirements.txt
+          python -m pip install pytest==9.1.1 pytest-asyncio PyYAML
+          python -m pip check
+      - name: Source freeze and additive scope verification
+        shell: python
+        run: |
+          import os, subprocess
+          from pathlib import Path
+          allowed = {
+            'poa_stage/__init__.py',
+            'poa_stage/gateway.py',
+            'poa_stage/read_credentials.py',
+            'tests/test_vultr_stage.py',
+            'deployment/poa-stage-only.service.candidate',
+            'deployment/VULTR_PHASE01_GATE.md',
+            '.github/workflows/vultr_stage_integration.yml',
+          }
+          base = os.environ['BASE_COMMIT_SHA']
+          paths = subprocess.check_output(['git','diff','--name-only',base,'HEAD'], text=True).splitlines()
+          assert paths and set(paths) <= allowed, 'UNAUTHORIZED_PRODUCT_OR_LEDGER_SOURCE_CHANGE'
+          assert not any(p.startswith('exchange/') or p in ('main.py','run.py','requirements.txt',
+                    'release_manifest_sha256.json') for p in paths)
+          assert not any(p.startswith('deployment/cloud-config-') or p.startswith('deployment/install_once')
+                    for p in paths)
+          assert subprocess.check_output(['git','status','--porcelain'], text=True).strip() == ''
+          print('PRODUCT_FINANCIAL_SOURCE_UNCHANGED=PASS')
+          print('ORIGINAL_LIVE_MAIN_UNMODIFIED=PASS')
+      - name: Stage-only ASGI and separate read key hostile Mock E2E
+        shell: python
+        run: |
+          import sys
+          sys.path.insert(0, 'release_checks')
+          import isolation, pytest
+          raise SystemExit(pytest.main([
+            '-q', '--tb=short', '-p', 'no:cacheprovider',
+            '--junitxml=vultr-stage-e2e.xml',
+            'tests/test_vultr_stage.py',
+          ], plugins=[isolation]))
+      - name: Strict pinned release, deployment and 72-file manifest checks
+        run: |
+          python release_checks/verify_release.py
+          python release_checks/verify_packaging.py
+      - name: Confirm no live components/outputs were activated
+        shell: python
+        run: |
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, str(Path.cwd()))
+          from poa_stage import gateway
+          assert gateway.app is not None
+          unit=Path('deployment/poa-stage-only.service.candidate').read_text()
+          assert 'ExecStartPre=/usr/bin/false' in unit
+          assert 'PrivateNetwork=yes' in unit
+          print('REAL_ORDERS=NOT_CALLED')
+          print('REAL_EXCHANGE_READS=NOT_CALLED')
+          print('REAL_DB_OPERATIONS=NOT_CALLED')
+          print('VULTR_OPERATING_SERVER=NOT_ACCESSED')
+          print('AWS_CLOUD_CALLS=0')
+          print('OPERATIONAL_READ_AUTHORIZATION=BLOCKED')
+          print('LIVE_PRODUCT_ORDER_GUARD=NOT_INTEGRATED')
+          print('STAGE_ONLY_NOT_PRODUCTION_READY=PASS')
+      - name: Upload stage synthetic test evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vultr-stage-${{ matrix.os }}
+          path: vultr-stage-e2e.xml
+          if-no-files-found: ignore
