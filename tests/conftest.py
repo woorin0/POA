@@ -10,15 +10,23 @@ _GUARD_INSTALLED = False
 
 def _audit_guard(event, args):
     if event == "socket.connect":
-        frame = sys._getframe(1)
-        for _ in range(8):
-            if frame is None:
-                break
-            if frame.f_code.co_name == "socketpair" and pathlib.Path(frame.f_code.co_filename) == pathlib.Path(
-                __import__("socket").__file__
-            ):
-                return
-            frame = frame.f_back
+        # CPython 3.12 Windows uses socket._fallback_socketpair to create
+        # the asyncio self-pipe. Permit only stdlib LOOPBACK socket pairs;
+        # external destinations remain rejected by the audit hook.
+        address = args[1] if len(args) > 1 else None
+        loopback = (isinstance(address, tuple) and len(address) >= 2
+                    and address[0] in ("127.0.0.1", "::1"))
+        if loopback:
+            frame = sys._getframe(1)
+            for _ in range(8):
+                if frame is None:
+                    break
+                if (frame.f_code.co_name in ("socketpair", "_fallback_socketpair")
+                        and pathlib.Path(frame.f_code.co_filename) == pathlib.Path(
+                            __import__("socket").__file__
+                        )):
+                    return
+                frame = frame.f_back
     if event in ("socket.connect", "socket.connect_ex", "socket.sendto", "socket.getaddrinfo"):
         raise RuntimeError("AUDIT_NETWORK_DISABLED")
     if event == "sqlite3.connect":
