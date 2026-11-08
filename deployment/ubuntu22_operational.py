@@ -30,6 +30,7 @@ APP = Path("/root/POA")
 DB = Path("/root/db")
 STAGE_RESULT = Path("/root/POA_INSTALL_RESULT.json")
 SERVICE_DIR = Path("/etc/systemd/system")
+CADDYFILE = Path("/etc/caddy/Caddyfile")
 PRIVATE_FILE_MODE = 0o600
 PB_LEGACY_VERSION = "0.16.6"
 PB_LEGACY_URL = (
@@ -305,7 +306,7 @@ def publish(domain: str):
     _assert_private_regular(APP / "LOCAL_READY_RESULT.json")
     if not (APP / "LOCAL_READY").is_file():
         raise SetupBlocked("LOCAL_HEALTH_NOT_CONFIRMED")
-    caddy = Path("/etc/caddy/Caddyfile")
+    caddy = CADDYFILE
     saved = caddy.with_name("Caddyfile.poa.previous")
     if saved.exists() or saved.is_symlink():
         raise SetupBlocked("CADDY_ALREADY_CONFIGURED")
