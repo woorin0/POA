@@ -1,0 +1,163 @@
+name: POA PR25 Vultr systemd no-egress quarantine offline Mock E2E
+on:
+  pull_request:
+    branches:
+      - audit/p0-pr24-module-swap-direct-ccxt-restart-reaudit-20261108
+    paths:
+      - 'deployment/poa-vultr-no-egress.service.candidate'
+      - 'deployment/PR25_VULTR_EGRESS_QUARANTINE_CONTRACT.md'
+      - 'poa_stage/egress_quarantine.py'
+      - 'poa_stage/quarantine_idle.py'
+      - 'tests/test_vultr_network_quarantine.py'
+      - '.github/workflows/pr25_vultr_quarantine_mock.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  no-egress-stub:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      PARENT_PR25: db343f2cda151fd396f58b5d8d0544bb7e5c5e6f
+      ORIGINAL_PR23: e01d3d827dea3b147b63fb6ec4cfcecc3cc95ebc
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONIOENCODING: utf-8
+      PYTHONUNBUFFERED: '1'
+
+    steps:
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install test-only dependencies
+        run: |
+          python -m pip install pip==26.3 setuptools==84.2.1
+          python -m pip install -r requirements.txt
+          python -m pip install pytest==9.1.1 pytest-asyncio pytest-subtests PyYAML
+          python -m pip check
+      - name: Verify exact audit-only delta from PR25 and untouched finance release
+        shell: python
+        run: |
+          import os,subprocess
+          from pathlib import Path
+          expected={
+            'deployment/poa-vultr-no-egress.service.candidate',
+            'deployment/PR25_VULTR_EGRESS_QUARANTINE_CONTRACT.md',
+            'poa_stage/egress_quarantine.py',
+            'poa_stage/quarantine_idle.py',
+            'tests/test_vultr_network_quarantine.py',
+            '.github/workflows/pr25_vultr_quarantine_mock.yml'
+          }
+          actual=set(subprocess.check_output(
+            ['git','diff','--name-only',os.environ['PARENT_PR25'],'HEAD'],
+            text=True).splitlines())
+          assert actual==expected,(actual^expected)
+          for path in actual:
+            if path.endswith('.py'):
+              compile(Path(path).read_bytes(),path,'exec')
+          print('ORIGINAL_PR25_PRODUCT_SOURCE_UNCHANGED=PASS')
+          print('TRADING_FINANCE_AND_DB_SOURCE_UNMODIFIED=PASS')
+          print('RELEASE_MANIFEST_UNMODIFIED=PASS')
+      - name: Strict systemd policy attacks and synthetic CCXT KIS subprocess Mock E2E
+        shell: python
+        run: |
+          import sys
+          from pathlib import Path
+          sys.path.insert(0,str(Path.cwd()))
+          sys.path.insert(0,str(Path.cwd()/'release_checks'))
+          import pytest,isolation
+          raise SystemExit(pytest.main([
+             '-q','--tb=short','-p','no:cacheprovider',
+             '--junitxml=pr26-egress-stub.xml',
+             'tests/test_vultr_network_quarantine.py',
+          ],plugins=[isolation]))
+      - name: Ubuntu 22.04 offline systemd syntax lint; NEVER start a unit
+        if: matrix.os == 'ubuntu-22.04'
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v systemd-analyze
+          systemd-analyze --version
+          cp deployment/poa-vultr-no-egress.service.candidate "${RUNNER_TEMP}/poa-vultr-no-egress.service"
+          systemd-analyze verify "${RUNNER_TEMP}/poa-vultr-no-egress.service"
+          echo 'UBUNTU_SYSTEMD_OFFLINE_SYNTAX=PASS'
+          echo 'VULTR_RUNTIME_SYSTEMD=NOT_TESTED'
+      - name: Immutable exact original PR25 161-case offense regression
+        shell: python
+        run: |
+          import os,subprocess,sys
+          from pathlib import Path
+          target=Path(os.environ['RUNNER_TEMP'])/'poa-pr25-original'
+          subprocess.run(['git','worktree','add','--detach',str(target),
+                         os.environ['PARENT_PR25']],check=True)
+          os.chdir(target)
+          sys.path.insert(0,str(target))
+          sys.path.insert(0,str(target/'release_checks'))
+          import pytest,isolation
+          raise SystemExit(pytest.main([
+             '-q','--tb=short','-p','no:cacheprovider',
+             '--junitxml=pr25-original-attacks.xml',
+             'tests/test_order_execution_deny.py',
+             'tests/test_pr24_independent_order_reattack.py',
+          ],plugins=[isolation]))
+      - name: Original PR23 72-manifest package and stage credential Mock regression
+        shell: python
+        run: |
+          import os,subprocess,sys
+          from pathlib import Path
+          target=Path(os.environ['RUNNER_TEMP'])/'poa-pr23-original'
+          subprocess.run(['git','worktree','add','--detach',str(target),
+                         os.environ['ORIGINAL_PR23']],check=True)
+          for file in ('release_checks/verify_release.py','release_checks/verify_packaging.py'):
+            subprocess.run([sys.executable,file],cwd=target,check=True)
+          os.chdir(target)
+          sys.path.insert(0,str(target))
+          sys.path.insert(0,str(target/'release_checks'))
+          import pytest,isolation
+          code=pytest.main([
+             '-q','--tb=short','-p','no:cacheprovider',
+             '--junitxml=pr23-original-stage.xml',
+             'tests/test_vultr_stage.py',
+          ],plugins=[isolation])
+          if code: raise SystemExit(code)
+          print('ORIGINAL_72_MANIFEST_AND_PACKAGING=PASS')
+      - name: Assert strictly unstartable candidate and no real operations
+        shell: python
+        run: |
+          from pathlib import Path
+          from poa_stage.egress_quarantine import validate_candidate
+          from poa_stage.quarantine_idle import main
+          unit=Path('deployment/poa-vultr-no-egress.service.candidate').read_text()
+          policy=validate_candidate(unit)
+          assert not policy.enabled and not policy.runnable and not policy.network_permitted
+          assert main()==77
+          print('INERT_SERVICE_UNIT=PASS')
+          print('MOCK_ONLY_CCXT_KIS_SUBPROCESS_EGRESS=PASS')
+          print('VULTR_HOST_NETWORK_ISOLATION=UNVERIFIED')
+          print('REAL_ORDER_ENDPOINTS=NOT_ACCESSED')
+          print('OPERATING_DB_AND_API_KEYS=NOT_ACCESSED')
+          print('CLOUD_PROVIDER_CALLS=0')
+          print('MERGE_DEPLOY_START=NOT_PERFORMED')
+          print('PRODUCTION_READY=BLOCKED')
+      - name: Upload JUnit evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr26-vultr-egress-mock-${{ matrix.os }}
+          path: |
+            pr26-egress-stub.xml
+            ${{ runner.temp }}/poa-pr25-original/pr25-original-attacks.xml
+            ${{ runner.temp }}/poa-pr23-original/pr23-original-stage.xml
+          if-no-files-found: ignore
