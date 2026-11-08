@@ -1,0 +1,157 @@
+name: POA PR25 Vultr OS airgap independent Windows Ubuntu kernel and Mock E2E
+on:
+  pull_request:
+    branches: [audit/p0-pr24-module-swap-direct-ccxt-restart-reaudit-20261108]
+    paths:
+      - 'deployment/vultr_airgap/**'
+      - 'tests/test_pr25_vultr_airgap.py'
+      - '.github/workflows/pr25_vultr_airgap_ci.yml'
+permissions:
+  contents: read
+
+jobs:
+  isolated-airgap-proof:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      PR25_FIXED: db343f2cda151fd396f58b5d8d0544bb7e5c5e6f
+      PR23_FIXED: e01d3d827dea3b147b63fb6ec4cfcecc3cc95ebc
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONIOENCODING: utf-8
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - name: Ensure exact Git source bytes on Windows and Ubuntu
+        shell: bash
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install pinned test dependencies (never install or start POA)
+        run: |
+          python -m pip install pip==26.3 setuptools==84.2.1
+          python -m pip install -r requirements.txt
+          python -m pip install pytest==9.1.1 pytest-asyncio pytest-subtests PyYAML
+          python -m pip check
+      - name: Verify original PR25 SHA, additive scope, OS policy and static syntax
+        shell: python
+        run: |
+          import os,subprocess
+          from pathlib import Path
+          base=os.environ['PR25_FIXED']
+          assert os.environ.get('GITHUB_EVENT_NAME')=='pull_request'
+          assert subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()==os.environ['GITHUB_SHA'] or os.environ.get('GITHUB_HEAD_REF')
+          names=subprocess.check_output(['git','diff','--name-only',base,'HEAD'],text=True).splitlines()
+          allowed={
+            'deployment/vultr_airgap/__init__.py',
+            'deployment/vultr_airgap/poa-airgap.service.candidate',
+            'deployment/vultr_airgap/seccomp_rehearsal.py',
+            'deployment/vultr_airgap/PR25_VULTR_AIRGAP_CONTRACT.md',
+            'tests/test_pr25_vultr_airgap.py',
+            '.github/workflows/pr25_vultr_airgap_ci.yml'}
+          assert set(names)==allowed,'PR25_PRODUCT_OR_DB_MODIFIED'
+          assert not any(p.startswith(('exchange/','poa_stage/')) or p in ('main.py','run.py','requirements.txt','release_manifest_sha256.json') for p in names)
+          for name in names:
+            if name.endswith('.py'):compile(Path(name).read_bytes(),name,'exec')
+          print('PARENT_PR25_PRODUCT_FINANCE_DB=BYTE_IDENTICAL')
+          print('PR26_ONLY_ADDITIVE_AIRGAP_FILES=PASS')
+      - name: New independent Vultr systemd policy Mock and Linux kernel seccomp probe
+        shell: python
+        run: |
+          import sys
+          from pathlib import Path
+          sys.path.insert(0,str(Path.cwd()))
+          sys.path.insert(0,str(Path.cwd()/'release_checks'))
+          import isolation,pytest
+          raise SystemExit(pytest.main([
+            '-q','--tb=short','-p','no:cacheprovider',
+            '--junitxml=vultr-airgap-reattack.xml',
+            'tests/test_pr25_vultr_airgap.py',
+          ],plugins=[isolation]))
+      - name: Restore immutable parent PR25 and PR23 baseline snapshots
+        shell: python
+        run: |
+          import os,subprocess
+          from pathlib import Path
+          base=Path(os.environ['RUNNER_TEMP'])
+          for label,sha in [('pr25',os.environ['PR25_FIXED']),('pr23',os.environ['PR23_FIXED'])]:
+            dst=base/('poa-original-'+label)
+            subprocess.run(['git','worktree','add','--detach',str(dst),sha],check=True)
+            actual=subprocess.check_output(['git','-C',str(dst),'rev-parse','HEAD'],text=True).strip()
+            assert actual==sha
+          print('PARENT_PR25_AND_PR23_SHA_PINNED=PASS')
+      - name: Independently rerun PR25 original 161-case hard-deny audit
+        shell: python
+        run: |
+          import os,sys
+          from pathlib import Path
+          parent=Path(os.environ['RUNNER_TEMP'])/'poa-original-pr25'
+          os.chdir(parent)
+          sys.path.insert(0,str(parent))
+          sys.path.insert(0,str(parent/'release_checks'))
+          import isolation,pytest
+          raise SystemExit(pytest.main([
+            '-q','--tb=short','-p','no:cacheprovider',
+            '--junitxml=pr25-baseline-reattack.xml',
+            'tests/test_order_execution_deny.py',
+            'tests/test_pr24_independent_order_reattack.py',
+          ],plugins=[isolation]))
+      - name: Verify independently pinned original PR23 72-manifest and packaging
+        shell: python
+        run: |
+          import os,subprocess,sys
+          from pathlib import Path
+          parent=Path(os.environ['RUNNER_TEMP'])/'poa-original-pr23'
+          for script in ('release_checks/verify_release.py','release_checks/verify_packaging.py'):
+            subprocess.run([sys.executable,script],cwd=str(parent),check=True)
+          print('PR23_ORIGINAL_MANIFEST_AND_PACKAGING=PASS')
+          print('PR25_PRODUCT_FINANCIAL_DB_UNCHANGED=PASS')
+      - name: Independently rerun original 52-case stage-only Mock E2E
+        shell: python
+        run: |
+          import os,sys
+          from pathlib import Path
+          parent=Path(os.environ['RUNNER_TEMP'])/'poa-original-pr23'
+          os.chdir(parent)
+          sys.path.insert(0,str(parent))
+          sys.path.insert(0,str(parent/'release_checks'))
+          import isolation,pytest
+          raise SystemExit(pytest.main([
+            '-q','--tb=short','-p','no:cacheprovider',
+            '--junitxml=pr23-stage-original.xml',
+            'tests/test_vultr_stage.py',
+          ],plugins=[isolation]))
+      - name: Hard-block real deployment and distinguish kernel vs Windows Mock
+        shell: python
+        run: |
+          import sys
+          from pathlib import Path
+          unit=Path('deployment/vultr_airgap/poa-airgap.service.candidate').read_text()
+          assert 'ExecStartPre=/usr/bin/false' in unit and 'ExecStart=/usr/bin/false' in unit
+          assert 'RestrictAddressFamilies=none' in unit and 'DynamicUser=yes' in unit
+          print('REAL_VULTR_SERVER_NOT_ACCESSED=PASS')
+          print('REAL_EXCHANGE_ORDER_REQUESTS=0')
+          print('OPERATING_DB_API_KEYS=UNTOUCHED')
+          print('SYSTEMD_HOST_ACTIVATION=NOT_PERFORMED')
+          print('VULTR_HOST_NETWORK_ISOLATION=UNVERIFIED')
+          print('INHERITED_SOCKET_FD=UNVERIFIED')
+          print('LINUX_SECCOMP_TEST='+('KERNEL_SYSCALL' if sys.platform=='linux' else 'WINDOWS_MOCK_ONLY'))
+          print('OPERATING_READY=BLOCKED')
+      - name: Upload only synthetic JUnit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr26-vultr-airgap-${{ matrix.os }}
+          path: |
+            vultr-airgap-reattack.xml
+            ${{ runner.temp }}/poa-original-pr25/pr25-baseline-reattack.xml
+            ${{ runner.temp }}/poa-original-pr23/pr23-stage-original.xml
+          if-no-files-found: ignore
