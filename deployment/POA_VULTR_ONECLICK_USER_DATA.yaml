@@ -1,18 +1,18 @@
 #cloud-config
 # =============================================================================
-# POA / Vultr Ubuntu 22.04 - One-click installer
+# POA 원스톱 설치 | 신규 Vultr Ubuntu 22.04 서버 전용
 # =============================================================================
-# [EDIT HERE] Change only the values in the first write_files > content block.
-#   - PASSWORD: "AUTO" generates a unique webhook password; or enter your own.
-#   - DISCORD_WEBHOOK_URL: replace the SET_... text with your new webhook URL.
-#   - EXCHANGE: fill one or more KEY + SECRET pairs. Unused fields stay "".
-#   - OKX/BITGET require PASSPHRASE if used.
-#   - domain: "AUTO" uses server-IP.sslip.io; or enter your own FQDN.
-# Do not paste your filled-in User Data into GitHub or public chats.
+# 아래 [1] 사용자 설정 구역만 수정하세요. 나머지는 자동 설치 코드입니다.
+#   - PASSWORD: "AUTO" 유지 시 자동 생성 / 원하는 암호 직접 입력 가능
+#   - DISCORD_WEBHOOK_URL: 본인의 새로운 Discord 웹훅 주소 입력
+#   - 거래소 키: 사용하는 거래소 KEY, SECRET 입력 (미사용 거래소는 "" 유지)
+#   - OKX, BITGET은 PASSPHRASE도 입력
+#   - domain: "AUTO" 유지 시 IP 기반 주소 자동 생성 / 기존 도메인 입력 가능
+# 주의: 키 입력을 마친 파일은 GitHub, 공개 채팅 등에 올리지 마세요.
 # =============================================================================
 write_files:
   # ---------------------------------------------------------------------------
-  # [1] USER SETTINGS: Discord / webhook password / exchange credentials
+  # [1] 사용자 설정 입력: 웹훅 / 주문 비밀번호 / 거래소 API 키
   # ---------------------------------------------------------------------------
   - path: /root/poa-oneclick-input.json
     owner: root:root
@@ -44,7 +44,7 @@ write_files:
         }
       }
   # ---------------------------------------------------------------------------
-  # [2] AUTO-INSTALL COMPONENTS (do not edit below this line)
+  # [2] 자동 설치 구성 요소 (아래 영역 수정 금지)
   # ---------------------------------------------------------------------------
   - path: /root/poa-stage-input.json
     owner: root:root
