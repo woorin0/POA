@@ -206,6 +206,12 @@ def test_exact_audit_file_scope_finance_and_main_unchanged():
         "tests/test_pr29_independent_reaudit.py",
         "deployment/PR29_INDEPENDENT_REAUDIT.md",
         ".github/workflows/pr29_independent_reaudit.yml",
+    "deployment/poa_os_boundary/__init__.py",
+    "deployment/poa_os_boundary/kernel_probe.py",
+    "deployment/poa_os_boundary/poa-os-isolated.service.candidate",
+    "deployment/poa_os_boundary/PR30_OS_BOUNDARY_AUDIT.md",
+    "tests/test_pr30_linux_os_boundary.py",
+    ".github/workflows/pr30_os_boundary_ci.yml",
     }
     actual=set(subprocess.check_output(
         ["git","diff","--name-only",PARENT,"HEAD"],cwd=ROOT,text=True).splitlines())
