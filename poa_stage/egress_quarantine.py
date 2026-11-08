@@ -116,7 +116,7 @@ class Admission:
 
 
 def validate_candidate(text: str) -> Admission:
-    if type(text) is not str or len(text) > 16_384 or "\x00" in text:
+    if type(text) is not str or not text.strip() or len(text) > 16_384 or "\x00" in text:
         deny("QUARANTINE_UNIT_INPUT_INVALID")
     parser = configparser.ConfigParser(
         strict=True, interpolation=None, delimiters=("=",), comment_prefixes=("#",)
