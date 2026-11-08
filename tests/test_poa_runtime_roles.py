@@ -38,6 +38,16 @@ EXPECTED={
     "deployment/poa-trading-disabled.service.candidate",
     "deployment/PR_A_VULTR_MINIMAL_INTEGRATION.md",
     ".github/workflows/vultr_role_integration_a.yml",
+    # PR B: retain exact whitelist; only additive sealed-role files and this
+    # unchanged-product assertion extension may appear on top of PR A.
+    "poa_runtime/sealed_boundary.py",
+    "poa_runtime/sealed_stage.py",
+    "poa_runtime/sealed_readonly.py",
+    "deployment/poa-stage-sealed.service.candidate",
+    "deployment/poa-readonly-sealed.service.candidate",
+    "deployment/PR_B_SEALED_ROLE_CONTRACT.md",
+    "tests/test_pr_b_sealed_roles.py",
+    ".github/workflows/pr_b_sealed_roles_ci.yml",
 }
 
 
