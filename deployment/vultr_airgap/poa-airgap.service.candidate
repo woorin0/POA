@@ -9,8 +9,6 @@ RefuseManualStop=yes
 [Service]
 Type=simple
 DynamicUser=yes
-User=
-Group=
 UMask=0077
 NoNewPrivileges=yes
 PrivateNetwork=yes
