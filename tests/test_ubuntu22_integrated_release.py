@@ -251,12 +251,23 @@ def test_original_python310_time_windows_independent_dst_oracle(zone,y,m,d):
     ).body[0]
     assert ast.dump(found[0], include_attributes=False)==ast.dump(
         expected, include_attributes=False)
-    from types import SimpleNamespace
-    frozen=SimpleNamespace(today=lambda tz:pendulum.datetime(y,m,d,12,34,56,tz=tz))
-    env={"pendulum":frozen}
-    exec(compile(ast.Module(body=found,type_ignores=[]),
-                 "<original-exchange-timestamp-only>","exec"),env)
-    got=env["get_today_timestamp"](zone)
+    # Full Windows pytest collection can inject a synthetic pendulum into
+    # sys.modules. Import the genuine pinned dependency in a clean interpreter
+    # to verify the *original function*, not a test-module substitute.
+    code = (
+        "import json,sys,pendulum\n"
+        "from types import SimpleNamespace\n"
+        "y,m,d=map(int,sys.argv[3:6])\n"
+        "scope={'pendulum':SimpleNamespace(today=lambda tz: "
+        "pendulum.datetime(y,m,d,12,34,56,tz=tz))}\n"
+        "exec(sys.argv[1],scope)\n"
+        "print(json.dumps(scope['get_today_timestamp'](sys.argv[2])))\n"
+    )
+    proc=subprocess.run(
+        [sys.executable,"-I","-B","-c",code,ast.unparse(found[0]),
+         zone,str(y),str(m),str(d)],
+        cwd=ROOT,text=True,capture_output=True,timeout=20,check=True)
+    got=tuple(json.loads(proc.stdout))
     start=datetime(y,m,d,tzinfo=ZoneInfo(zone))
     nxt=start.date()+timedelta(days=1)
     end=datetime(nxt.year,nxt.month,nxt.day,tzinfo=ZoneInfo(zone))
