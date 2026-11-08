@@ -19,6 +19,7 @@ jobs:
     timeout-minutes: 45
     env:
       PR25_FIXED: db343f2cda151fd396f58b5d8d0544bb7e5c5e6f
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       PR23_FIXED: e01d3d827dea3b147b63fb6ec4cfcecc3cc95ebc
       PYTHONDONTWRITEBYTECODE: '1'
       PYTHONIOENCODING: utf-8
@@ -48,7 +49,7 @@ jobs:
           from pathlib import Path
           base=os.environ['PR25_FIXED']
           assert os.environ.get('GITHUB_EVENT_NAME')=='pull_request'
-          assert subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()==os.environ['GITHUB_SHA'] or os.environ.get('GITHUB_HEAD_REF')
+          assert subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()==os.environ['PR_HEAD_SHA'],'HEAD_REF_NOT_PINNED'
           names=subprocess.check_output(['git','diff','--name-only',base,'HEAD'],text=True).splitlines()
           allowed={
             'deployment/vultr_airgap/__init__.py',
