@@ -108,6 +108,7 @@ def test_complete_send_one_discord_only_after_https_and_services(
     class MockOps:
         _legacy_binary_for_fresh = None
         def fresh(self, config):
+            assert legacy.FLAGS["POA_EXCHANGE_FILL_CONFIRMATION_ENABLED"] is True
             actions.append(("fresh", str(config)))
             assert m.RESULT.exists() is False
             assert config == m.RUNTIME
@@ -117,6 +118,7 @@ def test_complete_send_one_discord_only_after_https_and_services(
             actions.append(("publish", domain))
 
     class MockLegacy:
+        FLAGS = {"POA_EXCHANGE_FILL_CONFIRMATION_ENABLED": False}
         def wait_ready(self, fn, code, seconds):
             actions.append(("tls", code))
 
@@ -137,7 +139,9 @@ def test_complete_send_one_discord_only_after_https_and_services(
         return FakeResponse()
 
     monkeypatch.setattr(m, "urlopen", fake_discord)
-    m.complete_install(MockLegacy(), MockOps(), None, cfg)
+    legacy = MockLegacy()
+    m.complete_install(legacy, MockOps(), None, cfg)
+    assert legacy.FLAGS["POA_EXCHANGE_FILL_CONFIRMATION_ENABLED"] is True
     assert [x[0] for x in actions] == ["fresh", "publish", "tls", "discord"]
     assert json.loads(m.RESULT.read_text())["state"] == "RUNNING_HTTPS"
     assert (tmp_path / "sent.json").is_file()
