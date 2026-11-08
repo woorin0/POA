@@ -197,8 +197,19 @@ def pocketbase_build():
         raise InstallationBlocked("PB_SOURCE_COMMIT_MISMATCH")
     candidate = DB / "pocketbase.v0166.build"
     if candidate.exists():
-        raise InstallationBlocked("PB_BUILD_ALREADY_PRESENT")
-    env = {**os.environ, "CGO_ENABLED": "0", "GOTOOLCHAIN": "local",
+        # A failed Go build can leave only this build-target temporary file;
+        # never touch the real PB binary or any existing PocketBase DB.
+        if binary.exists():
+            raise InstallationBlocked("PB_BUILD_ALREADY_PRESENT")
+        candidate.unlink()
+    # cloud-init does not always have HOME/GOPATH; Go then cannot locate
+    # its module cache (confirmed on BOT01: "neither GOMODCACHE nor GOPATH").
+    go_home = Path("/root/.cache/poa-go")
+    go_mod_cache = go_home / "pkg/mod"
+    go_mod_cache.mkdir(mode=0o700, parents=True, exist_ok=True)
+    env = {**os.environ, "HOME": "/root", "GOPATH": str(go_home),
+           "GOMODCACHE": str(go_mod_cache), "CGO_ENABLED": "0",
+           "GOTOOLCHAIN": "local",
            "GOPROXY": "https://proxy.golang.org,direct",
            "GOSUMDB": "sum.golang.org", "GOFLAGS": "-p=1",
            "GOMAXPROCS": "2", "GOGC": "50"}
