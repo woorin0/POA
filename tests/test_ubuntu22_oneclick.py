@@ -75,7 +75,7 @@ def test_cloud_init_full_install_embeds_exact_code_and_stage_preserves_manifest(
     assert "ubuntu22_oneclick.py" in first[1][-1]
     assert not any("order" in str(cmd).lower() for cmd in first)
     assert len(user_data.encode("utf-8")) < 16000
-    assert cfg["final_message"].startswith("POA bootstrap completed")
+    assert cfg["final_message"].startswith("POA first-boot setup attempted")
     assert not (ROOT / ".env").exists()
     assert not (ROOT / "poa-credentials.json").exists()
 
