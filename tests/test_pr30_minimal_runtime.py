@@ -267,7 +267,7 @@ def test_systemd_unit_is_unstartable_secretless_and_local_only(role,slug):
 def test_doc_keeps_all_operational_blockers_explicit():
     doc=(ROOT/"deployment/PR30_MINIMAL_RUNTIME_PREFLIGHT.md").read_text()
     for key in (
-        "PR31_PENDING_NOT_ADOPTED",
+        "PR31_VERIFIED_TEST_ONLY=PASS",
         "PRODUCTION_READY=BLOCKED","ORIGINAL_MAIN_EXTERNAL_PROCESS=UNCONTROLLED",
         "ACTUAL_VULTR_HOST=UNVERIFIED","DB_RESTORE=NOT_PERFORMED",
         "READ_ONLY_KEY_ATTESTATION=UNVERIFIED","LIVE_ORDERS=0",
