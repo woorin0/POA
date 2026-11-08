@@ -76,7 +76,8 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
-          import json,ast
+          import json,ast,sys
+          sys.path.insert(0,str(Path.cwd()))
           scripts=('deployment/ubuntu22_operational.py',
                    'deployment/ubuntu22_turnkey_build.py')
           for path in scripts:
