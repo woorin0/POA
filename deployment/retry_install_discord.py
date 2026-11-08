@@ -149,7 +149,20 @@ def main() -> int:
         print("POA_INSTALL_DISCORD=" + ("SENT" if sent else "NOT_DELIVERED")
               + " REASON=" + reason)
         return 0 if sent else 3
-    except (ValueError, OSError, KeyError, TypeError, subprocess.TimeoutExpired):
+    except ValueError as error:
+        reason = str(error)
+        safe = {
+            "ROOT_REQUIRED", "INSTALL_RESULT_MISSING", "INSTALL_NOT_COMPLETE",
+            "WEBHOOK_ENDPOINT_MISSING", "POA_ENV_MISSING",
+            "WEBHOOK_CONFIG_MALFORMED", "WEBHOOK_NOT_CONFIGURED",
+            "SERVICE_INACTIVE_POA", "SERVICE_INACTIVE_POCKETBASE",
+            "SERVICE_INACTIVE_CADDY", "STATUS_TMP_EXISTS",
+        }
+        if reason not in safe:
+            reason = "CONFIG_OR_LOCAL_CHECK_FAILED"
+        print("POA_INSTALL_DISCORD=NOT_DELIVERED REASON=" + reason)
+        return 4
+    except (OSError, KeyError, TypeError, subprocess.TimeoutExpired):
         print("POA_INSTALL_DISCORD=NOT_DELIVERED REASON=CONFIG_OR_LOCAL_CHECK_FAILED")
         return 4
 
