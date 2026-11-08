@@ -317,6 +317,8 @@ def test_no_product_finance_install_sources_changed():
         "deployment/POA_VULTR_ONECLICK.md",
         "tests/test_ubuntu22_oneclick.py",
         ".github/workflows/ubuntu22_oneclick_ci.yml",
+        "deployment/recover_failed_pocketbase_stage.py",
+        "tests/test_recover_failed_pocketbase_stage.py",
     }
     required={
         "deployment/bot03_reinstall.py",
