@@ -78,7 +78,9 @@ def test_inspect_existing_paths_metadata_only_no_secret_read(tmp_path):
 def test_missing_or_symlinked_db_fails_closed(tmp_path):
     app = tmp_path/"app"; db=tmp_path/"db"
     app.mkdir(); db.mkdir()
-    (db/"pb_data").symlink_to(app, target_is_directory=True)
+    # Missing directory must block on every OS; symlink requires Windows privilege.
+    if sys.platform != "win32":
+        (db/"pb_data").symlink_to(app, target_is_directory=True)
     report=B.inspect(app,db)
     assert report["metadata_gate"]=="BLOCKED"
     assert report["checks"]["pocketbase_data_directory"]=="BLOCKED"
@@ -174,6 +176,7 @@ def test_destination_cannot_overlap_any_preserved_app_db(tmp_path):
         assert not dst.exists()
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission model")
 def test_private_destination_parent_required(tmp_path):
     source,sha=make_repo(tmp_path)
     parent=tmp_path/"public"
