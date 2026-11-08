@@ -224,6 +224,21 @@ def test_user_data_is_one_compact_pinned_script_without_secrets_or_auto_orders()
     assert "exec /usr/bin/python3" in files["/usr/local/bin/poa-setup"]["content"]
 
 
+def test_committed_userdata_matches_generator_and_fixed_ci_green_source():
+    from deployment import ubuntu22_turnkey_build as B
+    pinned="cea1b7fc9d349249b92040f9a768cf66bdf428af"
+    expected=B.create(pinned)
+    actual=(B.HERE/"ubuntu22_turnkey_USER_DATA.yaml").read_text(encoding="utf-8")
+    assert actual==expected
+    assert actual.startswith("#cloud-config\n")
+    assert len(actual.encode("utf-8"))<16000
+    assert "STAGED_READY_NO_TRADES" in actual
+    assert not any(x in actual for x in (
+        "systemctl start poa", "poa-setup publish",
+        '"/root/POA/.env"', '"/root/db/pb_data"'
+    ))
+
+
 def test_user_data_requires_fixed_commit_and_has_one_use_secret_template():
     from deployment import ubuntu22_turnkey_build as B
     for invalid in ("main","pr35","", "../"*20,"A"*40):
