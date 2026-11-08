@@ -1,0 +1,51 @@
+# AUDIT CANDIDATE ONLY — no real deployment or trade authorization.
+# Strict Ubuntu 22.04 systemd 249 offline review contract; deliberately UNSTARTABLE.
+[Unit]
+Description=POA Vultr quarantined no-egress inert audit candidate (NEVER START)
+Documentation=https://github.com/woorin0/POA
+RefuseManualStart=yes
+
+[Service]
+Type=exec
+DynamicUser=yes
+WorkingDirectory=/opt/poa-stage
+UMask=0077
+NoNewPrivileges=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=none
+IPAddressDeny=any
+RestrictNamespaces=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateDevices=yes
+PrivateTmp=yes
+PrivateIPC=yes
+PrivateMounts=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectProc=invisible
+ProcSubset=pid
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+StandardInput=null
+StandardOutput=journal
+StandardError=journal
+FileDescriptorStoreMax=0
+NotifyAccess=none
+Delegate=no
+KillMode=control-group
+Restart=no
+TasksMax=8
+MemoryMax=256M
+CPUQuota=50%
+InaccessiblePaths=-/run/docker.sock -/var/run/docker.sock -/run/podman/podman.sock -/run/systemd/private
+Environment=PYTHONDONTWRITEBYTECODE=1
+UnsetEnvironment=BINANCE_KEY BINANCE_SECRET BYBIT_KEY BYBIT_SECRET BITGET_KEY BITGET_SECRET UPBIT_KEY UPBIT_SECRET OKX_KEY OKX_SECRET OKX_PASSPHRASE KIS1_KEY KIS1_SECRET
+ExecStartPre=/usr/bin/false
+ExecStart=/usr/bin/python3 -I -S -B /opt/poa-stage/poa_stage/quarantine_idle.py
