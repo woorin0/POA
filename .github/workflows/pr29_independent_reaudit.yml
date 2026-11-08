@@ -76,7 +76,6 @@ jobs:
             "tests/test_poa_runtime_roles.py",
             "tests/test_pr_b_sealed_roles.py",
             "tests/test_pr29_independent_reaudit.py",
-            "tests/test_pr29_independent_reaudit.py",
             "deployment/PR29_INDEPENDENT_REAUDIT.md",
             ".github/workflows/pr29_independent_reaudit.yml",
           }
@@ -104,6 +103,7 @@ jobs:
             "tests/test_vultr_stage.py",
             "tests/test_poa_runtime_roles.py",
             "tests/test_pr_b_sealed_roles.py",
+            "tests/test_pr29_independent_reaudit.py",
           ],plugins=[isolation]))
       - name: Original independent release checks
         run: python release_checks/run.py -q --tb=short --junitxml=independent.xml
