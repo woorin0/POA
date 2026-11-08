@@ -40,6 +40,8 @@ payload = {}
 
 
 def get_exchange(exchange_name: str, kis_number=None):
+    from exchange.order_execution_gate import OrderExecutionBlocked
+    raise OrderExecutionBlocked()
     global payload
     if exchange_name in CRYPTO_EXCHANGES:
         KEY, SECRET, PASSPHRASE = check_key(exchange_name)
@@ -80,6 +82,8 @@ def get_bot(
     ],
     kis_number=None,
 ) -> Binance | Upbit | Bybit | Bitget | KoreaInvestment | Okx:
+    from exchange.order_execution_gate import OrderExecutionBlocked
+    raise OrderExecutionBlocked()
     exchange_name = exchange_name.upper()
     if exchange_name in CRYPTO_EXCHANGES:
         return get_exchange(exchange_name, kis_number).dict()[exchange_name]
@@ -128,8 +132,8 @@ def retry(
     delay=1,
     instance: Binance | Bybit | Bitget | Upbit | Okx = None,
 ):
-    from exchange.order_execution_gate import require_order_disabled
-    require_order_disabled()
+    from exchange.order_execution_gate import OrderExecutionBlocked
+    raise OrderExecutionBlocked()
     attempts = 0
 
     if settings.SAFE_RETRY_ENABLED and func.__name__ == "create_order":
