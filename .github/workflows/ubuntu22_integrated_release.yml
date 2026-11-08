@@ -66,6 +66,11 @@ jobs:
              '.github/workflows/ubuntu22_turnkey_ci.yml',
              'tests/test_ubuntu22_integrated_release.py',
              '.github/workflows/ubuntu22_integrated_release.yml',
+             'deployment/ubuntu22_oneclick.py',
+             'deployment/POA_VULTR_ONECLICK_USER_DATA.yaml',
+             'deployment/POA_VULTR_ONECLICK.md',
+             'tests/test_ubuntu22_oneclick.py',
+             '.github/workflows/ubuntu22_oneclick_ci.yml',
           }
           required={'deployment/bot03_reinstall.py','deployment/py312_requirements.py','deployment/ubuntu22_release_handoff.py','deployment/cloud-config-ubuntu2204-pr35-stage-only.yaml'}
           assert changed<=approved and required<=changed,('UNAPPROVED_SOURCE_CHANGE',sorted(changed-approved))
