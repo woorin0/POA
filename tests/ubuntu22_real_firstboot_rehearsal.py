@@ -107,22 +107,19 @@ def main():
         return legacy, operations, oneclick
 
     module.product_modules = local_verified_modules
-    # CI ONLY: original POA sends a Discord "started" message during app
-    # startup and aborts when delivery fails. There is deliberately no real
-    # Discord account in this ephemeral rehearsal. Intercept dhooks only inside
-    # the temporary venv; do not change any POA product file or User Data.
+    # The original app sends a Discord startup greeting and intentionally
+    # exits if a placeholder webhook fails. In CI the address is synthetic.
+    # Override ONLY the ephemeral systemd POA service environment so its
+    # startup greeting stays local. This does not change production code,
+    # financial code, or the installer success notification capture below.
     original_complete_install = module.complete_install
 
     def complete_install_with_synthetic_discord(legacy, operations, oneclick, data):
-        fake_transport = module.APP / ".venv/lib/python3.10/site-packages/sitecustomize.py"
-        fake_transport.write_text(
-            "from dhooks import Webhook\n"
-            "def _ci_only_send(self,*args,**kwargs):\n"
-            "    return {'id':'ci-local-discord-stub'}\n"
-            "Webhook.send = _ci_only_send\n",
-            encoding="utf-8",
+        override = Path("/etc/systemd/system/poa.service.d")
+        override.mkdir(parents=True, exist_ok=True)
+        (override / "ci-only-no-real-discord.conf").write_text(
+            "[Service]\nEnvironment=DISCORD_WEBHOOK_URL=\n", encoding="utf-8"
         )
-        # This file remains on the ephemeral CI runner only.
         return original_complete_install(legacy, operations, oneclick, data)
 
     module.complete_install = complete_install_with_synthetic_discord
