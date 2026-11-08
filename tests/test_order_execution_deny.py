@@ -211,10 +211,23 @@ def test_only_two_guard_statements_added_per_entrypoint_exact_original_bytes(pat
                 assert fn.body[0].names[0].name=="OrderExecutionBlocked"
                 assert isinstance(fn.body[1],ast.Raise)
                 used.update((fn.body[0].lineno,fn.body[1].lineno))
+    if path=="exchange/safe_retry.py":
+        for name in ("connect","claim","save","pending","recover","backup",
+                     "reconcile","_get_or_create_client_locked",
+                     "acquire_lease","get_client"):
+            fn=method(path,name)
+            assert isinstance(fn.body[0],ast.ImportFrom)
+            assert fn.body[0].module=="exchange.order_execution_gate"
+            assert fn.body[0].names[0].name=="OrderExecutionBlocked"
+            assert isinstance(fn.body[1],ast.Raise)
+            assert isinstance(fn.body[1].exc,ast.Call)
+            assert isinstance(fn.body[1].exc.func,ast.Name)
+            assert fn.body[1].exc.func.id=="OrderExecutionBlocked"
+            used.update((fn.body[0].lineno,fn.body[1].lineno))
     restored="".join(line for i,line in enumerate(lines,1) if i not in used)
     assert restored==baseline(path)
     extra=len(EXTRA_SINKS.get(path,()))
-    if path=="exchange/safe_retry.py":extra+=4
+    if path=="exchange/safe_retry.py":extra+=14
     assert len(used)==2*(len(SINKS[path])+extra)
 
 
