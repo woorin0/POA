@@ -1,0 +1,29 @@
+# PR B audit-only: NEVER install, enable, start or connect live keys.
+# Intentionally unstartable, no Install target or secret/environment file.
+[Unit]
+Description=POA B sealed Stage ASGI candidate - inert
+RefuseManualStart=yes
+
+[Service]
+Type=simple
+DynamicUser=yes
+NoNewPrivileges=yes
+UMask=0077
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+IPAddressDeny=any
+RestrictAddressFamilies=AF_UNIX
+ProtectSystem=strict
+ProtectHome=yes
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+WorkingDirectory=/opt/poa-stage
+ExecStartPre=/usr/bin/false
+ExecStart=/opt/poa-stage/.venv/bin/python -m uvicorn poa_runtime.sealed_stage:app --uds /run/poa-stage-inert.sock --workers 1
+Restart=no
