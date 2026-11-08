@@ -136,7 +136,9 @@ jobs:
       - name: Assert strictly unstartable candidate and no real operations
         shell: python
         run: |
+          import sys
           from pathlib import Path
+          sys.path.insert(0,str(Path.cwd()))
           from poa_stage.egress_quarantine import validate_candidate
           from poa_stage.quarantine_idle import main
           unit=Path('deployment/poa-vultr-no-egress.service.candidate').read_text()
