@@ -318,10 +318,10 @@ def test_no_product_finance_install_sources_changed():
         "tests/test_ubuntu22_oneclick.py",
         ".github/workflows/ubuntu22_oneclick_ci.yml",
         "deployment/recover_failed_pocketbase_stage.py",
-        "tests/test_recover_failed_pocketbase_stage.py"
+        "tests/test_recover_failed_pocketbase_stage.py",
         "deployment/poa_vultr_install_v3.py",
         "deployment/POA_VULTR_10_SERVERS_FIXED_USER_DATA.yaml",
-        "tests/test_poa_vultr_install_v3.py",,
+        "tests/test_poa_vultr_install_v3.py",
     }
     required={
         "deployment/bot03_reinstall.py",
