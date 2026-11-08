@@ -1,0 +1,55 @@
+name: BOT01 TradingView to verified Discord fill - offline proof
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tests/test_bot01_tv_trade_discord_readiness.py'
+      - '.github/workflows/bot01_trade_discord_mock_ci.yml'
+permissions:
+  contents: read
+
+jobs:
+  bot01-trade-discord-offline:
+    name: BOT01 pinned order source, native fill, amount, Discord wire (no orders)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install same pinned POA dependencies as production
+        run: |
+          python -m pip install pip==26.3 setuptools==84.2.1
+          python -m pip install --no-cache-dir -r requirements.txt
+          python -m pip install pytest==9.1.1 pytest-asyncio pytest-subtests pytest-cov cryptography tzdata==2025.2
+          python -m pip check
+      - name: Verify BOT01 exact source and flags with no exchange or Discord connections
+        run: python -m pytest -q tests/test_bot01_tv_trade_discord_readiness.py --tb=short --junitxml=bot01-source.xml
+      - name: Verify mocked native exchange reads through signed fill to Discord outbox
+        run: |
+          python release_checks/run_fill_confirmation.py -q --tb=short --junitxml=bot01-native-fill.xml -k 'test_real_entry_native_signed_get_outbox_all_markets or test_native_conflicts_never_authorize or test_missing_fee_is_unknown_not_zero'
+      - name: Check buy/sell total arithmetic and fake-fill rejection
+        run: python -m pytest -q tests/test_executed_amount_notification.py --tb=short --junitxml=bot01-amount.xml
+      - name: Confirm test-only network boundary
+        run: |
+          echo 'BOT01_RUNTIME_UNTOUCHED=YES'
+          echo 'REAL_EXCHANGE_ORDERS=0'
+          echo 'REAL_DISCORD_MESSAGES=0'
+          echo 'NATIVE_FILL_CONFIRMATION_IN_BOT01_DEFAULT=DISABLED'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bot01-trade-discord-offline-proof
+          path: |
+            bot01-source.xml
+            bot01-native-fill.xml
+            bot01-amount.xml
+          if-no-files-found: ignore
