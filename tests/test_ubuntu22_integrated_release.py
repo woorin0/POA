@@ -325,6 +325,8 @@ def test_no_product_finance_install_sources_changed():
         "tests/ubuntu22_real_firstboot_rehearsal.py",
         "deployment/retry_install_discord.py",
         "tests/test_retry_install_discord.py",
+        "tests/test_bot01_tv_trade_discord_readiness.py",
+        ".github/workflows/bot01_trade_discord_mock_ci.yml",
     }
     required={
         "deployment/bot03_reinstall.py",
