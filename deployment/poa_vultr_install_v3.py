@@ -48,7 +48,14 @@ def execute(command, code, *, cwd=None, timeout=1800, env=None):
                           stderr=subprocess.PIPE, timeout=timeout, check=False,
                           env=env)
     if proc.returncode != 0:
-        # Only error codes: never echo curl or API secrets to cloud-init logs.
+        # Local root-only diagnostic for otherwise opaque apt/Go/Python failures.
+        # No API credentials are passed on any subprocess command line.
+        diagnostic = Path("/root/POA_INSTALL_LAST_ERROR.log")
+        raw = proc.stderr[-4096:].decode("utf-8", errors="replace")
+        raw = raw.replace("https://discord.com/api/webhooks/", "[DISCORD_URL_REDACTED]/")
+        fd = os.open(diagnostic, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(code + " exit=" + str(proc.returncode) + "\n" + raw)
         raise InstallationBlocked(code)
     return proc.stdout
 
