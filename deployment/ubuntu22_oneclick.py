@@ -14,7 +14,7 @@ import secrets
 import socket
 import subprocess
 import sys
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 try:
     from deployment import install_once as legacy
@@ -80,7 +80,8 @@ def _private_write(path: Path, data: dict) -> None:
 
 def _setup_command(*arguments: str) -> None:
     # Never print child output: future diagnostics may contain credentials.
-    proc = subprocess.run([SETUP, *arguments], capture_output=True, timeout=360,
+    proc = subprocess.run([sys.executable, "/usr/local/lib/poa/stage-full-history.py",
+                           "setup", *arguments], capture_output=True, timeout=900,
                           check=False)
     if proc.returncode:
         raise OneclickError("POA_SETUP_" + arguments[0].upper().replace("-", "_") + "_FAILED")
@@ -91,6 +92,31 @@ def _https_ready(domain: str) -> None:
     # verified TLS certificate and that 403 prove HTTPS is actually serving.
     legacy.wait_ready(lambda: legacy.local_https(domain),
                       "PUBLIC_HTTPS_NOT_READY", seconds=180)
+
+
+
+def _notify_success(data: dict, report: dict) -> bool:
+    """One Discord success message, only after local+HTTPS checks pass."""
+    marker = RESULT_PATH.with_name("POA_INSTALL_DISCORD_ATTEMPT.json")
+    _private_write(marker, {"event": "INSTALL_COMPLETED", "attempted": True})
+    payload = {"embeds": [{
+        "title": "✅ POA 설치 완료",
+        "description": "Vultr POA · PocketBase · HTTPS 정상 기동",
+        "color": 2263842,
+        "fields": [
+            {"name": "서버 도메인", "value": data["domain"], "inline": False},
+            {"name": "TradingView 웹훅", "value": report["webhook_url"], "inline": False}
+        ]
+    }]}
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = Request(data["credentials"]["DISCORD_WEBHOOK_URL"], data=body,
+                  headers={"Content-Type": "application/json",
+                           "User-Agent": "POA-Firstboot/1.0"}, method="POST")
+    try:
+        with urlopen(req, timeout=12) as response:
+            return response.status in (200, 204)
+    except (OSError, ValueError):
+        return False
 
 
 def complete() -> dict:
@@ -115,6 +141,9 @@ def complete() -> dict:
         "source_commit": stage.get("commit"),
     }
     _private_write(RESULT_PATH, report)
+    sent = _notify_success(data, report)
+    print("POA_INSTALL_DISCORD=" + ("SENT" if sent else "NOT_DELIVERED"),
+          flush=True)
     RUNTIME_PATH.unlink(missing_ok=True)
     CONFIG_PATH.unlink(missing_ok=True)
     print("POA_ONECLICK_READY=" + report["webhook_url"], flush=True)
