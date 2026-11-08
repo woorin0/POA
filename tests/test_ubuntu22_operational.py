@@ -279,6 +279,7 @@ def test_full_git_delta_does_not_modify_financial_order_source():
         "tests/test_retry_install_discord.py",
         "tests/test_bot01_tv_trade_discord_readiness.py",
         ".github/workflows/bot01_trade_discord_mock_ci.yml",
+        ".github/workflows/pr_verification.yml",
         "deployment/POA_VULTR_ONECLICK.md",
     }
     assert set(changed)<=expected,("UNREQUESTED_CHANGE",changed)
