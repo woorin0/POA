@@ -1,0 +1,117 @@
+name: POA Python312 Pendulum time and full dependency finance parity
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'deployment/py312_requirements.py'
+      - 'deployment/PY312_COMPATIBILITY.md'
+      - 'tests/test_py312_time_compat.py'
+      - '.github/workflows/py312_dependency_compat.yml'
+permissions:
+  contents: read
+
+jobs:
+  py312-and-control:
+    name: finance-py${{ matrix.python }}-${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            python: '3.12'
+          - os: ubuntu-24.04
+            python: '3.12'
+          - os: ubuntu-22.04
+            python: '3.10'
+    env:
+      BASE_MAIN: c5566c4cc2a4ce716f1f0d66260bd60e4f95546f
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONIOENCODING: utf-8
+    steps:
+      - name: No line-ending rewriting of pinned release sources
+        shell: bash
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Guard EXACT four new files and original finance source pins
+        shell: python
+        run: |
+          import hashlib,os,subprocess
+          from pathlib import Path
+          base=os.environ['BASE_MAIN']
+          assert subprocess.check_output(['git','rev-parse',base],text=True).strip()==base
+          changed=set(subprocess.check_output(['git','diff','--name-only',base,'HEAD'],text=True).splitlines())
+          approved={
+              'deployment/py312_requirements.py',
+              'deployment/PY312_COMPATIBILITY.md',
+              'tests/test_py312_time_compat.py',
+              '.github/workflows/py312_dependency_compat.yml',
+          }
+          assert changed==approved,('UNAPPROVED_CHANGED_FILES',sorted(changed^approved))
+          protected=['main.py','run.py','exchange','requirements.txt',
+              'release_manifest_sha256.json','release_checks',
+              'deployment/install_once.py','deployment/prepare_ubuntu.py',
+              'deployment/build_cloud_config.py','deployment/cloud-config-ubuntu2204.yaml']
+          subprocess.run(['git','diff','--exit-code',base,'HEAD','--',*protected],check=True)
+          for path in changed:
+              if path.endswith('.py'):
+                  compile(Path(path).read_bytes(),path,'exec')
+          print('PY312_4_FILES_ONLY=PASS; FINANCE_ORDER_DB_72MANIFEST_IDENTICAL=PASS')
+      - name: Bootstrap fixed offline test tools
+        run: |
+          python -m pip install pip==26.3 setuptools==84.2.1
+          python -m pip install pytest==9.1.1 pytest-subtests pytest-asyncio pytest-cov cryptography PyYAML==6.0.3
+      - name: Install complete exact original dependencies with one Python312-only override
+        shell: python
+        run: |
+          import os,sys,subprocess
+          from pathlib import Path
+          if sys.version_info[:2]==(3,12):
+              output=Path(os.environ['RUNNER_TEMP'])/'poa-py312-exact-requirements.txt'
+              subprocess.run([sys.executable,'deployment/py312_requirements.py',
+                              '--output',str(output)],check=True)
+              req=str(output)
+          else:
+              assert sys.version_info[:2]==(3,10)
+              req='requirements.txt'
+          subprocess.run([sys.executable,'-m','pip','install','--no-cache-dir',
+                          '-r',req],check=True,timeout=900)
+          subprocess.run([sys.executable,'-m','pip','check'],check=True,timeout=90)
+          import importlib.metadata as m
+          expected='3.2.0' if sys.version_info[:2]==(3,12) else '2.1.2'
+          assert m.version('pendulum')==expected
+          print('FULL_DEPENDENCY_PIP_CHECK=PASS; TARGET_PENDULUM='+expected)
+      - name: Independent production time-function DST/KST oracle and complete imports
+        run: python -m pytest tests/test_py312_time_compat.py -q --tb=short --junitxml=py312-time.xml
+      - name: Original independent release, finance hash and 72-file packaging
+        run: |
+          python release_checks/verify_release.py
+          python release_checks/verify_packaging.py
+          python release_checks/run.py -q --tb=short --junitxml=original-independent.xml
+      - name: Original unmodified Golden order, fee, PnL, Safe Retry offline regression
+        run: python tests/run_offline.py
+      - name: Original 4-venue native fills without external orders
+        if: runner.os == 'Linux'
+        run: python release_checks/run_fill_confirmation.py -q --tb=short --junitxml=fill.xml
+      - name: Full pytest regression on both Windows and Ubuntu24 Python312
+        if: matrix.python == '3.12'
+        run: python -m pytest -q --tb=short --ignore=release_checks --ignore=audit_artifacts/readonly_audit_v2 --junitxml=full-py312.xml
+      - name: Upload CI evidence, never DB or credentials
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: poa-time-compat-${{ matrix.os }}-py${{ matrix.python }}
+          path: |
+            py312-time.xml
+            original-independent.xml
+            fill.xml
+            full-py312.xml
+          if-no-files-found: ignore
