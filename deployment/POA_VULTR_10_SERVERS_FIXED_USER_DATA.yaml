@@ -49,6 +49,6 @@ runcmd:
       curl --fail --silent --show-error --location --retry 3
       --connect-timeout 20 --max-time 90
       --output /root/poa-vultr-install-v3.py
-      https://raw.githubusercontent.com/woorin0/POA/dddbf6be43556bc99e8b57ec8c5b8d4f7e5922b0/deployment/poa_vultr_install_v3.py;
+      https://raw.githubusercontent.com/woorin0/POA/8c3107ade88564bdc35db6b491e632c872526803/deployment/poa_vultr_install_v3.py;
       python3 /root/poa-vultr-install-v3.py
 final_message: "POA setup attempted. Check sudo cat /root/POA_ONECLICK_RESULT.json; a Discord success message is sent only after full HTTP/HTTPS health verification."
