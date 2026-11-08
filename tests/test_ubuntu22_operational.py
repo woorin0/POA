@@ -39,7 +39,7 @@ def test_operator_local_units_never_expose_external_trading(tmp_path, monkeypatc
     O._install_units()
     poa=(units/"poa.service").read_text()
     pb=(units/"pocketbase.service").read_text()
-    assert "127.0.0.1:8000" in poa
+    assert "--host=127.0.0.1 --port=8000" in poa
     assert "127.0.0.1:8090" in pb
     assert "LOCAL_READY" in poa
     assert "validate_config.py" in poa
