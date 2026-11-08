@@ -97,7 +97,9 @@ jobs:
       - name: Ensure three role candidates cannot start real orders
         shell: python
         run: |
+          import sys
           from pathlib import Path
+          sys.path.insert(0,str(Path.cwd()))
           from poa_runtime.roles import deny_order_execution,RoleBlocked
           try:deny_order_execution()
           except RoleBlocked as exc:assert exc.code=='POA_RUNTIME_TRADING_DISABLED'
