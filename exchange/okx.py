@@ -187,6 +187,8 @@ class Okx:
         return float(result)
 
     def market_order(self, order_info: MarketOrder):
+        from exchange.order_execution_gate import require_order_disabled
+        require_order_disabled()
         from exchange.pexchange import retry
 
         symbol = (
@@ -215,6 +217,8 @@ class Okx:
         self,
         order_info: MarketOrder,
     ):
+        from exchange.order_execution_gate import require_order_disabled
+        require_order_disabled()
         # 수량기반
         buy_amount = self.get_amount(order_info)
         fee = self.client.fetch_trading_fee(self.order_info.unified_symbol)
@@ -227,6 +231,8 @@ class Okx:
         self,
         order_info: MarketOrder,
     ):
+        from exchange.order_execution_gate import require_order_disabled
+        require_order_disabled()
         # 수량기반
         symbol = (
             order_info.unified_symbol
@@ -242,6 +248,8 @@ class Okx:
         return self.market_order(order_info)
 
     def set_leverage(self, leverage, symbol):
+        from exchange.order_execution_gate import require_order_disabled
+        require_order_disabled()
         if self.order_info.is_futures:
             if self.order_info.is_futures and self.order_info.is_entry:
                 if self.order_info.is_buy:
@@ -278,6 +286,8 @@ class Okx:
         self,
         order_info: MarketOrder,
     ):
+        from exchange.order_execution_gate import require_order_disabled
+        require_order_disabled()
         from exchange.pexchange import retry
 
         symbol = (
@@ -334,6 +344,8 @@ class Okx:
         self,
         order_info: MarketOrder,
     ):
+        from exchange.order_execution_gate import require_order_disabled
+        require_order_disabled()
         from exchange.pexchange import retry
 
         symbol = self.order_info.unified_symbol
