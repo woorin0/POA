@@ -123,7 +123,8 @@ def test_cloud_init_full_install_embeds_exact_code_and_stage_preserves_manifest(
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="service activation is Linux-only")
-def test_boot_activates_full_local_and_https_without_orders(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize("discord_delivered", [True, False])
+def test_boot_activates_full_local_and_https_without_orders(tmp_path, monkeypatch, capsys, discord_delivered):
     input_path = tmp_path / "input.json"
     stage_path = tmp_path / "stage.json"
     runtime = tmp_path / "runtime.json"
@@ -141,6 +142,27 @@ def test_boot_activates_full_local_and_https_without_orders(tmp_path, monkeypatc
     monkeypatch.setattr(O, "public_ipv4", lambda: "8.8.8.8")
     monkeypatch.setattr(O.os, "geteuid", lambda: 0)
     actions = []
+    discord_payloads = []
+
+    class FakeDiscordResponse:
+        status = 204
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+
+    def fake_discord(req, timeout=12):
+        assert result.is_file(), "No Discord notification until the verified result is recorded"
+        assert req.full_url == valid_input()["credentials"]["DISCORD_WEBHOOK_URL"]
+        payload = json.loads(req.data)
+        assert payload["embeds"][0]["title"] == "✅ POA 설치 완료"
+        assert payload["embeds"][0]["fields"][1]["value"].endswith(".sslip.io/order")
+        assert "synthetic_upbit" not in json.dumps(payload)
+        assert "token_123" not in json.dumps(payload)
+        discord_payloads.append(payload)
+        if not discord_delivered:
+            raise OSError("synthetic timeout")
+        return FakeDiscordResponse()
+
+    monkeypatch.setattr(O, "urlopen", fake_discord)
     monkeypatch.setattr(O, "_setup_command", lambda *args: actions.append(args))
     monkeypatch.setattr(O, "_https_ready", lambda hostname: actions.append(("tls", hostname)))
     report = O.complete()
@@ -159,6 +181,10 @@ def test_boot_activates_full_local_and_https_without_orders(tmp_path, monkeypatc
     assert "synthetic_upbit_key" not in output
     assert "token_123" not in output
     assert "POA_ONECLICK_READY=https://8.8.8.8.sslip.io/order" in output
+    assert len(discord_payloads) == 1, "Exactly one install-success message attempt"
+    assert (tmp_path / "POA_INSTALL_DISCORD_ATTEMPT.json").is_file()
+    assert ("POA_INSTALL_DISCORD=SENT" if discord_delivered else
+            "POA_INSTALL_DISCORD=NOT_DELIVERED") in output
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="private POSIX files")
@@ -175,6 +201,8 @@ def test_failed_stage_never_starts_service(tmp_path, monkeypatch):
     monkeypatch.setattr(O.os, "geteuid", lambda: 0)
     monkeypatch.setattr(O, "_setup_command",
                         lambda *args: pytest.fail("never start on failed Stage"))
+    monkeypatch.setattr(O, "_notify_success",
+                        lambda *args: pytest.fail("never notify on failed Stage"))
     with pytest.raises(O.OneclickError, match="STAGE_NOT_READY"):
         O.complete()
 
@@ -196,6 +224,10 @@ def test_stage_full_history_happens_before_release_checks(tmp_path, monkeypatch)
 
     def original_run(args, code, cwd=None, timeout=300):
         calls.append(code)
+        if code in ("POCKETBASE_DOWNLOAD_FAILED", "POCKETBASE_LEGACY_DOWNLOAD_FAILED"):
+            assert args[0:3] == ["curl", "--retry", "6"]
+            assert "--retry-all-errors" in args
+            assert timeout >= 1000
         if code == "GIT_HISTORY_STATUS_FAILED":
             return b"false"
         return b""
@@ -204,6 +236,12 @@ def test_stage_full_history_happens_before_release_checks(tmp_path, monkeypatch)
         assert data["install_mode"] == "NEW_SERVER_STAGE_ONLY"
         fake.run(["git", "-C", str(fake.APP), "checkout", "--detach", "FETCH_HEAD"],
                  "GIT_CHECKOUT_FAILED")
+        fake.run(["curl", "--fail", "--location", "--output", "/tmp/pb-stage.zip",
+                  "https://github.com/pocketbase/pocketbase/releases/download/v0.22.48/asset.zip"],
+                 "POCKETBASE_DOWNLOAD_FAILED")
+        fake.run(["curl", "--fail", "--location", "--output", "/tmp/pb-runtime.zip",
+                  "https://github.com/pocketbase/pocketbase/releases/download/v0.16.6/asset.zip"],
+                 "POCKETBASE_LEGACY_DOWNLOAD_FAILED")
         calls.append("OFFLINE_RELEASE_GATE")
         assert calls.index("GIT_FULL_HISTORY_FAILED") < calls.index("OFFLINE_RELEASE_GATE")
         assert calls.index("GIT_BASELINE_MISSING") < calls.index("OFFLINE_RELEASE_GATE")
@@ -214,4 +252,5 @@ def test_stage_full_history_happens_before_release_checks(tmp_path, monkeypatch)
     exec(compile(stage, "<embedded-full-history-stage>", "exec"), {"__name__": "stage_test"})
     assert calls == ["GIT_CHECKOUT_FAILED", "GIT_FULL_HISTORY_FAILED",
                      "GIT_HISTORY_STATUS_FAILED", "GIT_BASELINE_MISSING",
+                     "POCKETBASE_DOWNLOAD_FAILED", "POCKETBASE_LEGACY_DOWNLOAD_FAILED",
                      "OFFLINE_RELEASE_GATE"]
