@@ -128,6 +128,8 @@ def retry(
     delay=1,
     instance: Binance | Bybit | Bitget | Upbit | Okx = None,
 ):
+    from exchange.order_execution_gate import require_order_disabled
+    require_order_disabled()
     attempts = 0
 
     if settings.SAFE_RETRY_ENABLED and func.__name__ == "create_order":

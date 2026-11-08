@@ -67,6 +67,8 @@ def get_error(e):
 
 @app.on_event("startup")
 async def startup():
+    from exchange.order_execution_gate import require_order_disabled
+    require_order_disabled()
     if settings.SAFE_RETRY_ENABLED:
         import asyncio
         from exchange.safe_retry import get_manager, reconciliation_loop
@@ -335,10 +337,14 @@ def schedule_order_log(background_tasks, exchange_name, result, order_info):
 @app.post("/order")
 @app.post("/")
 async def _order_http(request: Request, background_tasks: BackgroundTasks):
+    from exchange.order_execution_gate import require_order_disabled
+    require_order_disabled()
     return await order(await _v1_request(request, MarketOrder), background_tasks)
 
 
 async def order(order_info: MarketOrder, background_tasks: BackgroundTasks):
+    from exchange.order_execution_gate import require_order_disabled
+    require_order_disabled()
     order_result = None
     try:
         exchange_name = order_info.exchange
@@ -420,10 +426,14 @@ def get_hedge_records(base):
 
 @app.post("/hedge")
 async def _hedge_http(request: Request, background_tasks: BackgroundTasks):
+    from exchange.order_execution_gate import require_order_disabled
+    require_order_disabled()
     return await hedge(await _v1_request(request, HedgeData), background_tasks)
 
 
 async def hedge(hedge_data: HedgeData, background_tasks: BackgroundTasks):
+    from exchange.order_execution_gate import require_order_disabled
+    require_order_disabled()
     if settings.SAFE_RETRY_ENABLED:
         # Hedge submits multiple legs outside the single-order lifecycle.
         return {"result": "error"}

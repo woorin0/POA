@@ -64,6 +64,8 @@ class KoreaInvestment:
     def post_with_error_handling(
         self, endpoint: str, data: dict = None, headers: dict = None
     ):
+        from exchange.order_execution_gate import require_order_disabled
+        require_order_disabled()
         url = f"{self.base_url}{endpoint}"
         response = self.session.post(url, json=data, headers=headers).json()
         if "access_token" in response.keys() or response["rt_cd"] == "0":
@@ -72,6 +74,8 @@ class KoreaInvestment:
             raise Exception(response)
 
     def post(self, endpoint: str, data: dict = None, headers: dict = None):
+        from exchange.order_execution_gate import require_order_disabled
+        require_order_disabled()
         return self.post_with_error_handling(endpoint, data, headers)
 
     def get_hashkey(self, data) -> str:
@@ -165,6 +169,8 @@ class KoreaInvestment:
         price: int = 0,
         mintick=0.01,
     ):
+        from exchange.order_execution_gate import require_order_disabled
+        require_order_disabled()
         max_retries = 3
         last_exception = None
         
@@ -262,6 +268,8 @@ class KoreaInvestment:
         amount: int,
         price: int = 0,
     ):
+        from exchange.order_execution_gate import require_order_disabled
+        require_order_disabled()
         if exchange == "KRX":
             return self.create_order(exchange, ticker, "market", "buy", amount)
         elif exchange == "usa":
@@ -274,18 +282,26 @@ class KoreaInvestment:
         amount: int,
         price: int = 0,
     ):
+        from exchange.order_execution_gate import require_order_disabled
+        require_order_disabled()
         if exchange == "KRX":
             return self.create_order(exchange, ticker, "market", "sell", amount)
         elif exchange == "usa":
             return self.create_order(exchange, ticker, "market", "buy", amount, price)
 
     def create_korea_market_buy_order(self, ticker: str, amount: int):
+        from exchange.order_execution_gate import require_order_disabled
+        require_order_disabled()
         return self.create_market_buy_order("KRX", ticker, amount)
 
     def create_korea_market_sell_order(self, ticker: str, amount: int):
+        from exchange.order_execution_gate import require_order_disabled
+        require_order_disabled()
         return self.create_market_sell_order("KRX", ticker, amount)
 
     def create_usa_market_buy_order(self, ticker: str, amount: int, price: int):
+        from exchange.order_execution_gate import require_order_disabled
+        require_order_disabled()
         return self.create_market_buy_order("usa", ticker, amount, price)
 
     def fetch_ticker(

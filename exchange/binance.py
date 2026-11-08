@@ -210,10 +210,14 @@ class Binance:
         return result
 
     def set_leverage(self, leverage, symbol):
+        from exchange.order_execution_gate import require_order_disabled
+        require_order_disabled()
         if self.order_info.is_futures:
             self.client.set_leverage(leverage, symbol)
 
     def market_order(self, order_info: MarketOrder):
+        from exchange.order_execution_gate import require_order_disabled
+        require_order_disabled()
         from exchange.pexchange import retry
 
         symbol = order_info.unified_symbol  # self.parse_symbol(base, quote)
@@ -250,6 +254,8 @@ class Binance:
     #     )
 
     def market_buy(self, order_info: MarketOrder):
+        from exchange.order_execution_gate import require_order_disabled
+        require_order_disabled()
         # 수량기반
         buy_amount = self.get_amount(order_info)
         order_info.amount = buy_amount
@@ -257,6 +263,8 @@ class Binance:
         return self.market_order(order_info)
 
     def market_sell(self, order_info: MarketOrder):
+        from exchange.order_execution_gate import require_order_disabled
+        require_order_disabled()
         sell_amount = self.get_amount(order_info)
         order_info.amount = sell_amount
         return self.market_order(order_info)
@@ -265,6 +273,8 @@ class Binance:
         self,
         order_info: MarketOrder,
     ):
+        from exchange.order_execution_gate import require_order_disabled
+        require_order_disabled()
         from exchange.pexchange import retry
 
         # self.client.options["defaultType"] = "swap"
@@ -325,6 +335,8 @@ class Binance:
         stop_price: float,
         profit_price: float,
     ):
+        from exchange.order_execution_gate import require_order_disabled
+        require_order_disabled()
         symbol = self.order_info.unified_symbol  # self.parse_symbol(base, quote)
         inverted_side = (
             "sell" if side.lower() == "buy" else "buy"
@@ -366,6 +378,8 @@ class Binance:
         self,
         order_info: MarketOrder,
     ):
+        from exchange.order_execution_gate import require_order_disabled
+        require_order_disabled()
         from exchange.pexchange import retry
 
         symbol = self.order_info.unified_symbol  # self.parse_symbol(base, quote)
