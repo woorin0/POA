@@ -67,8 +67,8 @@ def get_error(e):
 
 @app.on_event("startup")
 async def startup():
-    from exchange.order_execution_gate import require_order_disabled
-    require_order_disabled()
+    from exchange.order_execution_gate import OrderExecutionBlocked
+    raise OrderExecutionBlocked()
     if settings.SAFE_RETRY_ENABLED:
         import asyncio
         from exchange.safe_retry import get_manager, reconciliation_loop
@@ -232,6 +232,8 @@ async def validation_exception_handler(request, exc):
 
 @app.get("/ip")
 async def get_ip():
+    from exchange.order_execution_gate import OrderExecutionBlocked
+    raise OrderExecutionBlocked()
     data = httpx.get("https://ipv4.jsonip.com").json()["ip"]
     log_message(data)
 
@@ -281,10 +283,14 @@ async def _v1_request(request: Request, model):
 
 @app.post("/price")
 async def _price_http(request: Request, background_tasks: BackgroundTasks):
+    from exchange.order_execution_gate import OrderExecutionBlocked
+    raise OrderExecutionBlocked()
     return await price(await _v1_request(request, PriceRequest), background_tasks)
 
 
 async def price(price_req: PriceRequest, background_tasks: BackgroundTasks):
+    from exchange.order_execution_gate import OrderExecutionBlocked
+    raise OrderExecutionBlocked()
     exchange = get_exchange(price_req.exchange)
     price = exchange.dict()[price_req.exchange].fetch_price(
         price_req.base, price_req.quote
@@ -337,14 +343,14 @@ def schedule_order_log(background_tasks, exchange_name, result, order_info):
 @app.post("/order")
 @app.post("/")
 async def _order_http(request: Request, background_tasks: BackgroundTasks):
-    from exchange.order_execution_gate import require_order_disabled
-    require_order_disabled()
+    from exchange.order_execution_gate import OrderExecutionBlocked
+    raise OrderExecutionBlocked()
     return await order(await _v1_request(request, MarketOrder), background_tasks)
 
 
 async def order(order_info: MarketOrder, background_tasks: BackgroundTasks):
-    from exchange.order_execution_gate import require_order_disabled
-    require_order_disabled()
+    from exchange.order_execution_gate import OrderExecutionBlocked
+    raise OrderExecutionBlocked()
     order_result = None
     try:
         exchange_name = order_info.exchange
@@ -426,14 +432,14 @@ def get_hedge_records(base):
 
 @app.post("/hedge")
 async def _hedge_http(request: Request, background_tasks: BackgroundTasks):
-    from exchange.order_execution_gate import require_order_disabled
-    require_order_disabled()
+    from exchange.order_execution_gate import OrderExecutionBlocked
+    raise OrderExecutionBlocked()
     return await hedge(await _v1_request(request, HedgeData), background_tasks)
 
 
 async def hedge(hedge_data: HedgeData, background_tasks: BackgroundTasks):
-    from exchange.order_execution_gate import require_order_disabled
-    require_order_disabled()
+    from exchange.order_execution_gate import OrderExecutionBlocked
+    raise OrderExecutionBlocked()
     if settings.SAFE_RETRY_ENABLED:
         # Hedge submits multiple legs outside the single-order lifecycle.
         return {"result": "error"}
