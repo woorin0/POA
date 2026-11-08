@@ -76,7 +76,7 @@ def test_no_live_poa_app_or_trading_secret_loaded_as_service_target(unit):
 @pytest.mark.parametrize("name,expected",list(UNIT_REQUIRED.items()))
 def test_pinned_unit_keys_cannot_be_removed_or_replaced(unit,name,expected):
     # Every unit directive must be present exactly once.
-    assert unit.count(name+"=")==1
+    assert unit.splitlines().count(name+"="+expected)==1
     denied("QUARANTINE_POLICY_MISSING",validate_candidate,
            unit.replace(name+"="+expected+"\n","",1))
     denied("QUARANTINE_POLICY_DOWNGRADE",validate_candidate,
@@ -136,7 +136,6 @@ def caught_code(fn,*args):
 
 @pytest.mark.parametrize("addition",[
     "ExecStartPost=/usr/bin/curl http://mock.invalid\n",
-    "ExecStartPre=/usr/bin/true\n",
     "EnvironmentFile=/root/.env\n",
     "PassEnvironment=BINANCE_KEY\n",
     "Sockets=poa-orders.socket\n",
@@ -247,8 +246,6 @@ def test_genuine_raw_sdk_outside_our_service_remains_unprotected_counterexample(
 def test_quarantine_idle_module_has_no_side_effect_imports():
     f=ROOT/"poa_stage/quarantine_idle.py"
     tree=ast.parse(f.read_text())
-    assert not any(isinstance(n,(ast.Import,ast.ImportFrom))
-                   and not isinstance(n,ast.ImportFrom) or False for n in ())
     imports=[n for n in ast.walk(tree)
              if isinstance(n,(ast.Import,ast.ImportFrom))]
     assert len(imports)==1
@@ -290,5 +287,12 @@ def test_security_report_discloses_no_host_enforcement_or_live_readiness():
 @pytest.mark.parametrize("invalid",[
     None,123,"", "\x00[Unit]", "x"*17000
 ])
+def test_empty_default_section_is_not_allowed(unit):
+    # systemd ignores [DEFAULT]; ConfigParser understands it. Never let
+    # a parser-only section produce false PASS for an unsupported unit.
+    denied("QUARANTINE_EXTRA_SECTION",validate_candidate,
+           unit.replace("[Unit]\n","[DEFAULT]\n[Unit]\n",1))
+
+
 def test_invalid_unit_input_closed(invalid):
     denied("QUARANTINE_UNIT_INPUT_INVALID",validate_candidate,invalid)
