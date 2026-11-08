@@ -11,13 +11,13 @@
       "path": "/root/poa-stage-input.json",
       "owner": "root:root",
       "permissions": "0600",
-      "content": "{\"install_mode\":\"NEW_SERVER_STAGE_ONLY\",\"repo_ref\":\"cea1b7fc9d349249b92040f9a768cf66bdf428af\",\"release_manifest_sha256\":\"0c464b1387d7ced078d4d957a1a9bdc947b8bb1d425518aba631fcc623d279fa\"}"
+      "content": "{\"install_mode\":\"NEW_SERVER_STAGE_ONLY\",\"repo_ref\":\"b23fc5655f7e5d8f1d3946f365099a2bbb29edf2\",\"release_manifest_sha256\":\"0c464b1387d7ced078d4d957a1a9bdc947b8bb1d425518aba631fcc623d279fa\"}"
     },
     {
       "path": "/usr/local/lib/poa/verified_script_hashes.json",
       "owner": "root:root",
       "permissions": "0600",
-      "content": "{\"install_once.py\": \"5572d3cef61050bfeba684dcb573b4057f0714da85fbdb6b9bfe62761a471374\", \"prepare_ubuntu.py\": \"7d8f570f756cd41694001de12b271f4dc443fd21a45a06acc1b68c972bad605b\", \"ubuntu22_operational.py\": \"d4738f0d5c2f140fd56f555d9ce808c2593e36b7c3992af759cb0c8679df2538\", \"ubuntu22_release_handoff.py\": \"cced9aa68710c57384c9de4ea4fbf5e06a9b60b485600912d09e3d8d3ea478a5\", \"validate_config.py\": \"9ecd177b5196c9c455d54f4a03e43f9ded7c663b6efff7710cca702d45736931\"}"
+      "content": "{\"install_once.py\": \"5572d3cef61050bfeba684dcb573b4057f0714da85fbdb6b9bfe62761a471374\", \"prepare_ubuntu.py\": \"7d8f570f756cd41694001de12b271f4dc443fd21a45a06acc1b68c972bad605b\", \"ubuntu22_operational.py\": \"f34c22811d6c189ca456b230ba4c1e99bcabfc2f0b5b2435f751755624e80e57\", \"ubuntu22_release_handoff.py\": \"cced9aa68710c57384c9de4ea4fbf5e06a9b60b485600912d09e3d8d3ea478a5\", \"validate_config.py\": \"9ecd177b5196c9c455d54f4a03e43f9ded7c663b6efff7710cca702d45736931\"}"
     },
     {
       "path": "/usr/local/lib/poa/bootstrap-ubuntu22.py",
