@@ -41,7 +41,7 @@
       "path": "/root/poa-oneclick-input.json",
       "owner": "root:root",
       "permissions": "0600",
-      "content": "{\n  \"domain\": \"AUTO\",\n  \"db_admin_email\": \"poa-admin@example.org\",\n  \"credentials\": {\n    \"PASSWORD\": \"AUTO\",\n    \"DISCORD_WEBHOOK_URL\": \"SET_DISCORD_WEBHOOK_URL\",\n    \"UPBIT_KEY\": \"SET_UPBIT_KEY\",\n    \"UPBIT_SECRET\": \"SET_UPBIT_SECRET\"\n  }\n}"
+      "content": "{\n  \"domain\": \"AUTO\",\n  \"db_admin_email\": \"poa-admin@example.org\",\n  \"credentials\": {\n    \"PASSWORD\": \"AUTO\",\n    \"DISCORD_WEBHOOK_URL\": \"SET_DISCORD_WEBHOOK_URL\",\n    \"UPBIT_KEY\": \"SET_UPBIT_KEY\",\n    \"UPBIT_SECRET\": \"SET_UPBIT_SECRET\",\n    \"BINANCE_KEY\": \"\",\n    \"BINANCE_SECRET\": \"\",\n    \"BYBIT_KEY\": \"\",\n    \"BYBIT_SECRET\": \"\",\n    \"OKX_KEY\": \"\",\n    \"OKX_SECRET\": \"\",\n    \"OKX_PASSPHRASE\": \"\",\n    \"BITGET_KEY\": \"\",\n    \"BITGET_SECRET\": \"\",\n    \"BITGET_PASSPHRASE\": \"\"\n  }\n}"
     },
     {
       "path": "/usr/local/lib/poa/ubuntu22_oneclick.py",
@@ -62,5 +62,5 @@
       "umask 077; python3 /usr/local/lib/poa/ubuntu22_oneclick.py"
     ]
   ],
-  "final_message": "POA bootstrap completed; check cloud-init status and sudo cat /root/POA_ONECLICK_RESULT.json for exact HTTPS webhook URL. No trade is sent during provisioning."
+  "final_message": "POA first-boot setup attempted. Verify success using: sudo cloud-init status --wait && sudo cat /root/POA_ONECLICK_RESULT.json"
 }
