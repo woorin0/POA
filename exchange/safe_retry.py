@@ -64,6 +64,8 @@ def number(value):
 
 class Store:
     def __init__(self, path):
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         if str(path) == ":memory:":
             raise SafetyError("Persistent storage is required")
         self.path = str(Path(path).resolve())
@@ -83,6 +85,8 @@ class Store:
 
     @contextmanager
     def connect(self):
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         con = sqlite3.connect(self.path, timeout=5)
         try:
             con.execute("PRAGMA synchronous=FULL")
@@ -96,6 +100,8 @@ class Store:
             con.close()
 
     def claim(self, row):
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         with self.connect() as con:
             existing = con.execute("SELECT data FROM safe_orders WHERE signal=?", (row["signal"],)).fetchone()
             if existing:
@@ -113,6 +119,8 @@ class Store:
             return row, True
 
     def save(self, row, state, release=False, **changes):
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         with self.connect() as con:
             current = con.execute("SELECT state FROM safe_orders WHERE signal=?", (row["signal"],)).fetchone()
             if not current or (state != current[0] and state not in TRANSITIONS[current[0]]):
@@ -127,11 +135,15 @@ class Store:
         row.update(updated)
 
     def pending(self):
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         with self.connect() as con:
             return [json.loads(r[0]) for r in con.execute(
                 "SELECT o.data FROM safe_orders o JOIN safe_locks l ON o.signal=l.signal")]
 
     def recover(self):
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         rows = self.pending()
         for row in rows:
             if row["state"] in {"RECEIVED", "VALIDATED", "REJECTED"}:
@@ -141,6 +153,8 @@ class Store:
         return rows
 
     def backup(self, destination):
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         with closing(sqlite3.connect(self.path)) as src, closing(sqlite3.connect(str(destination))) as dst:
             src.backup(dst)
 
@@ -189,6 +203,8 @@ def classify(exchange, exc):
 
 class Adapter:
     def __init__(self, instance, info):
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         self.bot, self.client, self.info = instance, instance.client, info
         self.exchange = info.exchange
 
@@ -248,6 +264,8 @@ class Adapter:
         return tuple(args)
 
     def reconcile(self, row):
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         """Read ID, open/history, trades and position. Absence never authorizes send."""
         symbol, cid = row["symbol"], row["client_id"]
         if self.exchange == "UPBIT":
@@ -320,6 +338,8 @@ class Adapter:
 
 class Manager:
     def __init__(self, store, config=Config(), alert=None, clock=time.time, sleep=time.sleep):
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         self.store, self.cfg, self.alert = store, config, alert
         self.clock, self.sleep = clock, sleep
         self.mutex = threading.RLock()
@@ -366,15 +386,15 @@ class Manager:
         return True
 
     def execute(self, func, args, info, adapter):
-        from exchange.order_execution_gate import require_order_disabled
-        require_order_disabled()
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         # Serializes mutable shared client options/order_info within this manager.
         with self.mutex:
             return self._execute(func, args, info, adapter)
 
     def _execute(self, func, args, info, adapter):
-        from exchange.order_execution_gate import require_order_disabled
-        require_order_disabled()
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         explicit = getattr(info, "signal_id", None)
         if info.exchange == "UPBIT" and not explicit:
             raise SafetyError("UPBIT safe mode requires 'signal_id' for duplicate protection. Please provide signal_id in TradingView webhook.")
@@ -466,8 +486,8 @@ _init_lock = threading.Lock()
 
 
 def get_manager(settings):
-    from exchange.order_execution_gate import require_order_disabled
-    require_order_disabled()
+    from exchange.order_execution_gate import OrderExecutionBlocked
+    raise OrderExecutionBlocked()
     global _manager, _lock_file
     with _init_lock:
         if _manager is not None:
@@ -510,8 +530,8 @@ def get_manager(settings):
 
 
 def safe_submit(func, args, info, instance, settings):
-    from exchange.order_execution_gate import require_order_disabled
-    require_order_disabled()
+    from exchange.order_execution_gate import OrderExecutionBlocked
+    raise OrderExecutionBlocked()
     is_upbit = (info.exchange == "UPBIT")
     if is_upbit:
         if not getattr(settings, "UPBIT_SAFE_RETRY_ENABLED", False):
@@ -578,6 +598,8 @@ class ReconciliationClients:
     Never shares or mutates the trading bot's CCXT instance or its options['defaultType'].
     Uses atomic lease tracking and strict single-owner closing to eliminate race conditions."""
     def __init__(self, settings):
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         self.settings = settings
         self.clients = {}
         self.client_locks = {}
@@ -610,6 +632,8 @@ class ReconciliationClients:
         return (str(exchange).upper(), category, acct)
 
     def _get_or_create_client_locked(self, key, exchange: str, is_futures: bool):
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         norm_key = self._normalize_key(key, is_futures)
         if norm_key not in self.clients:
             import ccxt
@@ -751,6 +775,8 @@ class ReconciliationClients:
                 "CCXT close outcome=%s; client retired; resource release unconfirmed", outcome)
 
     def acquire_lease(self, exchange, is_futures: bool = False):
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         """Atomically acquires client reference and registers active lease under pool lock.
         Active leases prevent the client from being closed during lock contention or queries."""
         if isinstance(exchange, tuple):
@@ -812,6 +838,8 @@ class ReconciliationClients:
             self._safe_close_client(key, client_to_close)
 
     def get_client(self, exchange, is_futures: bool = False):
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         norm_key = self._normalize_key(exchange, is_futures)
         with self.lock:
             if self.closed or _shutdown_event.is_set() or self.state in ("CLOSING", "CLOSED", STATE_CLOSING, STATE_CLOSED):
@@ -943,6 +971,8 @@ def reset_reconciliation_state():
 
 
 def get_reconciliation_clients(settings):
+    from exchange.order_execution_gate import OrderExecutionBlocked
+    raise OrderExecutionBlocked()
     global _recon_clients_pool
     with _recon_clients_lock:
         if _recon_clients_pool is None or _recon_clients_pool.settings != settings or _recon_clients_pool.closed:
@@ -960,8 +990,8 @@ def close_reconciliation_clients(timeout: float = 10.0):
 
 
 def reconcile_pending(settings, get_bot=None):
-    from exchange.order_execution_gate import require_order_disabled
-    require_order_disabled()
+    from exchange.order_execution_gate import OrderExecutionBlocked
+    raise OrderExecutionBlocked()
     if _shutdown_event.is_set():
         return
     manager = get_manager(settings)
@@ -1045,8 +1075,8 @@ def reconcile_pending(settings, get_bot=None):
 
 
 async def reconciliation_loop(settings, get_bot=None):
-    from exchange.order_execution_gate import require_order_disabled
-    require_order_disabled()
+    from exchange.order_execution_gate import OrderExecutionBlocked
+    raise OrderExecutionBlocked()
     import asyncio
     while not _shutdown_event.is_set():
         try:

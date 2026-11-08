@@ -8,6 +8,8 @@ from devtools import debug
 
 class Bybit:
     def __init__(self, key, secret):
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         self.client = ccxt.bybit(
             {
                 "apiKey": key,
@@ -148,8 +150,8 @@ class Bybit:
         return result
 
     def set_leverage(self, leverage: float, symbol: str):
-        from exchange.order_execution_gate import require_order_disabled
-        require_order_disabled()
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         try:
             self.client.set_leverage(leverage, symbol)
         except Exception as e:
@@ -177,8 +179,8 @@ class Bybit:
         return order_amount
 
     def market_order(self, order_info: MarketOrder):
-        from exchange.order_execution_gate import require_order_disabled
-        require_order_disabled()
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         from exchange.pexchange import retry
 
         symbol = order_info.unified_symbol
@@ -204,8 +206,8 @@ class Bybit:
         self,
         order_info: MarketOrder,
     ):
-        from exchange.order_execution_gate import require_order_disabled
-        require_order_disabled()
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         # 비용주문
         buy_amount = self.get_amount(order_info)
         order_info.amount = buy_amount
@@ -214,15 +216,15 @@ class Bybit:
         return self.market_order(order_info)
 
     def market_sell(self, order_info: MarketOrder):
-        from exchange.order_execution_gate import require_order_disabled
-        require_order_disabled()
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         sell_amount = self.get_amount(order_info)
         order_info.amount = sell_amount
         return self.market_order(order_info)
 
     def market_entry(self, order_info: MarketOrder):
-        from exchange.order_execution_gate import require_order_disabled
-        require_order_disabled()
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         from exchange.pexchange import retry
 
         symbol = order_info.unified_symbol
@@ -272,8 +274,8 @@ class Bybit:
             raise error.OrderError(e, order_info)
 
     def market_close(self, order_info: MarketOrder):
-        from exchange.order_execution_gate import require_order_disabled
-        require_order_disabled()
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         from exchange.pexchange import retry
 
         symbol = self.order_info.unified_symbol

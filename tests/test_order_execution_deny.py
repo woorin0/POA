@@ -45,6 +45,19 @@ SINKS = {
                               "create_korea_market_buy_order", "create_korea_market_sell_order",
                               "create_usa_market_buy_order"),
 }
+EXTRA_SINKS = {
+    "main.py": ("get_ip", "_price_http", "price"),
+    "exchange/pexchange.py": ("get_exchange", "get_bot"),
+    "exchange/safe_retry.py": ("get_reconciliation_clients",),
+    "exchange/binance.py": ("__init__",),
+    "exchange/bitget.py": ("__init__",),
+    "exchange/bybit.py": ("__init__",),
+    "exchange/okx.py": ("__init__",),
+    "exchange/upbit.py": ("__init__",),
+    "exchange/stock/kis.py": ("__init__", "get_hashkey", "create_auth", "auth"),
+}
+# Unique for each module; Safe Retry contains four separate class constructors
+# that are covered by the separate independent PR25 scoped-AST attack tests.
 SINK_LIST = [(path, name) for path, names in SINKS.items() for name in names]
 
 
@@ -154,19 +167,68 @@ def test_only_two_guard_statements_added_per_entrypoint_exact_original_bytes(pat
         assert isinstance(first,ast.ImportFrom)
         assert first.module=="exchange.order_execution_gate"
         assert len(first.names)==1
-        assert first.names[0].name=="require_order_disabled"
-        assert isinstance(second,ast.Expr)
-        call=second.value
+        assert first.names[0].name=="OrderExecutionBlocked"
+        assert isinstance(second,ast.Raise)
+        call=second.exc
         assert isinstance(call,ast.Call) and isinstance(call.func,ast.Name)
-        assert call.func.id=="require_order_disabled"
+        assert call.func.id=="OrderExecutionBlocked"
         assert not call.args and not call.keywords
         # Strictly remove only the two known new lines; preserve all original
         # bytes and original AST (financial formulas/retries/DB unchanged).
         assert first.end_lineno==first.lineno and second.end_lineno==second.lineno
         used.update((first.lineno,second.lineno))
+    # Guarded *new* endpoints are also exactly two statements relative to
+    # PR23, not financial-refactoring changes.
+    for name in EXTRA_SINKS.get(path, ()):
+        if name == "__init__":
+            root=ast.parse(data)
+            nodes=[n for n in ast.walk(root) if isinstance(n,ast.FunctionDef)
+                   and n.name == "__init__"
+                   and len(n.body)>=2
+                   and isinstance(n.body[0],ast.ImportFrom)
+                   and n.body[0].module=="exchange.order_execution_gate"]
+            assert len(nodes)==1,(path,len(nodes))
+            fn=nodes[0]
+        else:
+            fn=method(path,name)
+        first,second=fn.body[:2]
+        assert isinstance(first,ast.ImportFrom) and first.module=="exchange.order_execution_gate"
+        assert first.names[0].name=="OrderExecutionBlocked"
+        assert isinstance(second,ast.Raise)
+        assert isinstance(second.exc,ast.Call)
+        assert isinstance(second.exc.func,ast.Name) and second.exc.func.id=="OrderExecutionBlocked"
+        used.update((first.lineno,second.lineno))
+    if path=="exchange/safe_retry.py":
+        root=ast.parse(data)
+        names={"Store","Adapter","Manager","ReconciliationClients"}
+        for cl in root.body:
+            if isinstance(cl,ast.ClassDef) and cl.name in names:
+                constructors=[n for n in cl.body if isinstance(n,ast.FunctionDef) and n.name=="__init__"]
+                assert len(constructors)==1
+                fn=constructors[0]
+                assert isinstance(fn.body[0],ast.ImportFrom)
+                assert fn.body[0].module=="exchange.order_execution_gate"
+                assert fn.body[0].names[0].name=="OrderExecutionBlocked"
+                assert isinstance(fn.body[1],ast.Raise)
+                used.update((fn.body[0].lineno,fn.body[1].lineno))
+    if path=="exchange/safe_retry.py":
+        for name in ("connect","claim","save","pending","recover","backup",
+                     "reconcile","_get_or_create_client_locked",
+                     "acquire_lease","get_client"):
+            fn=method(path,name)
+            assert isinstance(fn.body[0],ast.ImportFrom)
+            assert fn.body[0].module=="exchange.order_execution_gate"
+            assert fn.body[0].names[0].name=="OrderExecutionBlocked"
+            assert isinstance(fn.body[1],ast.Raise)
+            assert isinstance(fn.body[1].exc,ast.Call)
+            assert isinstance(fn.body[1].exc.func,ast.Name)
+            assert fn.body[1].exc.func.id=="OrderExecutionBlocked"
+            used.update((fn.body[0].lineno,fn.body[1].lineno))
     restored="".join(line for i,line in enumerate(lines,1) if i not in used)
     assert restored==baseline(path)
-    assert len(used)==2*len(SINKS[path])
+    extra=len(EXTRA_SINKS.get(path,()))
+    if path=="exchange/safe_retry.py":extra+=14
+    assert len(used)==2*(len(SINKS[path])+extra)
 
 
 def test_execution_gate_is_irreversible_without_source_change():
@@ -194,6 +256,9 @@ def test_no_other_protected_financial_code_or_original_manifest_changed():
     allowed = set(SINKS)|{
         "exchange/order_execution_gate.py",
         "tests/test_order_execution_deny.py",
+        "tests/test_pr24_independent_order_reattack.py",
+        ".github/workflows/pr24_independent_order_reattack.yml",
+        "deployment/PR24_INDEPENDENT_ORDER_REAUDIT.md",
         ".github/workflows/order_execution_deny_ci.yml",
         "deployment/PR23_CENTRAL_ORDER_DENY_AUDIT.md",
     }
