@@ -34,10 +34,13 @@ def create_sqlite(path: Path) -> None:
     # The existing repository audit guard denies SQLite opens named data.db.
     # Generate the offline MOCK at a different test filename, then rename.
     scratch = path.with_name("synthetic-pocketbase.sqlite3") if path.name == "data.db" else path
-    with sqlite3.connect(scratch) as con:
+    con = sqlite3.connect(scratch)
+    try:
         con.execute("CREATE TABLE mock_evidence (id INTEGER PRIMARY KEY, amount TEXT)")
         con.execute("INSERT INTO mock_evidence (amount) VALUES (?)", ("123.456789",))
         con.commit()
+    finally:
+        con.close()  # Windows locks SQLite until the actual handle closes.
     if scratch != path:
         scratch.rename(path)
     path.chmod(0o600)
@@ -235,7 +238,7 @@ def test_original_python310_time_windows_independent_dst_oracle(zone,y,m,d):
     from datetime import datetime,timedelta
     from zoneinfo import ZoneInfo
     import pendulum
-    tree=ast.parse((ROOT/"exchange/pexchange.py").read_text())
+    tree=ast.parse((ROOT/"exchange/pexchange.py").read_text(encoding="utf-8"))
     found=[n for n in tree.body if isinstance(n,ast.FunctionDef)
            and n.name=="get_today_timestamp"]
     assert len(found)==1
