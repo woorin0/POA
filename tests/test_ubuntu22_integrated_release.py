@@ -134,6 +134,7 @@ def test_db_wal_and_shm_block_safe_restoration(tmp_path):
         H.compare_restored_backup(original,restored,db1,db2)
 
 
+@pytest.mark.skipif(sys.platform == 'win32', reason='symlink needs Windows privilege')
 def test_insecure_symlink_db_directory_blocks(tmp_path):
     original,restored,db1,db2=make_offline_copy(tmp_path)
     target=db2/"pb_data"/"aux"/"history.mock"
@@ -194,6 +195,48 @@ def test_old_ubuntu22_user_data_cannot_autostart_real_trading():
         ROOT/"deployment"/"prepare_ubuntu.py").read_text()
     assert "NEW_SERVER_ONLY" in (
         ROOT/"deployment"/"install_once.py").read_text()
+
+
+@pytest.mark.parametrize("zone,y,m,d", [
+    ("UTC",2026,11,8),
+    ("Asia/Seoul",2026,11,8),
+    ("Asia/Seoul",2024,2,29),
+    ("America/New_York",2026,3,8),
+    ("America/New_York",2026,11,1),
+    ("Europe/Berlin",2026,3,29),
+    ("Europe/Berlin",2026,10,25),
+])
+def test_original_python310_time_windows_independent_dst_oracle(zone,y,m,d):
+    # PR34 time-parity methodology; execute verbatim function via AST,
+    # never import exchange client or interact with any real venue.
+    import ast
+    from datetime import datetime,timedelta
+    from zoneinfo import ZoneInfo
+    import pendulum
+    tree=ast.parse((ROOT/"exchange/pexchange.py").read_text())
+    found=[n for n in tree.body if isinstance(n,ast.FunctionDef)
+           and n.name=="get_today_timestamp"]
+    assert len(found)==1
+    expected=ast.parse(
+        'def get_today_timestamp(timezone="Asia/Seoul"):\n'
+        '    today = pendulum.today(timezone)\n'
+        '    today_start = int(today.start_of("day").timestamp() * 1000)\n'
+        '    today_end = int(today.end_of("day").timestamp() * 1000)\n'
+        '    return today_start, today_end\n'
+    ).body[0]
+    assert ast.dump(found[0], include_attributes=False)==ast.dump(
+        expected, include_attributes=False)
+    from types import SimpleNamespace
+    frozen=SimpleNamespace(today=lambda tz:pendulum.datetime(y,m,d,12,34,56,tz=tz))
+    env={"pendulum":frozen}
+    exec(compile(ast.Module(body=found,type_ignores=[]),
+                 "<original-exchange-timestamp-only>","exec"),env)
+    got=env["get_today_timestamp"](zone)
+    start=datetime(y,m,d,tzinfo=ZoneInfo(zone))
+    nxt=start.date()+timedelta(days=1)
+    end=datetime(nxt.year,nxt.month,nxt.day,tzinfo=ZoneInfo(zone))
+    assert got==(int(start.timestamp()*1000),int(end.timestamp()*1000)-1)
+    assert got[1]-got[0]+1 in (23*3600000,24*3600000,25*3600000)
 
 
 def test_no_product_finance_install_sources_changed():
