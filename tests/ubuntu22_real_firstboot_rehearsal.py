@@ -111,10 +111,9 @@ def main():
     # startup and aborts when delivery fails. There is deliberately no real
     # Discord account in this ephemeral rehearsal. Intercept dhooks only inside
     # the temporary venv; do not change any POA product file or User Data.
-    original_python_install = module.python_install
+    original_complete_install = module.complete_install
 
-    def python_install_with_synthetic_discord(legacy):
-        original_python_install(legacy)
+    def complete_install_with_synthetic_discord(legacy, operations, oneclick, data):
         fake_transport = module.APP / ".venv/lib/python3.10/site-packages/sitecustomize.py"
         fake_transport.write_text(
             "from dhooks import Webhook\n"
@@ -124,8 +123,9 @@ def main():
             encoding="utf-8",
         )
         # This file remains on the ephemeral CI runner only.
+        return original_complete_install(legacy, operations, oneclick, data)
 
-    module.python_install = python_install_with_synthetic_discord
+    module.complete_install = complete_install_with_synthetic_discord
     result = module.main()
     if result != 0:
         diag = Path("/root/POA_INSTALL_LAST_ERROR.log")
