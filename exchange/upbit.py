@@ -61,6 +61,8 @@ class Upbit:
         return result
 
     def market_order(self, order_info: MarketOrder):
+        from exchange.order_execution_gate import require_order_disabled
+        require_order_disabled()
         from exchange.pexchange import retry
 
         params = {}
@@ -81,6 +83,8 @@ class Upbit:
             raise error.OrderError(e, order_info)
 
     def market_buy(self, order_info: MarketOrder):
+        from exchange.order_execution_gate import require_order_disabled
+        require_order_disabled()
         from exchange.pexchange import retry
 
         # 비용주문
@@ -90,17 +94,23 @@ class Upbit:
         return self.market_order(order_info)
 
     def market_sell(self, order_info: MarketOrder):
+        from exchange.order_execution_gate import require_order_disabled
+        require_order_disabled()
         sell_amount = self.get_amount(order_info)
         order_info.amount = sell_amount
         return self.market_order(order_info)
 
     def market_entry(self, order_info: MarketOrder):
+        from exchange.order_execution_gate import require_order_disabled
+        require_order_disabled()
         if order_info.is_buy:
             return self.market_buy(order_info)
         else:
             return self.market_sell(order_info)
 
     def market_close(self, order_info: MarketOrder):
+        from exchange.order_execution_gate import require_order_disabled
+        require_order_disabled()
         if order_info.is_sell:
             return self.market_sell(order_info)
         else:
