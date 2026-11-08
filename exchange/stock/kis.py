@@ -20,6 +20,8 @@ class KoreaInvestment:
         account_code: str,
         kis_number: int,
     ):
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         self.key = key
         self.secret = secret
         self.kis_number = kis_number
@@ -64,8 +66,8 @@ class KoreaInvestment:
     def post_with_error_handling(
         self, endpoint: str, data: dict = None, headers: dict = None
     ):
-        from exchange.order_execution_gate import require_order_disabled
-        require_order_disabled()
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         url = f"{self.base_url}{endpoint}"
         response = self.session.post(url, json=data, headers=headers).json()
         if "access_token" in response.keys() or response["rt_cd"] == "0":
@@ -74,11 +76,13 @@ class KoreaInvestment:
             raise Exception(response)
 
     def post(self, endpoint: str, data: dict = None, headers: dict = None):
-        from exchange.order_execution_gate import require_order_disabled
-        require_order_disabled()
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         return self.post_with_error_handling(endpoint, data, headers)
 
     def get_hashkey(self, data) -> str:
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         headers = {"appKey": self.key, "appSecret": self.secret}
         endpoint = "/uapi/hashkey"
         url = f"{self.base_url}{endpoint}"
@@ -130,6 +134,8 @@ class KoreaInvestment:
             print(traceback.format_exc())
 
     def create_auth(self, key: str, secret: str):
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         data = {"grant_type": "client_credentials", "appkey": key, "appsecret": secret}
         base_url = BaseUrls.base_url.value
         endpoint = "/oauth2/tokenP"
@@ -143,6 +149,8 @@ class KoreaInvestment:
             raise Exception(response)
 
     def auth(self):
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         auth_id = f"KIS{self.kis_number}"
         auth = db.get_auth(auth_id)
         if not self.check_auth(auth, self.key, self.secret, self.kis_number):
@@ -169,8 +177,8 @@ class KoreaInvestment:
         price: int = 0,
         mintick=0.01,
     ):
-        from exchange.order_execution_gate import require_order_disabled
-        require_order_disabled()
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         max_retries = 3
         last_exception = None
         
@@ -268,8 +276,8 @@ class KoreaInvestment:
         amount: int,
         price: int = 0,
     ):
-        from exchange.order_execution_gate import require_order_disabled
-        require_order_disabled()
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         if exchange == "KRX":
             return self.create_order(exchange, ticker, "market", "buy", amount)
         elif exchange == "usa":
@@ -282,26 +290,26 @@ class KoreaInvestment:
         amount: int,
         price: int = 0,
     ):
-        from exchange.order_execution_gate import require_order_disabled
-        require_order_disabled()
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         if exchange == "KRX":
             return self.create_order(exchange, ticker, "market", "sell", amount)
         elif exchange == "usa":
             return self.create_order(exchange, ticker, "market", "buy", amount, price)
 
     def create_korea_market_buy_order(self, ticker: str, amount: int):
-        from exchange.order_execution_gate import require_order_disabled
-        require_order_disabled()
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         return self.create_market_buy_order("KRX", ticker, amount)
 
     def create_korea_market_sell_order(self, ticker: str, amount: int):
-        from exchange.order_execution_gate import require_order_disabled
-        require_order_disabled()
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         return self.create_market_sell_order("KRX", ticker, amount)
 
     def create_usa_market_buy_order(self, ticker: str, amount: int, price: int):
-        from exchange.order_execution_gate import require_order_disabled
-        require_order_disabled()
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         return self.create_market_buy_order("usa", ticker, amount, price)
 
     def fetch_ticker(
