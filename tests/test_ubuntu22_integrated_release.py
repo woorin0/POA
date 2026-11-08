@@ -235,8 +235,6 @@ def test_original_python310_time_windows_independent_dst_oracle(zone,y,m,d):
     # PR34 time-parity methodology; execute verbatim function via AST,
     # never import exchange client or interact with any real venue.
     import ast
-    from datetime import datetime,timedelta
-    from zoneinfo import ZoneInfo
     tree=ast.parse((ROOT/"exchange/pexchange.py").read_text(encoding="utf-8"))
     found=[n for n in tree.body if isinstance(n,ast.FunctionDef)
            and n.name=="get_today_timestamp"]
@@ -255,22 +253,27 @@ def test_original_python310_time_windows_independent_dst_oracle(zone,y,m,d):
     # to verify the *original function*, not a test-module substitute.
     code = (
         "import json,sys,pendulum\n"
+        "from datetime import datetime,timedelta\n"
+        "from zoneinfo import ZoneInfo\n"
         "from types import SimpleNamespace\n"
         "y,m,d=map(int,sys.argv[3:6])\n"
         "scope={'pendulum':SimpleNamespace(today=lambda tz: "
         "pendulum.datetime(y,m,d,12,34,56,tz=tz))}\n"
         "exec(sys.argv[1],scope)\n"
-        "print(json.dumps(scope['get_today_timestamp'](sys.argv[2])))\n"
+        "got=scope['get_today_timestamp'](sys.argv[2])\n"
+        "start=datetime(y,m,d,tzinfo=ZoneInfo(sys.argv[2]))\n"
+        "nxt=start.date()+timedelta(days=1)\n"
+        "end=datetime(nxt.year,nxt.month,nxt.day,tzinfo=ZoneInfo(sys.argv[2]))\n"
+        "oracle=[int(start.timestamp()*1000),int(end.timestamp()*1000)-1]\n"
+        "print(json.dumps({'got':got,'expected':oracle}))\n"
     )
     proc=subprocess.run(
         [sys.executable,"-I","-B","-c",code,ast.unparse(found[0]),
          zone,str(y),str(m),str(d)],
         cwd=ROOT,text=True,capture_output=True,timeout=20,check=True)
-    got=tuple(json.loads(proc.stdout))
-    start=datetime(y,m,d,tzinfo=ZoneInfo(zone))
-    nxt=start.date()+timedelta(days=1)
-    end=datetime(nxt.year,nxt.month,nxt.day,tzinfo=ZoneInfo(zone))
-    assert got==(int(start.timestamp()*1000),int(end.timestamp()*1000)-1)
+    result=json.loads(proc.stdout)
+    got=tuple(result["got"])
+    assert got==tuple(result["expected"])
     assert got[1]-got[0]+1 in (23*3600000,24*3600000,25*3600000)
 
 
