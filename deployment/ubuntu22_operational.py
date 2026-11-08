@@ -78,7 +78,7 @@ def _stage_ready():
 def _run(argv, name, timeout=120):
     return legacy.run(argv, name, timeout=timeout)
 
-def _install_units():
+def _install_units(*, resume: bool = False):
     SERVICE_DIR.mkdir(mode=0o755, exist_ok=True)
     units = {
         "pocketbase.service": (
@@ -107,8 +107,12 @@ def _install_units():
     for name, data in units.items():
         target = SERVICE_DIR / name
         if target.exists() or target.is_symlink():
-            # Stage intentionally never installs real units.
-            raise SetupBlocked("EXISTING_SERVICE_PRESERVED_STOP")
+            # Only a local retry after an interrupted activation may reuse
+            # precisely the service units that this installer generated.
+            if (not resume or target.is_symlink() or not target.is_file()
+                    or target.read_text(encoding="utf-8") != data):
+                raise SetupBlocked("EXISTING_SERVICE_PRESERVED_STOP")
+            continue
         target.write_text(data, encoding="utf-8")
         target.chmod(0o644)
     _run(["systemctl", "daemon-reload"], "DAEMON_RELOAD_FAILED")
@@ -126,15 +130,19 @@ def _pocketbase_ready():
     legacy.wait_ready(lambda: legacy.api("/api/health").get("code") == 200,
                       "POCKETBASE_LOCAL_HEALTH_FAILED", seconds=60)
 
-def _start_services(*, fresh: bool, admin_email="", admin_password=""):
-    _install_units()
+def _start_services(*, fresh: bool, admin_email="", admin_password="", resume=False):
+    _install_units(resume=resume)
     _run(["systemctl", "start", "pocketbase"], "POCKETBASE_START_FAILED")
     _pocketbase_ready()
     if fresh:
         legacy.bootstrap_db(admin_email, admin_password)
     # No Caddy/port-80/443, no TradingView webhook exposure.
     # Local REST startup does not execute an order without a user request.
-    (APP / "LOCAL_READY").touch(mode=0o600, exist_ok=False)
+    marker = APP / "LOCAL_READY"
+    if resume:
+        _assert_private_regular(marker)
+    else:
+        marker.touch(mode=0o600, exist_ok=False)
     _run(["systemctl", "start", "poa"], "POA_START_FAILED")
     _local_ready()
     _run(["systemctl", "enable", "pocketbase", "poa"], "AUTOSTART_FAILED")
@@ -149,6 +157,21 @@ def _start_services(*, fresh: bool, admin_email="", admin_password=""):
     result.write_text(json.dumps(report, sort_keys=True), encoding="utf-8")
     result.chmod(0o600)
     return report
+
+def resume_local():
+    """Retry an interrupted *local* activation without DB bootstrap or mutation.
+
+    LOCAL_READY is created only after PocketBase start and (for fresh) the
+    original first-admin schema bootstrap. Do not infer readiness from .env.
+    """
+    _stage_ready()
+    _assert_private_regular(APP / ".env")
+    if not (APP / "LOCAL_READY").is_file():
+        raise SetupBlocked("LOCAL_ACTIVATION_NOT_YET_PREPARED")
+    _assert_private_regular(APP / "LOCAL_READY")
+    if not (DB / "pb_data" / "data.db").is_file():
+        raise SetupBlocked("POCKETBASE_DATA_MISSING")
+    return _start_services(fresh=False, resume=True)
 
 def _private_json(path: Path):
     _assert_private_regular(path)
@@ -363,6 +386,7 @@ def main(argv=None):
     recovered = sub.add_parser("restore", help="copy existing OFFLINE backup; do NOT start")
     recovered.add_argument("--backup", type=Path, required=True)
     sub.add_parser("activate-restored", help="start restored DB and local POA only")
+    sub.add_parser("resume-local", help="retry interrupted local service startup; never re-bootstrap DB")
     exposed = sub.add_parser("publish", help="explicitly expose TradingView order endpoint")
     exposed.add_argument("--domain", required=True)
     opts = cli.parse_args(argv)
@@ -373,6 +397,8 @@ def main(argv=None):
             result = restore(opts.backup)
         elif opts.action == "activate-restored":
             result = activate_restored()
+        elif opts.action == "resume-local":
+            result = resume_local()
         else:
             result = publish(opts.domain)
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
