@@ -25,7 +25,7 @@ def test_bot01_order_notification_source_is_unchanged():
         assert (ROOT / path).read_bytes() == baseline, path
 
 
-def test_bot01_install_enables_read_only_fill_confirmation_by_default(tmp_path):
+def test_bot01_source_default_has_explicit_opt_in_and_installer_overrides_it(tmp_path):
     installer = ast.parse((ROOT / "deployment/install_once.py").read_text(encoding="utf-8"))
     flags_node = next(node for node in installer.body
                       if isinstance(node, ast.Assign)
@@ -36,7 +36,7 @@ def test_bot01_install_enables_read_only_fill_confirmation_by_default(tmp_path):
     assert flags["VERIFIED_FILL_PRICE"] is True
     assert flags["DISCORD_OUTBOX_ENABLED"] is True
     assert flags["UPBIT_VERIFIED_ALERTS"] is True
-    assert flags["POA_EXCHANGE_FILL_CONFIRMATION_ENABLED"] is True
+    assert "POA_EXCHANGE_FILL_CONFIRMATION_ENABLED" not in flags
 
     schemas = ast.parse((ROOT / "exchange/model/schemas.py").read_text(encoding="utf-8"))
     settings_cls = next(x for x in schemas.body
@@ -45,7 +45,7 @@ def test_bot01_install_enables_read_only_fill_confirmation_by_default(tmp_path):
                          if isinstance(x, ast.AnnAssign)
                          and isinstance(x.target, ast.Name)
                          and x.target.id == "POA_EXCHANGE_FILL_CONFIRMATION_ENABLED")
-    assert ast.literal_eval(native_switch.value) is True
+    assert ast.literal_eval(native_switch.value) is False
 
     confirmation = ast.parse(
         (ROOT / "exchange/verified_pnl/order_fill_confirmation.py").read_text(encoding="utf-8")
