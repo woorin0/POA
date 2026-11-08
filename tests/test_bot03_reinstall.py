@@ -114,6 +114,21 @@ def test_pinned_clean_fixture_stages_only_into_new_private_directory(tmp_path):
     assert not (protected_app).exists() and not (protected_db).exists()
 
 
+def test_tracked_python_cache_is_never_copied(tmp_path):
+    source,_=make_repo(tmp_path)
+    cache=source/"exchange"/"__pycache__"/"stale.cpython-310.pyc"
+    cache.parent.mkdir(parents=True,exist_ok=True)
+    cache.write_bytes(b"OLD_INTERPRETER_CACHE_CANARY")
+    git(source,"add","-f","exchange/__pycache__/stale.cpython-310.pyc")
+    git(source,"commit","-m","fixture legacy tracked cache")
+    sha=git(source,"rev-parse","HEAD")
+    dst=private_parent(tmp_path)/"staged"
+    report=B.stage(source,dst,sha)
+    assert report["manifest_entries_verified"]==72
+    assert not (dst/"exchange"/"__pycache__").exists()
+    assert report["approved_for_deployment"] is False
+
+
 def test_pinned_head_mismatch_is_blocked_before_destination_creation(tmp_path):
     source, sha = make_repo(tmp_path)
     dst = private_parent(tmp_path)/"stage"
@@ -210,6 +225,8 @@ def test_actual_poa_checkout_can_stage_whole_verified_source_without_db_or_keys(
         if not record:
             continue
         name=record.split(b"\t",1)[1].decode("utf-8")
+        if ("__pycache__" in name.split("/") and name.endswith((".pyc",".pyo"))):
+            continue  # Known source-tree cache is excluded by the stager.
         try:
             B._relative_file(name)
         except B.ReinstallBlocked as exc:
