@@ -1,0 +1,127 @@
+name: POA PR23 central execution hard deny Windows Ubuntu isolated audit
+on:
+  pull_request:
+    branches:
+      - feat/vultr-stage-gateway-p0-p1-20261108
+    paths:
+      - 'main.py'
+      - 'exchange/**'
+      - 'tests/test_order_execution_deny.py'
+      - 'deployment/PR23_CENTRAL_ORDER_DENY_AUDIT.md'
+      - '.github/workflows/order_execution_deny_ci.yml'
+permissions:
+  contents: read
+
+jobs:
+  central-kill-switch:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      BASE_HEAD: e01d3d827dea3b147b63fb6ec4cfcecc3cc95ebc
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONIOENCODING: utf-8
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - name: Preserve Git source bytes, no autocrlf
+        shell: bash
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install pinned offline test dependencies
+        run: |
+          python -m pip install pip==26.3 setuptools==84.2.1
+          python -m pip install -r requirements.txt
+          python -m pip install pytest==9.1.1 pytest-asyncio pytest-subtests PyYAML
+          python -m pip check
+      - name: Compile every changed Python product source without importing it
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess, os
+          base=os.environ['BASE_HEAD']
+          paths=subprocess.check_output(['git','diff','--name-only',base,'HEAD'],text=True).splitlines()
+          approved={'main.py','exchange/pexchange.py','exchange/safe_retry.py',
+             'exchange/binance.py','exchange/bitget.py','exchange/bybit.py',
+             'exchange/okx.py','exchange/upbit.py','exchange/stock/kis.py',
+             'exchange/order_execution_gate.py',
+             'tests/test_order_execution_deny.py',
+             'deployment/PR23_CENTRAL_ORDER_DENY_AUDIT.md',
+             '.github/workflows/order_execution_deny_ci.yml'}
+          assert paths and set(paths)<=approved,'UNAPPROVED_PRODUCT_OR_DB_CHANGE'
+          for name in paths:
+              if name.endswith('.py'):
+                  compile(Path(name).read_bytes(),name,'exec')
+          print('PR23_PARENT_SOURCE_EXCEPT_STRICT_EXECUTION_DENY=UNCHANGED')
+          print('CANDIDATE_PYTHON_SYNTAX=PASS')
+      - name: Independent actual product method execution denial attack E2E
+        shell: python
+        run: |
+          import sys
+          from pathlib import Path
+          sys.path.insert(0,str(Path.cwd()))
+          sys.path.insert(0,str(Path.cwd()/'release_checks'))
+          import isolation,pytest
+          raise SystemExit(pytest.main([
+            '-q','--tb=short','-p','no:cacheprovider',
+            '--junitxml=order-execution-deny.xml',
+            'tests/test_order_execution_deny.py',
+          ],plugins=[isolation]))
+      - name: Verify independent PR23 original manifest without weakening pinned release checks
+        shell: python
+        run: |
+          import subprocess,os
+          from pathlib import Path
+          target=Path(os.environ['RUNNER_TEMP'])/'pr23-exact-original'
+          subprocess.run(['git','worktree','add','--detach',str(target),os.environ['BASE_HEAD']],check=True)
+          for script in ('release_checks/verify_release.py','release_checks/verify_packaging.py'):
+              subprocess.run([__import__('sys').executable,script],cwd=str(target),check=True)
+          print('PARENT_PR23_ORIGINAL_72_MANIFEST=PASS')
+          print('PARENT_FINANCIAL_AND_DB_SOURCE_UNMODIFIED=PASS')
+      - name: Re-run immutable PR23 original 52-case stage/read-key Mock
+        shell: python
+        run: |
+          import sys,os
+          from pathlib import Path
+          parent=Path(os.environ['RUNNER_TEMP'])/'pr23-exact-original'
+          os.chdir(parent)
+          sys.path.insert(0,str(parent))
+          sys.path.insert(0,str(parent/'release_checks'))
+          import isolation,pytest
+          raise SystemExit(pytest.main([
+            '-q','--tb=short','-p','no:cacheprovider',
+            '--junitxml=pr23-baseline-stage.xml','tests/test_vultr_stage.py',
+          ],plugins=[isolation]))
+      - name: Confirm no cloud, operating DB or live order operations
+        shell: python
+        run: |
+          from pathlib import Path
+          root=Path.cwd()
+          gate=(root/'exchange/order_execution_gate.py').read_text()
+          assert 'raise OrderExecutionBlocked()' in gate
+          print('ACTUAL_LIVE_ORDERS=NOT_CALLED')
+          print('OPERATING_DB_WRITES=NOT_CALLED')
+          print('EXCHANGE_READ_API_KEYS=NOT_USED')
+          print('VULTR_SERVER=NOT_ACCESSED')
+          print('AWS_CLOUD_CALLS=0')
+          print('ORIGINAL_PRODUCT_REGRESSION=PR23_PREEXISTING_CI_ONLY')
+          print('CANDIDATE_PRODUCTION_READY=BLOCKED')
+          print('ORDER_EXECUTION_HARD_DENY=PASS')
+      - name: Upload offline synthetic JUnit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr24-hard-deny-${{ matrix.os }}
+          path: |
+            order-execution-deny.xml
+            ${{ runner.temp }}/pr23-exact-original/pr23-baseline-stage.xml
+          if-no-files-found: ignore
