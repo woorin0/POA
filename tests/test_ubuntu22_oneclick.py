@@ -109,7 +109,7 @@ def test_cloud_init_full_install_embeds_exact_code_and_stage_preserves_manifest(
     assert "installer.install(" in history
     assert embedded["/usr/local/lib/poa/ubuntu22_oneclick.py"]["content"] == (
         ROOT / "deployment" / "ubuntu22_oneclick.py"
-    ).read_text()
+    ).read_text(encoding="utf-8")
     ast.parse(embedded["/usr/local/lib/poa/ubuntu22_oneclick.py"]["content"])
     first = cfg["runcmd"]
     assert len(first) == 2
