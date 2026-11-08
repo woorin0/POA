@@ -26,6 +26,9 @@ B_FILES = {
     "tests/test_pr_b_sealed_roles.py",
     "tests/test_poa_runtime_roles.py",
     ".github/workflows/pr_b_sealed_roles_ci.yml",
+    "tests/test_pr29_independent_reaudit.py",
+    "deployment/PR29_INDEPENDENT_REAUDIT.md",
+    ".github/workflows/pr29_independent_reaudit.yml",
 }
 
 CHILD = r'''
