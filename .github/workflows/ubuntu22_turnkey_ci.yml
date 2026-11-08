@@ -1,0 +1,100 @@
+name: POA Ubuntu22 turnkey local-service, restore and finance Mock E2E
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'deployment/ubuntu22_operational.py'
+      - 'deployment/ubuntu22_turnkey_build.py'
+      - 'deployment/ubuntu22_turnkey_USER_DATA.yaml'
+      - 'deployment/UBUNTU22_TURNKEY.md'
+      - 'tests/test_ubuntu22_operational.py'
+      - '.github/workflows/ubuntu22_turnkey_ci.yml'
+permissions:
+  contents: read
+jobs:
+  turnkey:
+    name: Ubuntu22 turnkey-${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-22.04]
+    env:
+      PINNED_MAIN: c5566c4cc2a4ce716f1f0d66260bd60e4f95546f
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONIOENCODING: utf-8
+    steps:
+      - name: Keep original release byte exact
+        shell: bash
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Verify no finance/order/PocketBase install source regression
+        shell: python
+        run: |
+          import os,subprocess
+          from pathlib import Path
+          baseline=os.environ['PINNED_MAIN']
+          original=[
+              'main.py','run.py','exchange','requirements.txt',
+              'release_manifest_sha256.json','release_checks',
+              'deployment/install_once.py','deployment/prepare_ubuntu.py',
+              'deployment/build_cloud_config.py',
+              'deployment/cloud-config-ubuntu2204.yaml'
+          ]
+          subprocess.run(['git','diff','--exit-code',baseline,'HEAD','--',*original],check=True)
+          print('ORIGINAL_TRADE_FINANCE_POCKETBASE_INSTALL_SOURCE=UNCHANGED')
+      - name: Install exact original Python3.10 dependencies and offline test helpers
+        run: |
+          python -m pip install pip==26.3 setuptools==84.2.1
+          python -m pip install --no-cache-dir -r requirements.txt
+          python -m pip install pytest==9.1.1 pytest-subtests pytest-asyncio PyYAML==6.0.3 tzdata==2025.2
+          python -m pip check
+          python -c "import importlib.metadata as m; assert m.version('pendulum')=='2.1.2'"
+      - name: Mock E2E fresh setup restore activation public ingress and cloud-init
+        run: python -m pytest tests/test_ubuntu22_operational.py -q --tb=short --junitxml=turnkey.xml
+      - name: Original PR35 snapshot restore and KST DST source tests
+        run: python -m pytest tests/test_ubuntu22_integrated_release.py -q --tb=short --junitxml=restoration.xml
+      - name: Original finance release and manifest
+        run: |
+          python release_checks/verify_release.py
+          python release_checks/verify_packaging.py
+          python release_checks/run.py -q --tb=short --junitxml=finance.xml
+      - name: Original Golden/fees/PNL/safe retry and Discord unchanged
+        run: python tests/run_offline.py
+      - name: All native 4-venue fill Mock E2E without actual orders
+        if: runner.os == 'Linux'
+        run: python release_checks/run_fill_confirmation.py -q --tb=short --junitxml=fills.xml
+      - name: Complete installation script source syntax and no automatic order ingress
+        shell: python
+        run: |
+          from pathlib import Path
+          import json,ast
+          scripts=('deployment/ubuntu22_operational.py',
+                   'deployment/ubuntu22_turnkey_build.py')
+          for path in scripts:
+              ast.parse(Path(path).read_text(encoding='utf-8'))
+          from deployment import ubuntu22_turnkey_build as build
+          rendered=build.create('1'*40)
+          payload=json.loads(rendered.split('\n',1)[1])
+          assert payload['final_message'].startswith('STAGED_READY_NO_TRADES')
+          assert all('/order' not in arg for cmd in payload['runcmd'] for arg in cmd)
+          print('USERDATA_SINGLE_FILE_GENERATES_PASS; NO_AUTOMATIC_TRADES=PASS')
+      - name: Preserve synthetic evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ubuntu22-turnkey-${{ matrix.os }}
+          path: |
+            turnkey.xml
+            restoration.xml
+            finance.xml
+            fills.xml
+          if-no-files-found: ignore
