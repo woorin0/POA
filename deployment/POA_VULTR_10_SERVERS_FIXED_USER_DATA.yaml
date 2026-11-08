@@ -1,0 +1,54 @@
+#cloud-config
+# =============================================================================
+# POA 신규 Vultr Ubuntu 22.04 - 10개 서버 공통 1회 설치
+# [1] 아래 JSON의 domain, PASSWORD, DISCORD_WEBHOOK_URL, 거래소 KEY/SECRET만 변경
+# 각 서버별 기존 domain을 입력하면 TradingView URL은 https://도메인/order
+# 비밀번호 AUTO는 새 비밀번호 생성: 기존 TV 알림 유지 시 기존 값을 직접 입력
+# 미사용 거래소 키는 빈 문자열 유지. 키를 입력한 파일은 외부 공유 금지.
+# =============================================================================
+write_files:
+  - path: /root/poa-oneclick-input.json
+    owner: root:root
+    permissions: "0600"
+    content: |
+      {
+        "domain": "SET_EXISTING_DOMAIN",
+        "db_admin_email": "poa-admin@example.org",
+        "credentials": {
+          "PASSWORD": "AUTO",
+          "DISCORD_WEBHOOK_URL": "SET_DISCORD_WEBHOOK_URL",
+
+          "UPBIT_KEY": "",
+          "UPBIT_SECRET": "",
+
+          "BINANCE_KEY": "",
+          "BINANCE_SECRET": "",
+
+          "BYBIT_KEY": "",
+          "BYBIT_SECRET": "",
+
+          "OKX_KEY": "",
+          "OKX_SECRET": "",
+          "OKX_PASSPHRASE": "",
+
+          "BITGET_KEY": "",
+          "BITGET_SECRET": "",
+          "BITGET_PASSPHRASE": ""
+        }
+      }
+# [2] 자동 설치: PocketBase 0.16.6만 사용(Go 1.18 공식 소스 빌드).
+# 기존 POA 금융/주문 소스 검증·PocketBase DB·HTTPS·Discord 완료 알림까지.
+# GitHub의 고정 설치 스크립트를 가져오므로 아래 영역 수정 불필요.
+package_update: false
+packages: [python3, curl, ca-certificates]
+runcmd:
+  - - bash
+    - -euc
+    - >-
+      umask 077;
+      curl --fail --silent --show-error --location --retry 3
+      --connect-timeout 20 --max-time 90
+      --output /root/poa-vultr-install-v3.py
+      https://raw.githubusercontent.com/woorin0/POA/6cb9bb91ca5ed00c8114785afd3d5fcfc05ff1b7/deployment/poa_vultr_install_v3.py;
+      python3 /root/poa-vultr-install-v3.py
+final_message: "POA setup attempted. Check sudo cat /root/POA_ONECLICK_RESULT.json; a Discord success message is sent only after full HTTP/HTTPS health verification."
