@@ -48,6 +48,9 @@ EXPECTED={
     "deployment/PR_B_SEALED_ROLE_CONTRACT.md",
     "tests/test_pr_b_sealed_roles.py",
     ".github/workflows/pr_b_sealed_roles_ci.yml",
+    "tests/test_pr29_independent_reaudit.py",
+    "deployment/PR29_INDEPENDENT_REAUDIT.md",
+    ".github/workflows/pr29_independent_reaudit.yml",
 }
 
 
