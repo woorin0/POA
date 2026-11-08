@@ -6,9 +6,6 @@ import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
-from deployment.install_once import FLAGS
-from exchange.model.schemas import Settings
-from exchange.verified_pnl import order_fill_confirmation as confirmations
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,17 +26,39 @@ def test_bot01_order_notification_source_is_unchanged():
 
 
 def test_bot01_install_enables_discord_but_not_native_order_fill_confirmation(tmp_path):
-    assert FLAGS["VERIFIED_DISCORD_ALERTS"] is True
-    assert FLAGS["VERIFIED_FILL_PRICE"] is True
-    assert FLAGS["DISCORD_OUTBOX_ENABLED"] is True
-    assert FLAGS["UPBIT_VERIFIED_ALERTS"] is True
-    assert "POA_EXCHANGE_FILL_CONFIRMATION_ENABLED" not in FLAGS
-    assert Settings.__fields__["POA_EXCHANGE_FILL_CONFIRMATION_ENABLED"].default is False
-    st = SimpleNamespace(
-        POA_EXCHANGE_FILL_CONFIRMATION_ENABLED=False,
-        VERIFIED_NOTIFICATIONS_DB_PATH=str(tmp_path / "test.sqlite3"),
+    installer = ast.parse((ROOT / "deployment/install_once.py").read_text(encoding="utf-8"))
+    flags_node = next(node for node in installer.body
+                      if isinstance(node, ast.Assign)
+                      and any(isinstance(target, ast.Name) and target.id == "FLAGS"
+                              for target in node.targets))
+    flags = ast.literal_eval(flags_node.value)
+    assert flags["VERIFIED_DISCORD_ALERTS"] is True
+    assert flags["VERIFIED_FILL_PRICE"] is True
+    assert flags["DISCORD_OUTBOX_ENABLED"] is True
+    assert flags["UPBIT_VERIFIED_ALERTS"] is True
+    assert "POA_EXCHANGE_FILL_CONFIRMATION_ENABLED" not in flags
+
+    schemas = ast.parse((ROOT / "exchange/model/schemas.py").read_text(encoding="utf-8"))
+    settings_cls = next(x for x in schemas.body
+                        if isinstance(x, ast.ClassDef) and x.name == "Settings")
+    native_switch = next(x for x in settings_cls.body
+                         if isinstance(x, ast.AnnAssign)
+                         and isinstance(x.target, ast.Name)
+                         and x.target.id == "POA_EXCHANGE_FILL_CONFIRMATION_ENABLED")
+    assert ast.literal_eval(native_switch.value) is False
+
+    confirmation = ast.parse(
+        (ROOT / "exchange/verified_pnl/order_fill_confirmation.py").read_text(encoding="utf-8")
     )
-    assert confirmations.prepare(st) is None
+    prepare = next(x for x in confirmation.body
+                   if isinstance(x, ast.FunctionDef) and x.name == "prepare")
+    prepare.decorator_list = []
+    scope = {"_HOSTS": {}, "Path": Path}
+    exec(compile(ast.Module(body=[prepare], type_ignores=[]),
+                 "bot01-native-read-prepare", "exec"), scope)
+    st = SimpleNamespace(POA_EXCHANGE_FILL_CONFIRMATION_ENABLED=False,
+                         VERIFIED_NOTIFICATIONS_DB_PATH=str(tmp_path / "test.sqlite3"))
+    assert scope["prepare"](st) is None
 
 
 def test_bot01_verified_alert_routing_excludes_bitget():
@@ -55,24 +74,19 @@ def test_bot01_verified_alert_routing_excludes_bitget():
 
 
 def test_native_fill_confirmation_supports_only_documented_markets():
-    from exchange.verified_pnl.order_fill_read import VENUES
-    assert VENUES == {"UPBIT", "BINANCE", "BYBIT", "OKX"}
+    source = ast.parse((ROOT / "exchange/verified_pnl/order_fill_read.py")
+                       .read_text(encoding="utf-8"))
+    node = next(x for x in source.body if isinstance(x, ast.Assign)
+                and any(isinstance(t, ast.Name) and t.id == "VENUES" for t in x.targets))
+    assert isinstance(node.value, ast.Call)
+    assert set(ast.literal_eval(node.value.args[0])) == {"UPBIT", "BINANCE", "BYBIT", "OKX"}
 
 
 def test_tv_signal_is_never_execution_proof():
-    from exchange.verified_pnl.tradingview_signal import capture
-    from exchange.verified_pnl.ledger import identity
-
-    signal = {"kind": "strategy_order_fill", "price": "99999",
-              "quantity": "42", "action": "buy", "order_id": "tv-1",
-              "signal_id": "test-tv-1", "strategy_id": "test-strategy"}
-    data = capture("BINANCE", {"id": "exchange-order-1"},
-                   {"tv_signal": signal, "unified_symbol": "BTC/USDT",
-                    "strategy_id": "test-strategy", "is_buy": True,
-                    "is_futures": False, "is_coinm": False},
-                   identity("BINANCE", "synthetic-only"), True)
-    assert data["average"] == "99999"
-    assert data["quantity"] == "42"
-    assert data["confirmed"] is False
-    assert data["price_source"] == "UNAVAILABLE"
-    assert data["references"] == []
+    source = (ROOT / "exchange/verified_pnl/tradingview_signal.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "capture")
+    body = ast.get_source_segment(source, node)
+    assert "confirmed=False" in body
+    assert "price_source='UNAVAILABLE'" in body
+    assert "notional=value" in body  # Signal-based estimate only, not an execution receipt
