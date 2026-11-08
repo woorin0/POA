@@ -57,8 +57,13 @@ def test_existing_domain_avoids_external_ip_discovery(monkeypatch):
 def test_cloud_init_full_install_embeds_exact_code_and_stage_preserves_manifest():
     user_data = (ROOT / "deployment" / "POA_VULTR_ONECLICK_USER_DATA.yaml").read_text()
     assert user_data.startswith("#cloud-config\n")
-    cfg = json.loads(user_data.split("\n", 1)[1])
+    import yaml
+    cfg = yaml.safe_load(user_data)
     embedded = {entry["path"]: entry for entry in cfg["write_files"]}
+    assert cfg["write_files"][0]["path"] == "/root/poa-oneclick-input.json"
+    operator = json.loads(embedded["/root/poa-oneclick-input.json"]["content"])
+    assert operator["credentials"]["DISCORD_WEBHOOK_URL"] == "SET_DISCORD_WEBHOOK_URL"
+    assert all(operator["credentials"][k] == "" for k in ("UPBIT_KEY", "UPBIT_SECRET", "BINANCE_KEY", "BYBIT_KEY", "OKX_KEY", "BITGET_KEY"))
     original = json.loads(
         (ROOT / "deployment" / "ubuntu22_turnkey_USER_DATA.yaml").read_text().split("\n", 1)[1]
     )
@@ -156,7 +161,8 @@ def test_stage_full_history_happens_before_release_checks(tmp_path, monkeypatch)
     """Mocks only stage command order, never clones or opens trading networks."""
     import types
     path = ROOT / "deployment" / "POA_VULTR_ONECLICK_USER_DATA.yaml"
-    cfg = json.loads(path.read_text().split("\n", 1)[1])
+    import yaml
+    cfg = yaml.safe_load(path.read_text())
     stage = next(x["content"] for x in cfg["write_files"]
                  if x["path"] == "/usr/local/lib/poa/stage-full-history.py")
     entry = tmp_path / "stage.json"
