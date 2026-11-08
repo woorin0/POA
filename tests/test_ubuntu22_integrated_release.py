@@ -322,6 +322,7 @@ def test_no_product_finance_install_sources_changed():
         "deployment/poa_vultr_install_v3.py",
         "deployment/POA_VULTR_10_SERVERS_FIXED_USER_DATA.yaml",
         "tests/test_poa_vultr_install_v3.py",
+        "tests/ubuntu22_real_firstboot_rehearsal.py",
     }
     required={
         "deployment/bot03_reinstall.py",
