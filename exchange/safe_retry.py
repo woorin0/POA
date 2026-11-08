@@ -366,11 +366,15 @@ class Manager:
         return True
 
     def execute(self, func, args, info, adapter):
+        from exchange.order_execution_gate import require_order_disabled
+        require_order_disabled()
         # Serializes mutable shared client options/order_info within this manager.
         with self.mutex:
             return self._execute(func, args, info, adapter)
 
     def _execute(self, func, args, info, adapter):
+        from exchange.order_execution_gate import require_order_disabled
+        require_order_disabled()
         explicit = getattr(info, "signal_id", None)
         if info.exchange == "UPBIT" and not explicit:
             raise SafetyError("UPBIT safe mode requires 'signal_id' for duplicate protection. Please provide signal_id in TradingView webhook.")
@@ -462,6 +466,8 @@ _init_lock = threading.Lock()
 
 
 def get_manager(settings):
+    from exchange.order_execution_gate import require_order_disabled
+    require_order_disabled()
     global _manager, _lock_file
     with _init_lock:
         if _manager is not None:
@@ -504,6 +510,8 @@ def get_manager(settings):
 
 
 def safe_submit(func, args, info, instance, settings):
+    from exchange.order_execution_gate import require_order_disabled
+    require_order_disabled()
     is_upbit = (info.exchange == "UPBIT")
     if is_upbit:
         if not getattr(settings, "UPBIT_SAFE_RETRY_ENABLED", False):
@@ -952,6 +960,8 @@ def close_reconciliation_clients(timeout: float = 10.0):
 
 
 def reconcile_pending(settings, get_bot=None):
+    from exchange.order_execution_gate import require_order_disabled
+    require_order_disabled()
     if _shutdown_event.is_set():
         return
     manager = get_manager(settings)
@@ -1035,6 +1045,8 @@ def reconcile_pending(settings, get_bot=None):
 
 
 async def reconciliation_loop(settings, get_bot=None):
+    from exchange.order_execution_gate import require_order_disabled
+    require_order_disabled()
     import asyncio
     while not _shutdown_event.is_set():
         try:
