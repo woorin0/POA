@@ -107,6 +107,25 @@ def main():
         return legacy, operations, oneclick
 
     module.product_modules = local_verified_modules
+    # CI ONLY: original POA sends a Discord "started" message during app
+    # startup and aborts when delivery fails. There is deliberately no real
+    # Discord account in this ephemeral rehearsal. Intercept dhooks only inside
+    # the temporary venv; do not change any POA product file or User Data.
+    original_python_install = module.python_install
+
+    def python_install_with_synthetic_discord(legacy):
+        original_python_install(legacy)
+        fake_transport = module.APP / ".venv/lib/python3.10/site-packages/sitecustomize.py"
+        fake_transport.write_text(
+            "from dhooks import Webhook\n"
+            "def _ci_only_send(self,*args,**kwargs):\n"
+            "    return {'id':'ci-local-discord-stub'}\n"
+            "Webhook.send = _ci_only_send\n",
+            encoding="utf-8",
+        )
+        # This file remains on the ephemeral CI runner only.
+
+    module.python_install = python_install_with_synthetic_discord
     result = module.main()
     if result != 0:
         diag = Path("/root/POA_INSTALL_LAST_ERROR.log")
