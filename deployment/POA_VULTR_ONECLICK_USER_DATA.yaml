@@ -1,0 +1,66 @@
+#cloud-config
+{
+  "package_update": false,
+  "timezone": "UTC",
+  "packages": [
+    "python3",
+    "ca-certificates"
+  ],
+  "write_files": [
+    {
+      "path": "/root/poa-stage-input.json",
+      "owner": "root:root",
+      "permissions": "0600",
+      "content": "{\"install_mode\":\"NEW_SERVER_STAGE_ONLY\",\"repo_ref\":\"b23fc5655f7e5d8f1d3946f365099a2bbb29edf2\",\"release_manifest_sha256\":\"0c464b1387d7ced078d4d957a1a9bdc947b8bb1d425518aba631fcc623d279fa\"}"
+    },
+    {
+      "path": "/usr/local/lib/poa/verified_script_hashes.json",
+      "owner": "root:root",
+      "permissions": "0600",
+      "content": "{\"install_once.py\": \"5572d3cef61050bfeba684dcb573b4057f0714da85fbdb6b9bfe62761a471374\", \"prepare_ubuntu.py\": \"7d8f570f756cd41694001de12b271f4dc443fd21a45a06acc1b68c972bad605b\", \"ubuntu22_operational.py\": \"f34c22811d6c189ca456b230ba4c1e99bcabfc2f0b5b2435f751755624e80e57\", \"ubuntu22_release_handoff.py\": \"cced9aa68710c57384c9de4ea4fbf5e06a9b60b485600912d09e3d8d3ea478a5\", \"validate_config.py\": \"9ecd177b5196c9c455d54f4a03e43f9ded7c663b6efff7710cca702d45736931\"}"
+    },
+    {
+      "path": "/usr/local/lib/poa/bootstrap-ubuntu22.py",
+      "owner": "root:root",
+      "permissions": "0600",
+      "content": "import hashlib\nimport json\nimport os\nfrom pathlib import Path\nimport subprocess\nimport sys\nfrom urllib.request import Request, urlopen\n\ndef main():\n    os.umask(0o077)\n    pinned = json.loads(Path(\"/root/poa-stage-input.json\").read_text())\n    commit = pinned[\"repo_ref\"]\n    scripts = json.loads(Path(\"/usr/local/lib/poa/verified_script_hashes.json\").read_text())\n    target = Path(\"/usr/local/lib/poa\")\n    if not target.is_dir() or len(scripts) != 5:\n        raise RuntimeError(\"STAGE_SCRIPT_INVENTORY_INVALID\")\n    for name, digest in scripts.items():\n        if name not in (\"install_once.py\",\"prepare_ubuntu.py\",\n                        \"ubuntu22_operational.py\",\"ubuntu22_release_handoff.py\",\n                        \"validate_config.py\"):\n            raise RuntimeError(\"STAGE_SCRIPT_NOT_APPROVED\")\n        url = (\"https://raw.githubusercontent.com/woorin0/POA/\"\n               + commit + \"/deployment/\" + name)\n        with urlopen(Request(url, headers={\"User-Agent\":\"POA-Stage\"}), timeout=45) as resp:\n            content = resp.read(90000)\n        if hashlib.sha256(content).hexdigest() != digest:\n            raise RuntimeError(\"PINNED_STAGE_SCRIPT_HASH_MISMATCH\")\n        f = target / name\n        with f.open(\"xb\") as output:\n            output.write(content)\n        f.chmod(0o600)\n    # Runtime package/service preparation uses original verified install code.\n    for name in (\"prepare_ubuntu.py\", \"install_once.py\"):\n        p = subprocess.run([\"python3\", str(target/name)], check=False, timeout=2400)\n        if p.returncode:\n            raise RuntimeError(\"STAGE_PREPARATION_OR_INSTALL_FAILED\")\n    result = json.loads(Path(\"/root/POA_INSTALL_RESULT.json\").read_text())\n    if result.get(\"status\") != \"STAGED_NOT_LIVE\" or result.get(\"commit\") != commit:\n        raise RuntimeError(\"STAGE_COMPLETION_UNVERIFIED\")\n    print(\"POA_STAGE_INSTALLED; run poa-setup fresh or restore locally\")\nif __name__==\"__main__\":\n    try:\n        main()\n    except Exception as exc:\n        print(\"POA_BOOTSTRAP_BLOCKED:\",str(exc),file=sys.stderr)\n        raise SystemExit(75)\n"
+    },
+    {
+      "path": "/usr/local/bin/poa-setup",
+      "owner": "root:root",
+      "permissions": "0700",
+      "content": "#!/bin/sh\nexec /usr/bin/python3 /usr/local/lib/poa/ubuntu22_operational.py \"$@\"\n"
+    },
+    {
+      "path": "/root/poa-config.example.json",
+      "owner": "root:root",
+      "permissions": "0600",
+      "content": "{\n  \"domain\": \"your-published-domain.example.org\",\n  \"db_admin_email\": \"admin@your-domain.example.org\",\n  \"credentials\": {\n    \"PASSWORD\": \"CHANGE_ME_TRADINGVIEW_PASSWORD\",\n    \"DISCORD_WEBHOOK_URL\": \"https://discord.com/api/webhooks/REPLACE\",\n    \"UPBIT_KEY\": \"CHANGE_ME_UPBIT_KEY\",\n    \"UPBIT_SECRET\": \"CHANGE_ME_UPBIT_SECRET\"\n  }\n}"
+    },
+    {
+      "path": "/root/poa-oneclick-input.json",
+      "owner": "root:root",
+      "permissions": "0600",
+      "content": "{\n  \"domain\": \"AUTO\",\n  \"db_admin_email\": \"poa-admin@example.org\",\n  \"credentials\": {\n    \"PASSWORD\": \"AUTO\",\n    \"DISCORD_WEBHOOK_URL\": \"SET_DISCORD_WEBHOOK_URL\",\n    \"UPBIT_KEY\": \"SET_UPBIT_KEY\",\n    \"UPBIT_SECRET\": \"SET_UPBIT_SECRET\"\n  }\n}"
+    },
+    {
+      "path": "/usr/local/lib/poa/ubuntu22_oneclick.py",
+      "owner": "root:root",
+      "permissions": "0600",
+      "content": "\"\"\"New Ubuntu 22.04: complete the existing pinned Stage into a running POA.\n\nRuns once from cloud-init after bootstrap-ubuntu22.py. Only operator-owned\ncredentials in the private cloud-init config are used. No orders are submitted.\nFinancial, exchange, PocketBase and existing BOT03 code/data remain unchanged.\n\"\"\"\nfrom __future__ import annotations\n\nimport ipaddress\nimport json\nimport os\nfrom pathlib import Path\nimport secrets\nimport socket\nimport subprocess\nimport sys\nfrom urllib.request import urlopen\n\ntry:\n    from deployment import install_once as legacy\nexcept ModuleNotFoundError:\n    import install_once as legacy\n\nCONFIG_PATH = Path(\"/root/poa-oneclick-input.json\")\nSTAGE_PATH = Path(\"/root/POA_INSTALL_RESULT.json\")\nRUNTIME_PATH = Path(\"/root/poa-oneclick-runtime.json\")\nRESULT_PATH = Path(\"/root/POA_ONECLICK_RESULT.json\")\nSETUP = \"/usr/local/bin/poa-setup\"\n\n\nclass OneclickError(Exception):\n    pass\n\n\ndef public_ipv4():\n    with urlopen(\"https://api.ipify.org\", timeout=20) as response:\n        address = response.read(64).decode(\"ascii\").strip()\n    ip = ipaddress.ip_address(address)\n    if ip.version != 4 or not ip.is_global:\n        raise OneclickError(\"PUBLIC_IPV4_UNAVAILABLE\")\n    return str(ip)\n\n\ndef normalized_input(raw: dict, *, public_ip: str | None = None) -> dict:\n    \"\"\"Resolve zero-config domain and webhook password before existing validation.\"\"\"\n    if not isinstance(raw, dict):\n        raise OneclickError(\"CONFIG_JSON_REQUIRED\")\n    data = json.loads(json.dumps(raw))\n    if data.get(\"domain\") in (\"AUTO\", \"\", None):\n        ip = ipaddress.ip_address(public_ip or public_ipv4())\n        if ip.version != 4 or not ip.is_global:\n            raise OneclickError(\"PUBLIC_IPV4_UNAVAILABLE\")\n        data[\"domain\"] = str(ip) + \".sslip.io\"\n    credentials = data.get(\"credentials\")\n    if not isinstance(credentials, dict):\n        raise OneclickError(\"CREDENTIALS_REQUIRED\")\n    if credentials.get(\"PASSWORD\") == \"AUTO\":\n        credentials[\"PASSWORD\"] = secrets.token_urlsafe(32)\n    for name, value in credentials.items():\n        if isinstance(value, str) and value.startswith((\"SET_\", \"REPLACE_\", \"CHANGE_ME\", \"YOUR_\")):\n            raise OneclickError(\"SET_REQUIRED_CREDENTIAL_\" + name)\n    # Preserve the original finance/order/runtime configuration validation.\n    legacy.validate(data)\n    return data\n\n\ndef _read_private_json(path: Path) -> dict:\n    status = path.lstat()\n    if not path.is_file() or status.st_mode & 0o077:\n        raise OneclickError(\"ROOT_PRIVATE_CONFIG_REQUIRED\")\n    return json.loads(path.read_text(encoding=\"utf-8\"))\n\n\ndef _private_write(path: Path, data: dict) -> None:\n    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)\n    with os.fdopen(fd, \"w\", encoding=\"utf-8\") as output:\n        json.dump(data, output, ensure_ascii=False)\n    path.chmod(0o600)\n\n\ndef _setup_command(*arguments: str) -> None:\n    # Never print child output: future diagnostics may contain credentials.\n    proc = subprocess.run([SETUP, *arguments], capture_output=True, timeout=360,\n                          check=False)\n    if proc.returncode:\n        raise OneclickError(\"POA_SETUP_\" + arguments[0].upper().replace(\"-\", \"_\") + \"_FAILED\")\n\n\ndef _https_ready(domain: str) -> None:\n    # The public Caddy router intentionally replies 403 on GET /; the\n    # verified TLS certificate and that 403 prove HTTPS is actually serving.\n    legacy.wait_ready(lambda: legacy.local_https(domain),\n                      \"PUBLIC_HTTPS_NOT_READY\", seconds=180)\n\n\ndef complete() -> dict:\n    if os.name != \"posix\" or os.geteuid() != 0:\n        raise OneclickError(\"UBUNTU_ROOT_REQUIRED\")\n    stage = _read_private_json(STAGE_PATH)\n    if stage.get(\"status\") != \"STAGED_NOT_LIVE\":\n        raise OneclickError(\"STAGE_NOT_READY\")\n    data = normalized_input(_read_private_json(CONFIG_PATH))\n    _private_write(RUNTIME_PATH, data)\n    _setup_command(\"fresh\", \"--config\", str(RUNTIME_PATH))\n    _setup_command(\"publish\", \"--domain\", data[\"domain\"])\n    _https_ready(data[\"domain\"])\n    report = {\n        \"state\": \"RUNNING_HTTPS\",\n        \"poa\": \"LOCAL_HEALTH_PASS\",\n        \"pocketbase\": \"LOCAL_HEALTH_PASS\",\n        \"https\": \"TLS_VALID_403_ON_GET\",\n        \"webhook_url\": \"https://\" + data[\"domain\"] + \"/order\",\n        \"webhook_endpoint_published\": True,\n        \"live_order_test_performed\": False,\n        \"source_commit\": stage.get(\"commit\"),\n    }\n    _private_write(RESULT_PATH, report)\n    RUNTIME_PATH.unlink(missing_ok=True)\n    CONFIG_PATH.unlink(missing_ok=True)\n    print(\"POA_ONECLICK_READY=\" + report[\"webhook_url\"], flush=True)\n    return report\n\n\ndef main() -> int:\n    os.umask(0o077)\n    try:\n        complete()\n        return 0\n    except (OneclickError, legacy.InstallError, OSError, ValueError,\n            json.JSONDecodeError, subprocess.TimeoutExpired):\n        print(\"POA_ONECLICK_FAILED: inspect cloud-init and systemd logs; no orders submitted\",\n              file=sys.stderr)\n        return 75\n\n\nif __name__ == \"__main__\":\n    raise SystemExit(main())\n"
+    }
+  ],
+  "runcmd": [
+    [
+      "bash",
+      "-euc",
+      "umask 077; python3 /usr/local/lib/poa/bootstrap-ubuntu22.py"
+    ],
+    [
+      "bash",
+      "-euc",
+      "umask 077; python3 /usr/local/lib/poa/ubuntu22_oneclick.py"
+    ]
+  ],
+  "final_message": "POA bootstrap completed; check cloud-init status and sudo cat /root/POA_ONECLICK_RESULT.json for exact HTTPS webhook URL. No trade is sent during provisioning."
+}
