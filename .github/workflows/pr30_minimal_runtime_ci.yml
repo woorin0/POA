@@ -34,6 +34,7 @@ jobs:
     timeout-minutes: 55
     env:
       PR30_FIXED: 554ccab03c05e2e4d4a50f75630500704b4654e3
+      PR31_AUDIT_FIXED: 3567985d0796bc0db805f3239d29bf3a47316dac
       MAIN_FIXED: c5566c4cc2a4ce716f1f0d66260bd60e4f95546f
       CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
       PYTHONDONTWRITEBYTECODE: '1'
@@ -117,6 +118,23 @@ jobs:
             "tests/test_pr29_independent_reaudit.py",
             "tests/test_pr30_minimal_runtime.py",
           ],plugins=[isolation]))
+      - name: PR31 final-PASS independent kernel and FD audit in pinned detached worktree
+        shell: python
+        run: |
+          import os,shutil,subprocess,sys
+          from pathlib import Path
+          pinned=os.environ["PR31_AUDIT_FIXED"]
+          assert subprocess.check_output(["git","rev-parse",pinned],text=True).strip()==pinned
+          destination=Path(os.environ["RUNNER_TEMP"])/"poa-pr31-independent-audit"
+          subprocess.run(["git","worktree","add","--detach",str(destination),pinned],check=True)
+          actual=subprocess.check_output(["git","rev-parse","HEAD"],cwd=destination,text=True).strip()
+          assert actual==pinned,("PR31_PINNED_SHA_MISMATCH",actual)
+          subprocess.run([
+            sys.executable,"-m","pytest","-q","--tb=short","-p","no:cacheprovider",
+            "--junitxml=pr31-verified.xml","tests/test_pr30_linux_os_boundary.py"
+          ],cwd=destination,check=True,timeout=180)
+          shutil.copyfile(destination/"pr31-verified.xml","pr31-verified.xml")
+          print("PR31_VERIFIED_TEST_ONLY=PASS; PRODUCT_CODE_UNCHANGED")
       - name: Original independent release checks
         run: python release_checks/run.py -q --tb=short --junitxml=independent.xml
       - name: Original 72-file manifest and packaging
@@ -142,6 +160,7 @@ jobs:
           name: poa-pr30-minimal-ubuntu24-${{ matrix.os }}
           path: |
             pr30-minimal.xml
+            pr31-verified.xml
             independent.xml
             http.xml
             core.xml
