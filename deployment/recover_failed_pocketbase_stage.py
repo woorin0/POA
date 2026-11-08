@@ -130,8 +130,11 @@ def resume():
     with os.fdopen(fd,"w") as out:
         json.dump(stage,out)
     print("POA_STAGE_RECOVERED; starting normal one-click activation",flush=True)
-    run([sys.executable,"/usr/local/lib/poa/ubuntu22_oneclick.py"],
-        "POA_LOCAL_ACTIVATION_FAILED",timeout=2400)
+    notice=run([sys.executable,"/usr/local/lib/poa/ubuntu22_oneclick.py"],
+               "POA_LOCAL_ACTIVATION_FAILED",timeout=2400)
+    print("POA_INSTALL_DISCORD=" +
+          ("SENT" if b"POA_INSTALL_DISCORD=SENT" in notice else "NOT_DELIVERED"),
+          flush=True)
     status=json.loads(Path("/root/POA_ONECLICK_RESULT.json").read_text())
     if status.get("state")!="RUNNING_HTTPS":
         raise RuntimeError("POA_HEALTH_RESULT_FAILED")
