@@ -28,7 +28,7 @@ def valid_input():
 
 def test_auto_hostname_password_and_preserve_exchange_configuration():
     data = valid_input()
-    result = O.normalized_input(data, public_ip="203.0.113.7" if False else "8.8.8.8")
+    result = O.normalized_input(data, public_ip="8.8.8.8")
     assert result["domain"] == "8.8.8.8.sslip.io"
     assert len(result["credentials"]["PASSWORD"]) >= 32
     assert result["credentials"]["PASSWORD"] != "AUTO"
@@ -97,6 +97,7 @@ def test_boot_activates_full_local_and_https_without_orders(tmp_path, monkeypatc
     monkeypatch.setattr(O, "RUNTIME_PATH", runtime)
     monkeypatch.setattr(O, "RESULT_PATH", result)
     monkeypatch.setattr(O, "public_ipv4", lambda: "8.8.8.8")
+    monkeypatch.setattr(O.os, "geteuid", lambda: 0)
     actions = []
     monkeypatch.setattr(O, "_setup_command", lambda *args: actions.append(args))
     monkeypatch.setattr(O, "_https_ready", lambda hostname: actions.append(("tls", hostname)))
@@ -129,6 +130,7 @@ def test_failed_stage_never_starts_service(tmp_path, monkeypatch):
     monkeypatch.setattr(O, "CONFIG_PATH", cfg)
     monkeypatch.setattr(O, "STAGE_PATH", stage)
     monkeypatch.setattr(O, "public_ipv4", lambda: "8.8.8.8")
+    monkeypatch.setattr(O.os, "geteuid", lambda: 0)
     monkeypatch.setattr(O, "_setup_command",
                         lambda *args: pytest.fail("never start on failed Stage"))
     with pytest.raises(O.OneclickError, match="STAGE_NOT_READY"):
