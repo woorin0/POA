@@ -211,7 +211,7 @@ def _reject_protected_destination(destination: Path, source: Path,
         raise ReinstallBlocked("STAGE_PARENT_UNAVAILABLE")
     try:
         st = parent.stat()
-        if st.st_uid != getattr(os, "geteuid", lambda: -1)() or st.st_mode & 0o077:
+        if os.name != "nt" and (st.st_uid != os.geteuid() or st.st_mode & 0o077):
             raise ReinstallBlocked("STAGE_PARENT_MUST_BE_OWNER_PRIVATE")
         if not parent.resolve(strict=True).is_dir():
             raise ReinstallBlocked("STAGE_PARENT_UNAVAILABLE")
