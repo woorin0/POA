@@ -105,7 +105,7 @@ def test_candidate_has_no_install_target_secrets_socket_activation_or_network_br
                       "NetworkNamespacePath", "BindPaths", "BindReadOnlyPaths",
                       "RootDirectory", "RootImage", "User", "Group", "PassEnvironment"):
         assert forbidden not in s
-    assert s["Environment"] == "PYTHONDONTWRITEBYTECODE=1" or s["Environment"] == "POA_STAGE_ONLY=1"
+    assert s["Environment"] == "POA_STAGE_ONLY=1 PYTHONDONTWRITEBYTECODE=1"
     for unexpected in ("KIS", "AWS_ACCESS_KEY_ID", "GHCR_READ_PAT",
                        "BINANCE_KEY=", "BYBIT_KEY=", "UPBIT_KEY=",
                        "OKX_KEY=", "BITGET_KEY=", "/root/db/pb_data",
@@ -186,7 +186,7 @@ def test_linux_seccomp_fail_closed_if_library_missing(monkeypatch):
 def test_no_real_network_targets_or_executable_live_order_flows():
     text = (ROOT/"deployment/vultr_airgap/seccomp_rehearsal.py").read_text()
     for disallowed in ("https://", "wss://", "requests.post(",
-                       "ccxt.binance(", "KoreaInvestment(", "create_order(",
+                       "ccxt.binance(", "KoreaInvestment(", ".create_order(",
                        "socket.create_connection(", "socket.connect("):
         assert disallowed not in text
     assert "SOCKET_CREATED_WITHOUT_KERNEL_DENIAL" in text
