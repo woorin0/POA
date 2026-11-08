@@ -6,6 +6,7 @@ on:
       - 'deployment/py312_requirements.py'
       - 'deployment/PY312_COMPATIBILITY.md'
       - 'tests/test_py312_time_compat.py'
+      - 'tests/conftest.py'
       - '.github/workflows/py312_dependency_compat.yml'
 permissions:
   contents: read
@@ -41,7 +42,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - name: Guard EXACT four new files and original finance source pins
+      - name: Guard EXACT five-file compatibility-only delta and original finance source pins
         shell: python
         run: |
           import hashlib,os,subprocess
@@ -53,6 +54,7 @@ jobs:
               'deployment/py312_requirements.py',
               'deployment/PY312_COMPATIBILITY.md',
               'tests/test_py312_time_compat.py',
+              'tests/conftest.py',
               '.github/workflows/py312_dependency_compat.yml',
           }
           assert changed==approved,('UNAPPROVED_CHANGED_FILES',sorted(changed^approved))
@@ -64,7 +66,7 @@ jobs:
           for path in changed:
               if path.endswith('.py'):
                   compile(Path(path).read_bytes(),path,'exec')
-          print('PY312_4_FILES_ONLY=PASS; FINANCE_ORDER_DB_72MANIFEST_IDENTICAL=PASS')
+          print('PY312_5_FILES_ONLY=PASS; FINANCE_ORDER_DB_72MANIFEST_IDENTICAL=PASS')
       - name: Bootstrap fixed offline test tools
         run: |
           python -m pip install pip==26.3 setuptools==84.2.1
