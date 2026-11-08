@@ -43,13 +43,15 @@ class SetupBlocked(ValueError):
 
 def _assert_private_regular(file: Path):
     st = file.lstat()
-    if not stat.S_ISREG(st.st_mode) or st.st_mode & 0o077:
+    if not stat.S_ISREG(st.st_mode) or (os.name != "nt" and st.st_mode & 0o077):
+        # Windows chmod/stat does not represent POSIX private ACL permissions;
+        # this exception is only for cross-platform mock regression.
         raise SetupBlocked("PRIVATE_FILE_REQUIRED")
     return file
 
 def _assert_private_directory(folder: Path):
     st = folder.lstat()
-    if not stat.S_ISDIR(st.st_mode) or st.st_mode & 0o077:
+    if not stat.S_ISDIR(st.st_mode) or (os.name != "nt" and st.st_mode & 0o077):
         raise SetupBlocked("PRIVATE_DIRECTORY_REQUIRED")
     return folder
 
