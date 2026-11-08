@@ -31,8 +31,12 @@ def _private(path: Path, directory: bool = False) -> bool:
         st = path.lstat()
     except OSError:
         return False
-    return bool((stat.S_ISDIR(st.st_mode) if directory else
-                 stat.S_ISREG(st.st_mode)) and not st.st_mode & 0o077)
+    correct_type = stat.S_ISDIR(st.st_mode) if directory else stat.S_ISREG(st.st_mode)
+    if os.name == "nt":
+        # Windows stat mode is NOT a POSIX filesystem ACL. This is only a
+        # cross-platform MOCK test; never certify Windows secret permissions.
+        return bool(correct_type)
+    return bool(correct_type and not st.st_mode & 0o077)
 
 
 def _digest(path: Path) -> bytes:
@@ -132,6 +136,7 @@ def compare_restored_backup(source_app: Path, restored_app: Path,
         "safe_retry_other_db_paths": UNVERIFIED,
         "api_key_permissions_on_exchange": UNVERIFIED,
         "orders_and_exchange_reconciliation": UNVERIFIED,
+        "permission_model": "UNVERIFIED_WINDOWS_ACL" if os.name == "nt" else "POSIX_PRIVATE_CHECKED",
         "operational_ready": BLOCKED,
         "trading_enabled": False,
         "original_data_modified": False,
