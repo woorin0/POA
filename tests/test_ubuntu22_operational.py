@@ -265,6 +265,11 @@ def test_full_git_delta_does_not_modify_financial_order_source():
         "deployment/UBUNTU22_TURNKEY.md",
         "tests/test_ubuntu22_integrated_release.py",
         ".github/workflows/ubuntu22_integrated_release.yml",
+        "deployment/ubuntu22_oneclick.py",
+        "deployment/POA_VULTR_ONECLICK_USER_DATA.yaml",
+        "tests/test_ubuntu22_oneclick.py",
+        ".github/workflows/ubuntu22_oneclick_ci.yml",
+        "deployment/POA_VULTR_ONECLICK.md",
     }
     assert set(changed)<=expected,("UNREQUESTED_CHANGE",changed)
     protected=["main.py","run.py","exchange","requirements.txt",
