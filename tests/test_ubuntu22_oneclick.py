@@ -54,14 +54,35 @@ def test_existing_domain_avoids_external_ip_discovery(monkeypatch):
     assert out["domain"] == "my-webhook.example.org"
 
 
+
+@pytest.mark.parametrize("server_id", range(1, 11))
+def test_ten_existing_server_domains_preserve_original_tradingview_webhook_url(server_id, monkeypatch):
+    domain = f"bot{server_id:02d}.example.org"
+    value = valid_input()
+    value["domain"] = domain
+    monkeypatch.setattr(O, "public_ipv4", lambda: pytest.fail("Must not generate a different domain"))
+    actual = O.normalized_input(value)
+    assert actual["domain"] == domain
+    assert "https://" + actual["domain"] + "/order" == f"https://{domain}/order"
+
+
+def test_unset_existing_domain_is_not_silently_replaced_with_auto_hostname(monkeypatch):
+    value = valid_input()
+    value["domain"] = "SET_EXISTING_DOMAIN"
+    monkeypatch.setattr(O, "public_ipv4", lambda: pytest.fail("Explicit domain must not be auto-generated"))
+    with pytest.raises(O.legacy.InstallError, match="DOMAIN_REQUIRED"):
+        O.normalized_input(value)
+
 def test_cloud_init_full_install_embeds_exact_code_and_stage_preserves_manifest():
-    user_data = (ROOT / "deployment" / "POA_VULTR_ONECLICK_USER_DATA.yaml").read_text()
+    user_data = (ROOT / "deployment" / "POA_VULTR_ONECLICK_USER_DATA.yaml").read_text(encoding="utf-8")
     assert user_data.startswith("#cloud-config\n")
     import yaml
     cfg = yaml.safe_load(user_data)
     embedded = {entry["path"]: entry for entry in cfg["write_files"]}
     assert cfg["write_files"][0]["path"] == "/root/poa-oneclick-input.json"
     operator = json.loads(embedded["/root/poa-oneclick-input.json"]["content"])
+    assert operator["domain"] == "SET_EXISTING_DOMAIN"
+    assert operator["credentials"]["PASSWORD"] == "AUTO"
     assert operator["credentials"]["DISCORD_WEBHOOK_URL"] == "SET_DISCORD_WEBHOOK_URL"
     assert all(operator["credentials"][k] == "" for k in ("UPBIT_KEY", "UPBIT_SECRET", "BINANCE_KEY", "BYBIT_KEY", "OKX_KEY", "BITGET_KEY"))
     original = json.loads(
@@ -162,7 +183,7 @@ def test_stage_full_history_happens_before_release_checks(tmp_path, monkeypatch)
     import types
     path = ROOT / "deployment" / "POA_VULTR_ONECLICK_USER_DATA.yaml"
     import yaml
-    cfg = yaml.safe_load(path.read_text())
+    cfg = yaml.safe_load(path.read_text(encoding="utf-8"))
     stage = next(x["content"] for x in cfg["write_files"]
                  if x["path"] == "/usr/local/lib/poa/stage-full-history.py")
     entry = tmp_path / "stage.json"
