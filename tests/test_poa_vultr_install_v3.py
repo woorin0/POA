@@ -52,6 +52,10 @@ def test_builds_pinned_pocketbase_source_without_github_release_asset(tmp_path, 
         if code == "PB_SOURCE_REV_FAILED":
             return V.POCKETBASE_COMMIT.encode()
         if code == "PB_SOURCE_COMPILE_FAILED":
+            assert kw["env"]["HOME"] == "/root"
+            assert kw["env"]["GOPATH"]
+            assert kw["env"]["GOMODCACHE"] == str(Path(kw["env"]["GOPATH"]) / "pkg/mod")
+            assert Path(kw["env"]["GOMODCACHE"]).is_dir()
             (db / "pocketbase.v0166.build").write_bytes(b"mock binary")
         if code in ("PB_COMPILED_VERSION_FAILED", "PB_VERSION_FAILED"):
             return b"pocketbase 0.16.6"
@@ -139,6 +143,7 @@ def test_complete_send_one_discord_only_after_https_and_services(
     assert not m.RUNTIME.exists()
 
 
+@pytest.mark.skipif(__import__("sys").platform == "win32", reason="POSIX file permission check")
 def test_no_overwrite_when_old_runtime_exists(tmp_path, monkeypatch):
     app = tmp_path / "POA"
     app.mkdir()
