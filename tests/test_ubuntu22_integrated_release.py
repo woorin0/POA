@@ -237,7 +237,6 @@ def test_original_python310_time_windows_independent_dst_oracle(zone,y,m,d):
     import ast
     from datetime import datetime,timedelta
     from zoneinfo import ZoneInfo
-    import pendulum
     tree=ast.parse((ROOT/"exchange/pexchange.py").read_text(encoding="utf-8"))
     found=[n for n in tree.body if isinstance(n,ast.FunctionDef)
            and n.name=="get_today_timestamp"]
