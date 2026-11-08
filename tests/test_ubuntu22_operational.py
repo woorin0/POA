@@ -191,7 +191,7 @@ def test_stage_check_blocks_unverified_host(monkeypatch,tmp_path):
     monkeypatch.setattr(O,"APP",tmp_path/"missing-app")
     monkeypatch.setattr(O,"DB",tmp_path/"missing-db")
     monkeypatch.setattr(O,"STAGE_RESULT",tmp_path/"missing-stage.json")
-    monkeypatch.setattr(O.os,"geteuid",lambda:0)
+    monkeypatch.setattr(O.os,"geteuid",lambda:0, raising=False)
     with pytest.raises((O.SetupBlocked, FileNotFoundError)):
         O._stage_ready()
 
