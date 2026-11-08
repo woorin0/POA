@@ -20,7 +20,7 @@ jobs:
   oneclick:
     name: One-click installer mock-${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -62,6 +62,24 @@ jobs:
           assert len(source.encode('utf-8')) < 16000
           assert not any('order' in str(x).lower() for x in obj['runcmd'])
           print('ONECLICK_FILE=PASS; PROTECTED_ORDER_SOURCE=UNCHANGED; REAL_ORDERS_NOT_SENT')
+      - name: Compile real PocketBase v0.16.6 on Ubuntu 22.04 (not a mock)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq golang-go
+          go version
+          git clone --depth 1 --branch v0.16.6 https://github.com/pocketbase/pocketbase.git /tmp/poa-pocketbase-v0166
+          test "$(git -C /tmp/poa-pocketbase-v0166 rev-parse HEAD)" = "91bbbc4bdb943eefcc29ea78d90c77bac185949c"
+          mkdir -p /tmp/poa-go/pkg/mod
+          cd /tmp/poa-pocketbase-v0166
+          export HOME=/home/runner GOPATH=/tmp/poa-go GOMODCACHE=/tmp/poa-go/pkg/mod
+          export CGO_ENABLED=0 GOTOOLCHAIN=local GOPROXY=https://proxy.golang.org,direct
+          export GOSUMDB=sum.golang.org GOFLAGS=-p=1 GOMAXPROCS=2 GOGC=50
+          go build -trimpath -ldflags '-X github.com/pocketbase/pocketbase.Version=0.16.6' -o /tmp/poa-pocketbase-real ./examples/base
+          /tmp/poa-pocketbase-real --version
+          /tmp/poa-pocketbase-real --version | grep -F 0.16.6
       - name: Upload fixture evidence
         if: always()
         uses: actions/upload-artifact@v4
