@@ -1,0 +1,123 @@
+name: POA Vultr Integration A roles, read-only key, 203 hostile Mock E2E
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'poa_stage/**'
+      - 'poa_runtime/**'
+      - 'tests/test_vultr_stage.py'
+      - 'tests/test_poa_runtime_roles.py'
+      - 'deployment/poa-stage-only.service.candidate'
+      - 'deployment/poa-readonly-only.service.candidate'
+      - 'deployment/poa-trading-disabled.service.candidate'
+      - 'deployment/PR_A_VULTR_MINIMAL_INTEGRATION.md'
+      - '.github/workflows/vultr_role_integration_a.yml'
+permissions:
+  contents: read
+
+jobs:
+  isolated-role-integration:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      MAIN_FIXED: c5566c4cc2a4ce716f1f0d66260bd60e4f95546f
+      HEAD_FIXED: ${{ github.event.pull_request.head.sha }}
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONIOENCODING: utf-8
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - name: Disable git checkout newline transformations
+        shell: bash
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install existing product and pinned test dependencies
+        run: |
+          python -m pip install pip==26.3 setuptools==84.2.1
+          python -m pip install -r requirements.txt
+          python -m pip install pytest==9.1.1 pytest-asyncio pytest-subtests PyYAML
+          python -m pip check
+      - name: Verify only additive approved role files and immutable product bytes
+        shell: python
+        run: |
+          import os,subprocess
+          from pathlib import Path
+          base=os.environ['MAIN_FIXED']
+          assert subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()==os.environ['HEAD_FIXED']
+          assert subprocess.check_output(['git','rev-parse',base],text=True).strip()==base
+          actual=set(subprocess.check_output(['git','diff','--name-only',base,'HEAD'],text=True).splitlines())
+          approved={
+            'poa_stage/__init__.py','poa_stage/gateway.py','poa_stage/read_credentials.py',
+            'poa_runtime/__init__.py','poa_runtime/roles.py',
+            'poa_runtime/readonly_gateway.py','poa_runtime/trade_gate.py',
+            'poa_runtime/__main__.py','tests/test_vultr_stage.py',
+            'tests/test_poa_runtime_roles.py',
+            'deployment/poa-stage-only.service.candidate',
+            'deployment/poa-readonly-only.service.candidate',
+            'deployment/poa-trading-disabled.service.candidate',
+            'deployment/PR_A_VULTR_MINIMAL_INTEGRATION.md',
+            '.github/workflows/vultr_role_integration_a.yml',
+          }
+          assert actual==approved,('UNAUTHORIZED_PRODUCT_CHANGE',sorted(actual^approved))
+          for file in actual:
+            if file.endswith('.py'):compile(Path(file).read_bytes(),file,'exec')
+          subprocess.run(['git','diff','--exit-code',base,'HEAD','--','main.py','run.py',
+                         'exchange','requirements.txt','release_manifest_sha256.json',
+                         'deployment/install_once.py','deployment/build_cloud_config.py',
+                         'deployment/prepare_ubuntu.py'],check=True)
+          print('PR_A_SOURCE_ADDITIONS_ONLY=PASS')
+          print('ORIGINAL_MAIN_FINANCE_DB_AND_MANIFEST_BYTE_IDENTICAL=PASS')
+      - name: Full inherited PR23 and Integration A hostile stage and roles Mock E2E
+        shell: python
+        run: |
+          import sys
+          from pathlib import Path
+          sys.path.insert(0,str(Path.cwd()))
+          sys.path.insert(0,str(Path.cwd()/'release_checks'))
+          import isolation,pytest
+          raise SystemExit(pytest.main([
+            '-q','--tb=short','-p','no:cacheprovider',
+            '--junitxml=pr-a-roles.xml',
+            'tests/test_vultr_stage.py','tests/test_poa_runtime_roles.py',
+          ],plugins=[isolation]))
+      - name: Original immutable 72-file release Manifest and packaging
+        run: |
+          python release_checks/verify_release.py
+          python release_checks/verify_packaging.py
+      - name: Ensure three role candidates cannot start real orders
+        shell: python
+        run: |
+          from pathlib import Path
+          from poa_runtime.roles import deny_order_execution,RoleBlocked
+          try:deny_order_execution()
+          except RoleBlocked as exc:assert exc.code=='POA_RUNTIME_TRADING_DISABLED'
+          else:raise AssertionError('ORDER_GATE_UNEXPECTEDLY_ENABLED')
+          for item in ('poa-stage-only.service.candidate',
+                       'poa-readonly-only.service.candidate',
+                       'poa-trading-disabled.service.candidate'):
+            content=(Path('deployment')/item).read_text()
+            assert 'ExecStartPre=/usr/bin/false' in content
+          print('RUNTIME_STAGE_AND_READ_ONLY_SYNTHETIC_ONLY=PASS')
+          print('PR_A_TRADING_DEFAULT_DISABLED=PASS')
+          print('LEGACY_MAIN_NATIVE_ORDER_GUARD=NOT_INTEGRATED')
+          print('READ_ONLY_VENUE_ACCOUNT_ATTESTATION=UNVERIFIED')
+          print('VULTR_INSTALLATION=NOT_PERFORMED')
+          print('ACTUAL_ORDERS=0')
+          print('OPERATING_READY=BLOCKED')
+      - name: Upload synthetic unit test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: poa-vultr-integration-a-${{ matrix.os }}
+          path: pr-a-roles.xml
+          if-no-files-found: ignore
