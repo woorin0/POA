@@ -72,7 +72,10 @@ jobs:
              'tests/test_ubuntu22_oneclick.py',
              '.github/workflows/ubuntu22_oneclick_ci.yml',
              'deployment/recover_failed_pocketbase_stage.py',
-             'tests/test_recover_failed_pocketbase_stage.py',
+             'tests/test_recover_failed_pocketbase_stage.py'
+             'deployment/poa_vultr_install_v3.py',
+             'deployment/POA_VULTR_10_SERVERS_FIXED_USER_DATA.yaml',
+             'tests/test_poa_vultr_install_v3.py',,
           }
           required={'deployment/bot03_reinstall.py','deployment/py312_requirements.py','deployment/ubuntu22_release_handoff.py','deployment/cloud-config-ubuntu2204-pr35-stage-only.yaml'}
           assert changed<=approved and required<=changed,('UNAPPROVED_SOURCE_CHANGE',sorted(changed-approved))
