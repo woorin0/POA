@@ -25,6 +25,21 @@ RESPONSE_503 = b'{"detail":"POA_LOCAL_WORKER_UNAVAILABLE"}'
 RESPONSE_400 = b'{"detail":"POA_INVALID_LOCAL_REQUEST"}'
 
 
+def _child_env():
+    """Minimal Python bootstrap env, never copy the operator's trading keys.
+
+    Windows CPython requires SYSTEMROOT for secure random-number initialization.
+    All other user/credential environment entries remain deliberately absent.
+    """
+    env = {"PYTHONIOENCODING": "utf-8", "PYTHONDONTWRITEBYTECODE": "1"}
+    if os.name == "nt":
+        root = os.environ.get("SYSTEMROOT") or os.environ.get("SystemRoot")
+        if not root:
+            raise RuntimeError("WINDOWS_SYSTEMROOT_REQUIRED")
+        env["SYSTEMROOT"] = root
+    return env
+
+
 def _worker(role: str, method: str, path: str):
     """Never pass inherited sockets, production environment or a shell."""
     data = json.dumps({"method": method, "path": path}, separators=(",", ":"))
@@ -32,7 +47,7 @@ def _worker(role: str, method: str, path: str):
         [sys.executable, "-I", "-B", "-S", str(WORKER), role],
         input=data, capture_output=True, text=True, timeout=12,
         cwd=str(ROOT), close_fds=True,
-        env={"PYTHONIOENCODING": "utf-8", "PYTHONDONTWRITEBYTECODE": "1"},
+        env=_child_env(),
     )
     if child.returncode != 0 or len(child.stdout) > MAX_OUTPUT:
         raise RuntimeError("SEALED_WORKER_DENIED")
