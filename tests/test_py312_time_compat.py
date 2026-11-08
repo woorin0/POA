@@ -138,6 +138,24 @@ def test_exact_pendulum_version_on_target_python():
         assert version("pendulum") == "2.1.2"
 
 
+@pytest.mark.skipif(__import__("sys").platform != "win32", reason="Windows asyncio self-pipe")
+def test_python312_windows_stdlib_socketpair_only_and_external_audit_still_blocked():
+    import socket
+    import conftest
+    first, second = socket.socketpair()
+    try:
+        first.sendall(b"internal-event-loop-self-pipe")
+        assert second.recv(128) == b"internal-event-loop-self-pipe"
+    finally:
+        first.close()
+        second.close()
+    # Call the actual audit guard directly. No external connection occurs.
+    for event in ("socket.connect", "socket.connect_ex",
+                  "socket.sendto", "socket.getaddrinfo"):
+        with pytest.raises(RuntimeError, match="AUDIT_NETWORK_DISABLED"):
+            conftest._audit_guard(event, (None, ("198.51.100.9", 443)))
+
+
 def test_static_finance_code_uses_no_other_pendulum_operations():
     # Confirm the production package only uses the tested today/start/end API.
     imports = []
