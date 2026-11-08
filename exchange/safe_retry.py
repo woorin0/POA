@@ -85,6 +85,8 @@ class Store:
 
     @contextmanager
     def connect(self):
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         con = sqlite3.connect(self.path, timeout=5)
         try:
             con.execute("PRAGMA synchronous=FULL")
@@ -98,6 +100,8 @@ class Store:
             con.close()
 
     def claim(self, row):
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         with self.connect() as con:
             existing = con.execute("SELECT data FROM safe_orders WHERE signal=?", (row["signal"],)).fetchone()
             if existing:
@@ -115,6 +119,8 @@ class Store:
             return row, True
 
     def save(self, row, state, release=False, **changes):
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         with self.connect() as con:
             current = con.execute("SELECT state FROM safe_orders WHERE signal=?", (row["signal"],)).fetchone()
             if not current or (state != current[0] and state not in TRANSITIONS[current[0]]):
@@ -129,11 +135,15 @@ class Store:
         row.update(updated)
 
     def pending(self):
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         with self.connect() as con:
             return [json.loads(r[0]) for r in con.execute(
                 "SELECT o.data FROM safe_orders o JOIN safe_locks l ON o.signal=l.signal")]
 
     def recover(self):
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         rows = self.pending()
         for row in rows:
             if row["state"] in {"RECEIVED", "VALIDATED", "REJECTED"}:
@@ -143,6 +153,8 @@ class Store:
         return rows
 
     def backup(self, destination):
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         with closing(sqlite3.connect(self.path)) as src, closing(sqlite3.connect(str(destination))) as dst:
             src.backup(dst)
 
@@ -252,6 +264,8 @@ class Adapter:
         return tuple(args)
 
     def reconcile(self, row):
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         """Read ID, open/history, trades and position. Absence never authorizes send."""
         symbol, cid = row["symbol"], row["client_id"]
         if self.exchange == "UPBIT":
@@ -618,6 +632,8 @@ class ReconciliationClients:
         return (str(exchange).upper(), category, acct)
 
     def _get_or_create_client_locked(self, key, exchange: str, is_futures: bool):
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         norm_key = self._normalize_key(key, is_futures)
         if norm_key not in self.clients:
             import ccxt
@@ -759,6 +775,8 @@ class ReconciliationClients:
                 "CCXT close outcome=%s; client retired; resource release unconfirmed", outcome)
 
     def acquire_lease(self, exchange, is_futures: bool = False):
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         """Atomically acquires client reference and registers active lease under pool lock.
         Active leases prevent the client from being closed during lock contention or queries."""
         if isinstance(exchange, tuple):
@@ -820,6 +838,8 @@ class ReconciliationClients:
             self._safe_close_client(key, client_to_close)
 
     def get_client(self, exchange, is_futures: bool = False):
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         norm_key = self._normalize_key(exchange, is_futures)
         with self.lock:
             if self.closed or _shutdown_event.is_set() or self.state in ("CLOSING", "CLOSED", STATE_CLOSING, STATE_CLOSED):
