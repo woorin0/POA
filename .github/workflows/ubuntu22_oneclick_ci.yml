@@ -12,6 +12,7 @@ on:
       - 'deployment/poa_vultr_install_v3.py'
       - 'deployment/POA_VULTR_10_SERVERS_FIXED_USER_DATA.yaml'
       - 'tests/test_poa_vultr_install_v3.py'
+      - 'tests/ubuntu22_real_firstboot_rehearsal.py'
       - 'tests/test_ubuntu22_operational.py'
       - '.github/workflows/ubuntu22_oneclick_ci.yml'
 permissions:
@@ -89,3 +90,28 @@ jobs:
             oneclick.xml
             operational.xml
           if-no-files-found: ignore
+
+  fresh-firstboot-real:
+    name: Real Ubuntu22 first boot, services, local TLS, Discord capture (no orders)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 50
+    steps:
+      - name: Checkout PR scripts
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Install YAML parser
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-yaml
+      - name: Run exact User Data downloader and complete real fresh installer
+        shell: bash
+        run: |
+          sudo env PYTHONPATH="$GITHUB_WORKSPACE" /usr/bin/python3 tests/ubuntu22_real_firstboot_rehearsal.py
+      - name: Print only bounded failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          sudo systemctl status poa pocketbase caddy --no-pager -l 2>/dev/null | tail -n 75 || true
