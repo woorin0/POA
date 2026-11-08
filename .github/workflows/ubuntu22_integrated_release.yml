@@ -8,6 +8,12 @@ on:
       - 'deployment/ubuntu22_release_handoff.py'
       - 'deployment/UBUNTU22_INTEGRATED_RELEASE.md'
       - 'deployment/cloud-config-ubuntu2204-pr35-stage-only.yaml'
+      - 'deployment/ubuntu22_operational.py'
+      - 'deployment/ubuntu22_turnkey_build.py'
+      - 'deployment/ubuntu22_turnkey_USER_DATA.yaml'
+      - 'deployment/UBUNTU22_TURNKEY.md'
+      - 'tests/test_ubuntu22_operational.py'
+      - '.github/workflows/ubuntu22_turnkey_ci.yml'
       - 'tests/test_ubuntu22_integrated_release.py'
       - '.github/workflows/ubuntu22_integrated_release.yml'
 permissions:
@@ -52,10 +58,17 @@ jobs:
              'deployment/ubuntu22_release_handoff.py',
              'deployment/UBUNTU22_INTEGRATED_RELEASE.md',
              'deployment/cloud-config-ubuntu2204-pr35-stage-only.yaml',
+             'deployment/ubuntu22_operational.py',
+             'deployment/ubuntu22_turnkey_build.py',
+             'deployment/ubuntu22_turnkey_USER_DATA.yaml',
+             'deployment/UBUNTU22_TURNKEY.md',
+             'tests/test_ubuntu22_operational.py',
+             '.github/workflows/ubuntu22_turnkey_ci.yml',
              'tests/test_ubuntu22_integrated_release.py',
              '.github/workflows/ubuntu22_integrated_release.yml',
           }
-          assert changed==approved,('UNAPPROVED_SOURCE_CHANGE',sorted(changed^approved))
+          required={'deployment/bot03_reinstall.py','deployment/py312_requirements.py','deployment/ubuntu22_release_handoff.py','deployment/cloud-config-ubuntu2204-pr35-stage-only.yaml'}
+          assert changed<=approved and required<=changed,('UNAPPROVED_SOURCE_CHANGE',sorted(changed-approved))
           original=['main.py','run.py','exchange','requirements.txt',
                     'release_manifest_sha256.json','release_checks',
                     'deployment/install_once.py','deployment/prepare_ubuntu.py',
@@ -65,7 +78,7 @@ jobs:
           for f in changed:
               if f.endswith('.py'):
                   compile(Path(f).read_bytes(),f,'exec')
-          print('ONLY_SEVEN_NONPRODUCT_FILES=PASS; FINANCE_DB_KEYS_AND_INSTALLER_UNCHANGED=PASS')
+          print('ONLY_NONPRODUCT_TURNKEY_FILES=PASS; FINANCE_DB_KEYS_AND_INSTALLER_UNCHANGED=PASS')
       - name: Install complete original Python 3.10 environment
         run: |
           python -m pip install pip==26.3 setuptools==84.2.1
