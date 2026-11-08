@@ -170,7 +170,9 @@ def _legacy_binary_for_fresh():
         with candidate.open("xb") as stream:
             stream.write(package.read("pocketbase"))
     candidate.chmod(0o700)
-    _run([str(candidate), "--version"], "POCKETBASE_LEGACY_BINARY_INVALID")
+    observed = _run([str(candidate), "--version"], "POCKETBASE_LEGACY_BINARY_INVALID")
+    if PB_LEGACY_VERSION.encode() not in observed:
+        raise SetupBlocked("POCKETBASE_LEGACY_VERSION_MISMATCH")
     (DB / "pocketbase").rename(DB / "pocketbase.stage-0.22.48")
     candidate.rename(DB / "pocketbase")
     return True
@@ -254,7 +256,10 @@ def restore(backup: Path):
     if not (source_db / "pb_data" / "data.db").is_file():
         raise SetupBlocked("POCKETBASE_RESTORED_DB_REQUIRED")
     # Verify SQLite integrity before moving anything into staged directories.
-    from deployment import ubuntu22_release_handoff as handoff
+    try:
+        from deployment import ubuntu22_release_handoff as handoff
+    except ModuleNotFoundError:
+        import ubuntu22_release_handoff as handoff
     handoff._sqlite_read_only(source_app / "notifications.sqlite3")
     handoff._sqlite_read_only(source_db / "pb_data" / "data.db")
     for name in app_files:
@@ -285,7 +290,10 @@ def activate_restored():
     _assert_private_regular(APP / ".env")
     if (APP / "LOCAL_READY").exists():
         raise SetupBlocked("ALREADY_ACTIVE")
-    from deployment import ubuntu22_release_handoff as handoff
+    try:
+        from deployment import ubuntu22_release_handoff as handoff
+    except ModuleNotFoundError:
+        import ubuntu22_release_handoff as handoff
     handoff._sqlite_read_only(DB / "pb_data" / "data.db")
     handoff._sqlite_read_only(APP / "notifications.sqlite3")
     return _start_services(fresh=False)
@@ -298,8 +306,13 @@ def publish(domain: str):
     if not (APP / "LOCAL_READY").is_file():
         raise SetupBlocked("LOCAL_HEALTH_NOT_CONFIRMED")
     caddy = Path("/etc/caddy/Caddyfile")
-    if caddy.exists() and caddy.read_text().strip():
-        raise SetupBlocked("CADDY_EXISTING_CONFIGURATION_PRESERVED")
+    saved = caddy.with_name("Caddyfile.poa.previous")
+    if saved.exists() or saved.is_symlink():
+        raise SetupBlocked("CADDY_ALREADY_CONFIGURED")
+    if caddy.exists() or caddy.is_symlink():
+        if caddy.is_symlink() or not caddy.is_file():
+            raise SetupBlocked("CADDY_FILE_UNSAFE")
+        shutil.copy2(caddy, saved)  # Preserve packaged Caddy welcome config.
     acl = "52.89.214.238 34.212.75.30 54.218.53.128 52.32.178.7"
     content = (domain + " {\n @tradingview {\n remote_ip " + acl +
                "\n method POST\n path / /order\n }\n handle @tradingview {\n"
