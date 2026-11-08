@@ -125,10 +125,11 @@ class Settings(BaseSettings):
     UPBIT_PARTIAL_FILL_ALERTS: bool = False
     UPBIT_MAX_VERIFY_ATTEMPTS: int = 5
     UPBIT_VERIFY_BACKOFF_ENABLED: bool = True
-    # Notification read opt-in. Reusing trading keys requires a separate explicit mode.
+    # Read-only native fill lookup defaults on when verified alerts/outbox are enabled.
+    # Existing API permissions are unchanged; explicit False remains supported.
     POA_NOTIFICATION_SERVER_ALIAS: str | None = None
     POA_UPBIT_ESTIMATED_READ_ENABLED: bool = False
-    POA_EXCHANGE_FILL_CONFIRMATION_ENABLED: bool = False
+    POA_EXCHANGE_FILL_CONFIRMATION_ENABLED: bool = True
     POA_UPBIT_READ_CREDENTIAL_MODE: str = "disabled"
     POA_UPBIT_READ_BINDING_FILE: str = "/etc/poa/upbit-notification-binding.json"
     POA_UPBIT_READ_BINDING_SHA256: str = ""
