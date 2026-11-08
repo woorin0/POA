@@ -327,6 +327,7 @@ def test_no_product_finance_install_sources_changed():
         "tests/test_retry_install_discord.py",
         "tests/test_bot01_tv_trade_discord_readiness.py",
         ".github/workflows/bot01_trade_discord_mock_ci.yml",
+        ".github/workflows/pr_verification.yml",
     }
     required={
         "deployment/bot03_reinstall.py",
