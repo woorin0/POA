@@ -206,6 +206,14 @@ def test_exact_audit_file_scope_finance_and_main_unchanged():
         "tests/test_pr29_independent_reaudit.py",
         "deployment/PR29_INDEPENDENT_REAUDIT.md",
         ".github/workflows/pr29_independent_reaudit.yml",
+    "poa_runtime/local_worker.py",
+    "poa_runtime/local_unix_gateway.py",
+    "deployment/poa_ubuntu24_preflight.py",
+    "deployment/poa-stage-uds.service.candidate",
+    "deployment/poa-readonly-uds.service.candidate",
+    "deployment/PR30_MINIMAL_RUNTIME_PREFLIGHT.md",
+    "tests/test_pr30_minimal_runtime.py",
+    ".github/workflows/pr30_minimal_runtime_ci.yml",
     }
     actual=set(subprocess.check_output(
         ["git","diff","--name-only",PARENT,"HEAD"],cwd=ROOT,text=True).splitlines())

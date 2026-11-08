@@ -1,0 +1,43 @@
+# PR32 CANDIDATE ONLY — NOT INSTALLED, ENABLED OR STARTED.
+# Runnable Python package is for isolated offline validation; candidate
+# remains deliberately disabled until separate Vultr host approval.
+[Unit]
+Description=POA stage local Unix-socket health-only gateway candidate
+RefuseManualStart=yes
+RefuseManualStop=yes
+
+[Service]
+Type=simple
+DynamicUser=yes
+UMask=0077
+NoNewPrivileges=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=~@privileged @mount io_uring_setup io_uring_enter io_uring_register
+SystemCallErrorNumber=EPERM
+RuntimeDirectory=poa-stage
+RuntimeDirectoryMode=0700
+WorkingDirectory=/opt/poa-stage
+StandardInput=null
+StandardOutput=journal
+StandardError=journal
+ExecStartPre=/usr/bin/false
+ExecStart=/opt/poa-stage/.venv/bin/python -I -B -S /opt/poa-stage/poa_runtime/local_unix_gateway.py --role stage --unix-socket /run/poa-stage/health.sock
+Restart=no
+
+# Deliberately no [Install], socket activation, environment file, DB or API key.
