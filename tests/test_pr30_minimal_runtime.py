@@ -81,7 +81,10 @@ def test_pr30_sealed_worker_executed_in_separate_child(role, method, path, expec
     assert set(response) == {"status", "body"}
     assert response["status"] == expected
     if expected == 200:
-        assert '"orders_enabled":false' in response["body"]
+        if method == "HEAD":
+            assert response["body"] == ""  # Correct ASGI HEAD: zero response body.
+        else:
+            assert '"orders_enabled":false' in response["body"]
     else:
         assert "DENIED" in response["body"] or "NOT_AUTHORIZED" in response["body"]
 
