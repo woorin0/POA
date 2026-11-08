@@ -67,10 +67,24 @@ class _Handler(socketserver.BaseRequestHandler):
         self.request.settimeout(3)
         method = "GET"
         try:
+            # Consume *headers only* before replying: closing an AF_UNIX
+            # stream with unread header bytes can reset the client connection.
+            # Never touch any request body, bearer token or webhook payload.
             with self.request.makefile("rb", buffering=0) as stream:
                 line = stream.readline(MAX_REQUEST_LINE + 1)
-            if len(line) > MAX_REQUEST_LINE or not line.endswith(b"\r\n"):
-                raise ValueError("INVALID_LINE")
+                if len(line) > MAX_REQUEST_LINE or not line.endswith(b"\r\n"):
+                    raise ValueError("INVALID_LINE")
+                header_bytes = 0
+                for _ in range(64):
+                    header = stream.readline(MAX_REQUEST_LINE + 1)
+                    header_bytes += len(header)
+                    if (len(header) > MAX_REQUEST_LINE or header_bytes > 4096
+                            or not header.endswith(b"\r\n")):
+                        raise ValueError("INVALID_HEADERS")
+                    if header == b"\r\n":
+                        break
+                else:
+                    raise ValueError("TOO_MANY_HEADERS")
             parts = line[:-2].split(b" ")
             if (len(parts) != 3 or parts[2] not in (b"HTTP/1.0", b"HTTP/1.1")
                     or not parts[1].startswith(b"/") or len(parts[1]) > 256
