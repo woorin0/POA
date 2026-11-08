@@ -189,7 +189,9 @@ def pocketbase_build():
     env = {**os.environ, "CGO_ENABLED": "0", "GOTOOLCHAIN": "local",
            "GOPROXY": "https://proxy.golang.org,direct",
            "GOSUMDB": "sum.golang.org"}
-    execute(["go", "build", "-trimpath", "-o", str(candidate), "./examples/base"],
+    execute(["go", "build", "-trimpath", "-ldflags",
+             "-X github.com/pocketbase/pocketbase.Version=0.16.6",
+             "-o", str(candidate), "./examples/base"],
             "PB_SOURCE_COMPILE_FAILED", cwd=str(upstream), timeout=2400,
             env=env)
     candidate.chmod(0o700)
