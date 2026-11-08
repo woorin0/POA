@@ -144,6 +144,8 @@ def _tracked(root: Path):
             prefix, raw = line.split(b"\t", 1)
             mode, _sha, stage = prefix.decode("ascii").split(" ")
             path = _relative_file(raw.decode("utf-8"))
+        except ReinstallBlocked:
+            raise  # Preserve the specific secret/DB rejection reason.
         except (UnicodeError, ValueError):
             raise ReinstallBlocked("UNSAFE_GIT_INDEX_ENTRY") from None
         if mode not in ("100644", "100755") or stage != "0":
