@@ -126,7 +126,7 @@ def validate_candidate(text: str) -> Admission:
         parser.read_file(StringIO(text))
     except configparser.Error:
         deny("QUARANTINE_UNIT_SYNTAX_INVALID")
-    if set(parser.sections()) != {"Unit", "Service"}:
+    if set(parser.sections()) != {"Unit", "Service"} or "[DEFAULT]" in text or parser.defaults():
         deny("QUARANTINE_EXTRA_SECTION")
     _strict_options(parser, "Unit", UNIT_REQUIRED)
     _strict_options(parser, "Service", SERVICE_REQUIRED)
