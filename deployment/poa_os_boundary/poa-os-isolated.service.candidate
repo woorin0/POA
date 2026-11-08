@@ -1,0 +1,44 @@
+# PR31 AUDIT ONLY. INERT / UNSTARTABLE. Never install, enable or start.
+# No POA interpreter, financial engine, real exchange SDK, API keys or DB.
+[Unit]
+Description=POA OS airgap audit candidate - inert standalone process quarantine
+RefuseManualStart=yes
+RefuseManualStop=yes
+
+[Service]
+Type=simple
+DynamicUser=yes
+UMask=0077
+NoNewPrivileges=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=none
+IPAddressDeny=any
+SystemCallArchitectures=native
+SystemCallFilter=~@network-io @privileged @mount io_uring_setup io_uring_enter io_uring_register
+SystemCallErrorNumber=EPERM
+RestrictNamespaces=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHostname=yes
+LockPersonality=yes
+RestrictSUIDSGID=yes
+RemoveIPC=yes
+MemoryDenyWriteExecute=yes
+WorkingDirectory=/
+StandardInput=null
+StandardOutput=journal
+StandardError=journal
+ExecStartPre=/usr/bin/false
+ExecStart=/usr/bin/false
+Restart=no
+
+# No [Install], no sockets, no FD store, no secrets, no daemon, no orders.
