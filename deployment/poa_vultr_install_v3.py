@@ -188,7 +188,8 @@ def pocketbase_build():
         raise InstallationBlocked("PB_BUILD_ALREADY_PRESENT")
     env = {**os.environ, "CGO_ENABLED": "0", "GOTOOLCHAIN": "local",
            "GOPROXY": "https://proxy.golang.org,direct",
-           "GOSUMDB": "sum.golang.org"}
+           "GOSUMDB": "sum.golang.org", "GOFLAGS": "-p=1",
+           "GOMAXPROCS": "2", "GOGC": "50"}
     execute(["go", "build", "-trimpath", "-ldflags",
              "-X github.com/pocketbase/pocketbase.Version=0.16.6",
              "-o", str(candidate), "./examples/base"],
