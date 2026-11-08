@@ -22,6 +22,7 @@ INPUT = Path("/root/poa-oneclick-input.json")
 STAGE = Path("/root/POA_INSTALL_RESULT.json")
 RESULT = Path("/root/POA_ONECLICK_RESULT.json")
 STAMP = Path("/root/POA_INSTALL_DISCORD_ATTEMPT.json")
+RUNTIME = Path("/root/poa-runtime-v3.json")
 SOURCE_COMMIT = "5b86b4368fb28adfe38bc98397bad32a01df9426"
 SOURCE_MANIFEST_SHA = "0c464b1387d7ced078d4d957a1a9bdc947b8bb1d425518aba631fcc623d279fa"
 POCKETBASE_COMMIT = "91bbbc4bdb943eefcc29ea78d90c77bac185949c"
@@ -57,32 +58,53 @@ def ready_requirements():
         raise InstallationBlocked("UBUNTU2204_ROOT_REQUIRED")
     if execute(["dpkg", "--print-architecture"], "AMD64_CHECK_FAILED").strip() != b"amd64":
         raise InstallationBlocked("AMD64_REQUIRED")
-    if not INPUT.is_file() or INPUT.stat().st_mode & 0o077:
-        raise InstallationBlocked("PRIVATE_USER_CONFIG_REQUIRED")
     if RESULT.exists():
         report = json.loads(RESULT.read_text(encoding="utf-8"))
         if report.get("state") == "RUNNING_HTTPS":
             print("POA_ALREADY_RUNNING=" + report["webhook_url"], flush=True)
             return False
         raise InstallationBlocked("EXISTING_RESULT_STOP")
+    if not INPUT.is_file() or INPUT.stat().st_mode & 0o077:
+        raise InstallationBlocked("PRIVATE_USER_CONFIG_REQUIRED")
     if (APP / ".env").exists() or (APP / "LOCAL_READY").exists() or (DB / "pb_data").exists():
         raise InstallationBlocked("EXISTING_DB_OR_ORDER_CONFIGURATION_STOP")
     return True
 
 
 def prepare_packages():
-    # Existing BOT01 has already completed its apt preparation. Fresh systems do not.
-    packages = ["git", "curl", "ca-certificates", "python3.10-venv",
-                "python3.10-dev", "python3-pip", "golang-go", "ufw", "caddy"]
-    execute(["apt-get", "update", "-qq"], "APT_UPDATE_FAILED", timeout=900,
+    if not APP.is_dir():
+        # Reuse the previously verified Ubuntu 22.04 package/Caddy setup,
+        # including its official Caddy APT repository (Jammy lacks Caddy).
+        target = Path("/usr/local/lib/poa")
+        target.mkdir(mode=0o700, parents=True, exist_ok=True)
+        checked = {
+            "install_once.py": "5572d3cef61050bfeba684dcb573b4057f0714da85fbdb6b9bfe62761a471374",
+            "prepare_ubuntu.py": "7d8f570f756cd41694001de12b271f4dc443fd21a45a06acc1b68c972bad605b",
+        }
+        for name, digest in checked.items():
+            dst = target / name
+            if not dst.exists():
+                url = ("https://raw.githubusercontent.com/woorin0/POA/"
+                       + SOURCE_COMMIT + "/deployment/" + name)
+                with urlopen(url, timeout=45) as response:
+                    payload = response.read(90000)
+                if hashlib.sha256(payload).hexdigest() != digest:
+                    raise InstallationBlocked("PREPARE_SCRIPT_HASH_MISMATCH")
+                fd = os.open(dst, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(fd, "wb") as stream:
+                    stream.write(payload)
+        stage_input = Path("/root/poa-stage-input.json")
+        if not stage_input.exists():
+            private_write(stage_input, {
+                "install_mode": "NEW_SERVER_STAGE_ONLY",
+                "repo_ref": SOURCE_COMMIT,
+                "release_manifest_sha256": SOURCE_MANIFEST_SHA,
+            })
+        sys.path.insert(0, str(target))
+        from prepare_ubuntu import prepare
+        prepare()
+    execute(["apt-get", "install", "-y", "golang-go"], "GO_INSTALL_FAILED",
             env={**os.environ, "DEBIAN_FRONTEND": "noninteractive"})
-    execute(["apt-get", "install", "-y", "-qq", *packages], "APT_INSTALL_FAILED",
-            timeout=1800, env={**os.environ, "DEBIAN_FRONTEND": "noninteractive"})
-    # Caddy must start only after the domain-specific file has been generated.
-    execute(["systemctl", "stop", "caddy.service"], "CADDY_STOP_FAILED")
-    # It may be disabled by an older (partially completed) stage; the verified
-    # publish() procedure un-masks it.
-    execute(["systemctl", "mask", "caddy.service"], "CADDY_MASK_FAILED")
 
 
 def source_checkout():
@@ -209,7 +231,8 @@ def complete_install(legacy, operations, oneclick, data):
     # binary, then swaps out a temporary 0.22.x binary. Here a verified
     # v0.16.6 build already exists, so it needs neither download nor swap.
     operations._legacy_binary_for_fresh = already_compiled_pb
-    operations.fresh(INPUT)
+    private_write(RUNTIME, data)
+    operations.fresh(RUNTIME)
     operations.publish(data["domain"])
     legacy.wait_ready(lambda: legacy.local_https(data["domain"]),
                       "HTTPS_NOT_READY_CHECK_DNS", seconds=180)
@@ -229,10 +252,31 @@ def complete_install(legacy, operations, oneclick, data):
     private_write(RESULT, report)
     # Mark the attempt before calling Discord; never send install-start/failure.
     if not STAMP.exists():
-        sent = oneclick._notify_success(data, report)
+        # One send attempt after successful HTTPS, never on failed installation.
+        private_write(STAMP, {"event": "POA_INSTALL_COMPLETE", "attempted": True})
+        body = json.dumps({"embeds": [{
+            "title": "✅ POA 설치 완료",
+            "description": "POA · PocketBase · HTTPS 정상 실행",
+            "color": 2263842,
+            "fields": [
+                {"name": "서버 도메인", "value": data["domain"], "inline": False},
+                {"name": "TradingView 웹훅", "value": report["webhook_url"],
+                 "inline": False},
+            ],
+        }]}, ensure_ascii=False).encode("utf-8")
+        request = Request(data["credentials"]["DISCORD_WEBHOOK_URL"],
+                          data=body,
+                          headers={"Content-Type": "application/json"},
+                          method="POST")
+        try:
+            with urlopen(request, timeout=12) as response:
+                sent = response.status in (200, 204)
+        except (OSError, ValueError):
+            sent = False
         print("POA_INSTALL_DISCORD=" + ("SENT" if sent else "NOT_DELIVERED"),
               flush=True)
     INPUT.unlink(missing_ok=True)
+    RUNTIME.unlink(missing_ok=True)
     print("POA_ONECLICK_READY=" + report["webhook_url"], flush=True)
 
 
