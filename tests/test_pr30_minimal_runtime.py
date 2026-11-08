@@ -74,7 +74,7 @@ def test_pr30_sealed_worker_executed_in_separate_child(role, method, path, expec
         [sys.executable, "-I", "-B", "-S", str(WORKER), role],
         input=request, capture_output=True, text=True, close_fds=True,
         cwd=ROOT, timeout=20,
-        env={"PYTHONDONTWRITEBYTECODE":"1", "PYTHONIOENCODING":"utf-8"},
+        env=G._child_env(),
     )
     assert p.returncode == 0, (p.returncode, p.stderr[-800:])
     response = json.loads(p.stdout)
@@ -100,7 +100,7 @@ def test_worker_bad_input_and_trading_role_fail_closed(payload, role):
     p = subprocess.run([sys.executable, "-I", "-B", "-S", str(WORKER), role],
         input=payload, capture_output=True, text=True, timeout=20,
         cwd=ROOT, close_fds=True,
-        env={"PYTHONDONTWRITEBYTECODE":"1", "POA_TRADE_ALLOW":"1",
+        env={**G._child_env(), "POA_TRADE_ALLOW":"1",
              "BINANCE_API_SECRET":"SYNTHETIC_CANARY"})
     assert p.returncode != 0
     assert "SYNTHETIC_CANARY" not in p.stdout + p.stderr
@@ -181,6 +181,14 @@ def test_unix_server_never_reuses_existing_socket_or_non_private_parent():
         assert path.read_text() == "DO_NOT_DELETE"
         with pytest.raises(ValueError,match="TRADING_ROLE_DISABLED"):
             G.serve("trading", str(Path(d)/"new.sock"))
+
+
+def test_windows_bootstrap_environment_is_minimal_and_secretless():
+    env = G._child_env()
+    assert set(env).issubset({"PYTHONIOENCODING", "PYTHONDONTWRITEBYTECODE", "SYSTEMROOT"})
+    assert not any("API" in key or "SECRET" in key or "KEY" in key for key in env)
+    if os.name == "nt":
+        assert env["SYSTEMROOT"]
 
 
 def test_gateway_is_sanitized_exec_only_no_production_imports_or_remote_calls():
