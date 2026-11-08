@@ -284,9 +284,6 @@ def test_security_report_discloses_no_host_enforcement_or_live_readiness():
         assert key in doc
 
 
-@pytest.mark.parametrize("invalid",[
-    None,123,"", "\x00[Unit]", "x"*17000
-])
 def test_empty_default_section_is_not_allowed(unit):
     # systemd ignores [DEFAULT]; ConfigParser understands it. Never let
     # a parser-only section produce false PASS for an unsupported unit.
@@ -294,5 +291,8 @@ def test_empty_default_section_is_not_allowed(unit):
            unit.replace("[Unit]\n","[DEFAULT]\n[Unit]\n",1))
 
 
+@pytest.mark.parametrize("invalid",[
+    None,123,"", "\x00[Unit]", "x"*17000
+])
 def test_invalid_unit_input_closed(invalid):
     denied("QUARANTINE_UNIT_INPUT_INVALID",validate_candidate,invalid)
