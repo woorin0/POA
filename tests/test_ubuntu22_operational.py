@@ -270,7 +270,10 @@ def test_full_git_delta_does_not_modify_financial_order_source():
         "tests/test_ubuntu22_oneclick.py",
         ".github/workflows/ubuntu22_oneclick_ci.yml",
         "deployment/recover_failed_pocketbase_stage.py",
-        "tests/test_recover_failed_pocketbase_stage.py",
+        "tests/test_recover_failed_pocketbase_stage.py"
+        "deployment/poa_vultr_install_v3.py",
+        "deployment/POA_VULTR_10_SERVERS_FIXED_USER_DATA.yaml",
+        "tests/test_poa_vultr_install_v3.py",,
         "deployment/POA_VULTR_ONECLICK.md",
     }
     assert set(changed)<=expected,("UNREQUESTED_CHANGE",changed)
