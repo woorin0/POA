@@ -61,8 +61,9 @@ def test_builds_pinned_pocketbase_source_without_github_release_asset(tmp_path, 
     V.pocketbase_build()
     assert (db / "pocketbase").read_bytes() == b"mock binary"
     builds = [argv for argv, code in calls if code == "PB_SOURCE_COMPILE_FAILED"]
-    assert builds == [["go", "build", "-trimpath", "-o",
-                       str(db / "pocketbase.v0166.build"), "./examples/base"]]
+    assert builds == [["go", "build", "-trimpath", "-ldflags",
+                       "-X github.com/pocketbase/pocketbase.Version=0.16.6",
+                       "-o", str(db / "pocketbase.v0166.build"), "./examples/base"]]
     assert not any("releases/download" in str(c) for c in calls)
 
 
