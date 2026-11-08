@@ -1,0 +1,25 @@
+# PR A independent read-only HTTP health candidate. NOT AN INSTALLED SERVICE.
+# No real exchange account has been attested and no keys are loaded.
+[Unit]
+Description=POA inert Vultr read-only health-only service candidate
+RefuseManualStart=yes
+
+[Service]
+Type=simple
+DynamicUser=yes
+NoNewPrivileges=yes
+UMask=0077
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+ProtectSystem=strict
+ProtectHome=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+WorkingDirectory=/opt/poa-stage
+ExecStartPre=/usr/bin/false
+ExecStart=/opt/poa-stage/.venv/bin/python -m uvicorn poa_runtime.readonly_gateway:app --host 127.0.0.1 --port 18081
+Restart=no

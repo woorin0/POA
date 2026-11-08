@@ -1,0 +1,18 @@
+# PR A Trading role hard-denied. This is NOT a live unit or release.
+[Unit]
+Description=POA trading role disabled pending independent operational release
+RefuseManualStart=yes
+
+[Service]
+Type=oneshot
+DynamicUser=yes
+NoNewPrivileges=yes
+PrivateNetwork=yes
+IPAddressDeny=any
+ProtectSystem=strict
+ProtectHome=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ExecStartPre=/usr/bin/false
+ExecStart=/usr/bin/false
+RemainAfterExit=no
