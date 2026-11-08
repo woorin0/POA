@@ -264,6 +264,24 @@ def test_original_python310_time_windows_independent_dst_oracle(zone,y,m,d):
     assert got[1]-got[0]+1 in (23*3600000,24*3600000,25*3600000)
 
 
+def test_pinned_integrated_userdata_is_stage_only_and_immutable():
+    import json
+    config_path = ROOT/"deployment"/"cloud-config-ubuntu2204-pr35-stage-only.yaml"
+    data = config_path.read_text(encoding="utf-8")
+    assert data.startswith("#cloud-config\n")
+    cfg = json.loads(data.split("\n",1)[1])
+    write_files = {r["path"]:r["content"] for r in cfg["write_files"]}
+    pin = json.loads(write_files["/root/poa-stage-input.json"])
+    assert pin["install_mode"]=="NEW_SERVER_STAGE_ONLY"
+    assert pin["repo_ref"]=="bc9f9af4807656b96cfd4da36efe169242181a4d"
+    assert pin["release_manifest_sha256"]=="0c464b1387d7ced078d4d957a1a9bdc947b8bb1d425518aba631fcc623d279fa"
+    assert cfg["final_message"].startswith("STAGED_NOT_LIVE")
+    for unit in ("poa.service.staged","pocketbase.service.staged"):
+        assert "ExecStartPre=/usr/bin/false" in write_files["/usr/local/lib/poa/"+unit]
+    assert cfg["runcmd"]==[["bash","-euc","umask 077; python3 /usr/local/lib/poa/prepare_ubuntu.py; python3 /usr/local/lib/poa/install_once.py"]]
+    assert not (set(write_files) & {"/root/POA/.env","/root/db/pb_data","/etc/poa/trading.env"})
+
+
 def test_no_product_finance_install_sources_changed():
     changed=subprocess.check_output(
         ["git","diff","--name-only",BASE,"HEAD"],cwd=ROOT,text=True).splitlines()
@@ -274,6 +292,7 @@ def test_no_product_finance_install_sources_changed():
         "deployment/UBUNTU22_INTEGRATED_RELEASE.md",
         "tests/test_ubuntu22_integrated_release.py",
         ".github/workflows/ubuntu22_integrated_release.yml",
+        "deployment/cloud-config-ubuntu2204-pr35-stage-only.yaml",
     }
     assert set(changed)==allowed,("UNREVIEWED_PRODUCTION_CHANGE",changed)
     protected=["main.py","run.py","exchange","requirements.txt",
