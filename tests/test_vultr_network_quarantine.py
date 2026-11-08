@@ -85,7 +85,7 @@ def test_pinned_unit_keys_cannot_be_removed_or_replaced(unit,name,expected):
 
 @pytest.mark.parametrize("name,expected",list(SERVICE_REQUIRED.items()))
 def test_all_systemd_hardening_keys_are_pinned(unit,name,expected):
-    assert unit.count(name+"=")==1,(name,unit.count(name+"="))
+    assert unit.splitlines().count(name+"="+expected)==1,(name,expected)
     denied("QUARANTINE_POLICY_MISSING",validate_candidate,
            unit.replace(name+"="+expected+"\n","",1))
     denied("QUARANTINE_POLICY_DOWNGRADE",validate_candidate,
