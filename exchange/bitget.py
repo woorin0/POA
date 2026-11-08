@@ -8,6 +8,8 @@ from devtools import debug
 
 class Bitget:
     def __init__(self, key, secret, passphrase=None):
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         self.client = ccxt.bitget(
             {
                 "apiKey": key,
@@ -146,15 +148,15 @@ class Bitget:
         return result
 
     def set_leverage(self, leverage, symbol):
-        from exchange.order_execution_gate import require_order_disabled
-        require_order_disabled()
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         
         hold_side = "long" if self.order_info.is_buy else "short"
         return self.client.set_leverage(leverage, symbol, params= { "holdSide": hold_side })
 
     def market_order(self, order_info: MarketOrder):
-        from exchange.order_execution_gate import require_order_disabled
-        require_order_disabled()
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         from exchange.pexchange import retry
 
         symbol = order_info.unified_symbol
@@ -177,8 +179,8 @@ class Bitget:
             raise error.OrderError(e, order_info)
 
     def market_buy(self, order_info: MarketOrder):
-        from exchange.order_execution_gate import require_order_disabled
-        require_order_disabled()
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         # 비용주문
         buy_amount = self.get_amount(order_info)
         order_info.amount = buy_amount
@@ -187,15 +189,15 @@ class Bitget:
         return self.market_order(order_info)
 
     def market_sell(self, order_info: MarketOrder):
-        from exchange.order_execution_gate import require_order_disabled
-        require_order_disabled()
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         sell_amount = self.get_amount(order_info)
         order_info.amount = sell_amount
         return self.market_order(order_info)
 
     def market_entry(self, order_info: MarketOrder):
-        from exchange.order_execution_gate import require_order_disabled
-        require_order_disabled()
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         from exchange.pexchange import retry
 
         symbol = order_info.unified_symbol
@@ -238,8 +240,8 @@ class Bitget:
             raise error.OrderError(e, order_info)
 
     def market_close(self, order_info: MarketOrder):
-        from exchange.order_execution_gate import require_order_disabled
-        require_order_disabled()
+        from exchange.order_execution_gate import OrderExecutionBlocked
+        raise OrderExecutionBlocked()
         from exchange.pexchange import retry
 
         symbol = self.order_info.unified_symbol
