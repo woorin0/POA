@@ -81,6 +81,7 @@ jobs:
              'tests/test_retry_install_discord.py',
              'tests/test_bot01_tv_trade_discord_readiness.py',
              '.github/workflows/bot01_trade_discord_mock_ci.yml',
+             '.github/workflows/pr_verification.yml',
           }
           required={'deployment/bot03_reinstall.py','deployment/py312_requirements.py','deployment/ubuntu22_release_handoff.py','deployment/cloud-config-ubuntu2204-pr35-stage-only.yaml'}
           assert changed<=approved and required<=changed,('UNAPPROVED_SOURCE_CHANGE',sorted(changed-approved))
