@@ -64,7 +64,23 @@ def test_cloud_init_full_install_embeds_exact_code_and_stage_preserves_manifest(
     )
     existing = {entry["path"]: entry for entry in original["write_files"]}
     for path in existing:
+        if path in ("/root/poa-stage-input.json", "/usr/local/lib/poa/bootstrap-ubuntu22.py"):
+            continue  # The exact new release ref and full-history stage runner are intentional.
         assert embedded[path] == existing[path]
+    release = json.loads(embedded["/root/poa-stage-input.json"]["content"])
+    assert release["repo_ref"] == "5b86b4368fb28adfe38bc98397bad32a01df9426"
+    assert release["release_manifest_sha256"] == json.loads(
+        existing["/root/poa-stage-input.json"]["content"]
+    )["release_manifest_sha256"]
+    bootstrap = embedded["/usr/local/lib/poa/bootstrap-ubuntu22.py"]["content"]
+    assert "stage-full-history.py" in bootstrap
+    assert "install_once.py" not in bootstrap.split("for name in (", 1)[1].split("):", 1)[0]
+    ast.parse(bootstrap)
+    history = embedded["/usr/local/lib/poa/stage-full-history.py"]["content"]
+    ast.parse(history)
+    assert "GIT_FULL_HISTORY_FAILED" in history
+    assert "'GIT_CHECKOUT_FAILED'" in history
+    assert "installer.install(" in history
     assert embedded["/usr/local/lib/poa/ubuntu22_oneclick.py"]["content"] == (
         ROOT / "deployment" / "ubuntu22_oneclick.py"
     ).read_text()
@@ -135,3 +151,40 @@ def test_failed_stage_never_starts_service(tmp_path, monkeypatch):
                         lambda *args: pytest.fail("never start on failed Stage"))
     with pytest.raises(O.OneclickError, match="STAGE_NOT_READY"):
         O.complete()
+
+def test_stage_full_history_happens_before_release_checks(tmp_path, monkeypatch):
+    """Mocks only stage command order, never clones or opens trading networks."""
+    import types
+    path = ROOT / "deployment" / "POA_VULTR_ONECLICK_USER_DATA.yaml"
+    cfg = json.loads(path.read_text().split("\n", 1)[1])
+    stage = next(x["content"] for x in cfg["write_files"]
+                 if x["path"] == "/usr/local/lib/poa/stage-full-history.py")
+    entry = tmp_path / "stage.json"
+    entry.write_text('{"install_mode":"NEW_SERVER_STAGE_ONLY"}', encoding="utf-8")
+    calls = []
+    fake = types.ModuleType("install_once")
+    fake.APP = tmp_path / "POA"
+    fake.STAGE_INPUT = entry
+    fake.InstallError = ValueError
+
+    def original_run(args, code, cwd=None, timeout=300):
+        calls.append(code)
+        if code == "GIT_HISTORY_STATUS_FAILED":
+            return b"false"
+        return b""
+
+    def install(data):
+        assert data["install_mode"] == "NEW_SERVER_STAGE_ONLY"
+        fake.run(["git", "-C", str(fake.APP), "checkout", "--detach", "FETCH_HEAD"],
+                 "GIT_CHECKOUT_FAILED")
+        calls.append("OFFLINE_RELEASE_GATE")
+        assert calls.index("GIT_FULL_HISTORY_FAILED") < calls.index("OFFLINE_RELEASE_GATE")
+        assert calls.index("GIT_BASELINE_MISSING") < calls.index("OFFLINE_RELEASE_GATE")
+
+    fake.run = original_run
+    fake.install = install
+    monkeypatch.setitem(sys.modules, "install_once", fake)
+    exec(compile(stage, "<embedded-full-history-stage>", "exec"), {"__name__": "stage_test"})
+    assert calls == ["GIT_CHECKOUT_FAILED", "GIT_FULL_HISTORY_FAILED",
+                     "GIT_HISTORY_STATUS_FAILED", "GIT_BASELINE_MISSING",
+                     "OFFLINE_RELEASE_GATE"]
