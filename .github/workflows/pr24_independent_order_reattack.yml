@@ -126,7 +126,7 @@ jobs:
           print('RAW_CCXT_OUTSIDE_APP=UNRESOLVED')
           print('PRIVILEGED_PYTHON_MODULE_REPLACEMENT=UNRESOLVED')
           print('VULTR_HOST_NETWORK_ISOLATION=UNVERIFIED')
-          print('PARENT_PR24_HEAD=df0d7faad850c2435ec77c5790dd7bf0ed2f1e3c'
+          print('PARENT_PR24_HEAD=df0d7faad850c2435ec77c5790dd7bf0ed2f1e3c')
       - name: Upload offline synthetic JUnit evidence
         if: always()
         uses: actions/upload-artifact@v4
