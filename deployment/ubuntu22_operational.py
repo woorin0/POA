@@ -213,6 +213,30 @@ def fresh(config_path: Path):
     _make_env(data, email, admin_password)
     return _start_services(fresh=True, admin_email=email, admin_password=admin_password)
 
+def _stream_sha256(file: Path):
+    h=hashlib.sha256()
+    with file.open("rb") as stream:
+        for chunk in iter(lambda:stream.read(1024*1024), b""):
+            h.update(chunk)
+    return h.digest()
+
+def _preflight_backup_tree(src: Path):
+    # Inspect the COMPLETE DB snapshot before writing to the destination.
+    # A late WAL/symlink must never leave an avoidably partial restore.
+    _assert_private_directory(src)
+    count=0
+    for parent, directories, files in os.walk(src, followlinks=False):
+        for folder in directories:
+            _assert_private_directory(Path(parent)/folder)
+        for name in files:
+            if name.endswith(("-wal","-shm")):
+                raise SetupBlocked("CONSISTENT_BACKUP_CHECKPOINT_REQUIRED")
+            _assert_private_regular(Path(parent)/name)
+            count+=1
+            if count>16384:
+                raise SetupBlocked("BACKUP_TOO_MANY_FILES")
+    return count
+
 def _copy_backup_tree(src: Path, dst: Path):
     # Backup contains PocketBase state ONLY; refuse symlinks and WAL.
     _assert_private_directory(src)
@@ -236,7 +260,7 @@ def _copy_backup_tree(src: Path, dst: Path):
                 raise SetupBlocked("TARGET_ALREADY_PRESENT")
             shutil.copyfile(source_file, target)
             target.chmod(0o600)
-            if hashlib.sha256(source_file.read_bytes()).digest() != hashlib.sha256(target.read_bytes()).digest():
+            if _stream_sha256(source_file) != _stream_sha256(target):
                 raise SetupBlocked("BACKUP_COPY_MISMATCH")
 
 def restore(backup: Path):
@@ -258,7 +282,8 @@ def restore(backup: Path):
     _assert_private_directory(source_db / "pb_data")
     if not (source_db / "pb_data" / "data.db").is_file():
         raise SetupBlocked("POCKETBASE_RESTORED_DB_REQUIRED")
-    # Verify SQLite integrity before moving anything into staged directories.
+    # Verify all paths and SQLite integrity before moving anything.
+    _preflight_backup_tree(source_db / "pb_data")
     try:
         from deployment import ubuntu22_release_handoff as handoff
     except ModuleNotFoundError:
