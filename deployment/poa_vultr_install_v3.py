@@ -18,6 +18,7 @@ from urllib.request import Request, urlopen
 
 APP = Path("/root/POA")
 DB = Path("/root/db")
+GO_CACHE_ROOT = Path("/root/.cache/poa-go")
 INPUT = Path("/root/poa-oneclick-input.json")
 STAGE = Path("/root/POA_INSTALL_RESULT.json")
 RESULT = Path("/root/POA_ONECLICK_RESULT.json")
@@ -204,7 +205,7 @@ def pocketbase_build():
         candidate.unlink()
     # cloud-init does not always have HOME/GOPATH; Go then cannot locate
     # its module cache (confirmed on BOT01: "neither GOMODCACHE nor GOPATH").
-    go_home = Path("/root/.cache/poa-go")
+    go_home = GO_CACHE_ROOT
     go_mod_cache = go_home / "pkg/mod"
     go_mod_cache.mkdir(mode=0o700, parents=True, exist_ok=True)
     env = {**os.environ, "HOME": "/root", "GOPATH": str(go_home),
