@@ -43,6 +43,7 @@ def test_per_server_hostname_keeps_tradingview_endpoint(n):
 def test_builds_pinned_pocketbase_source_without_github_release_asset(tmp_path, monkeypatch):
     db = tmp_path / "db"
     monkeypatch.setattr(V, "DB", db)
+    monkeypatch.setattr(V, "GO_CACHE_ROOT", tmp_path / "poa-go")
     calls = []
 
     def fake_execute(argv, code, **kw):
