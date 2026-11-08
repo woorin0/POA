@@ -275,6 +275,8 @@ def test_full_git_delta_does_not_modify_financial_order_source():
         "deployment/POA_VULTR_10_SERVERS_FIXED_USER_DATA.yaml",
         "tests/test_poa_vultr_install_v3.py",
         "tests/ubuntu22_real_firstboot_rehearsal.py",
+        "deployment/retry_install_discord.py",
+        "tests/test_retry_install_discord.py",
         "deployment/POA_VULTR_ONECLICK.md",
     }
     assert set(changed)<=expected,("UNREQUESTED_CHANGE",changed)
