@@ -195,6 +195,47 @@ def test_stage_check_blocks_unverified_host(monkeypatch,tmp_path):
     with pytest.raises((O.SetupBlocked, FileNotFoundError)):
         O._stage_ready()
 
+def test_user_data_is_one_compact_pinned_script_without_secrets_or_auto_orders():
+    from deployment import ubuntu22_turnkey_build as B
+    sha="a"*40
+    raw=B.create(sha)
+    assert raw.startswith("#cloud-config\n")
+    assert len(raw.encode("utf-8")) < 16000
+    cfg=json.loads(raw.split("\n",1)[1])
+    files={entry["path"]:entry for entry in cfg["write_files"]}
+    pin=json.loads(files["/root/poa-stage-input.json"]["content"])
+    assert pin["repo_ref"]==sha
+    assert pin["install_mode"]=="NEW_SERVER_STAGE_ONLY"
+    assert pin["release_manifest_sha256"]==B.MANIFEST_DIGEST
+    checks=json.loads(files["/usr/local/lib/poa/verified_script_hashes.json"]["content"])
+    for item in B.SCRIPTS:
+        assert checks[item]==hashlib.sha256(
+            (B.HERE/item).read_bytes()).hexdigest()
+    code=files["/usr/local/lib/poa/bootstrap-ubuntu22.py"]["content"]
+    compile(code,"<no-secrets-single-user-data-bootstrap>","exec")
+    assert "STAGE_PREPARATION_OR_INSTALL_FAILED" in code
+    assert cfg["runcmd"]==[["bash","-euc",
+        "umask 077; python3 /usr/local/lib/poa/bootstrap-ubuntu22.py"]]
+    assert "LOCAL_RUNNING_NO_PUBLIC_WEBHOOK" not in raw
+    assert "CHANGE_ME" in raw
+    assert "UPBIT_SECRET=real" not in raw
+    assert "Caddyfile" not in files
+    assert "Ubuntu" not in str(pin["repo_ref"])
+    assert "exec /usr/bin/python3" in files["/usr/local/bin/poa-setup"]["content"]
+
+
+def test_user_data_requires_fixed_commit_and_has_one_use_secret_template():
+    from deployment import ubuntu22_turnkey_build as B
+    for invalid in ("main","pr35","", "../"*20,"A"*40):
+        with pytest.raises(ValueError):
+            B.create(invalid)
+    config=B.create("0"*40)
+    cfg=json.loads(config.split("\n",1)[1])
+    paths=[x["path"] for x in cfg["write_files"]]
+    assert len(paths)==len(set(paths))
+    assert paths.count("/root/poa-config.example.json")==1
+
+
 def test_full_git_delta_does_not_modify_financial_order_source():
     root=Path(__file__).resolve().parents[1]
     ancestor="e1f63bcce3e73953eb75dcaf9604d23f0c2f341f"
