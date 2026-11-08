@@ -199,7 +199,8 @@ def test_gateway_is_sanitized_exec_only_no_production_imports_or_remote_calls():
     assert 'close_fds=True' in src
     assert '"-I", "-B", "-S"' in src
     assert "shell=True" not in src
-    assert "socketserver.UnixStreamServer" in src
+    assert 'getattr(socketserver, "UnixStreamServer", socketserver.BaseServer)' in src
+    assert "LINUX_ONLY_UNIX_SOCKET" in src
     assert "subprocess.run(" in src
 
 
