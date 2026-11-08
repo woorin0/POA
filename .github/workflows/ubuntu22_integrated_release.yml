@@ -1,0 +1,126 @@
+name: POA Ubuntu22 preserved integrated release mock E2E
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'deployment/bot03_reinstall.py'
+      - 'deployment/py312_requirements.py'
+      - 'deployment/ubuntu22_release_handoff.py'
+      - 'deployment/UBUNTU22_INTEGRATED_RELEASE.md'
+      - 'deployment/cloud-config-ubuntu2204-pr35-stage-only.yaml'
+      - 'tests/test_ubuntu22_integrated_release.py'
+      - '.github/workflows/ubuntu22_integrated_release.yml'
+permissions:
+  contents: read
+
+jobs:
+  ubuntu22-integration-offline:
+    name: integrated-ubuntu22-${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-22.04]
+    env:
+      PINNED_MAIN: c5566c4cc2a4ce716f1f0d66260bd60e4f95546f
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONIOENCODING: utf-8
+    steps:
+      - name: Preserve binary-exact original Git source
+        shell: bash
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Source/finance/PocketBase installer byte immutable scope gate
+        shell: python
+        run: |
+          import os,subprocess
+          from pathlib import Path
+          base=os.environ['PINNED_MAIN']
+          assert subprocess.check_output(['git','rev-parse',base],text=True).strip()==base
+          changed=set(subprocess.check_output(['git','diff','--name-only',base,'HEAD'],text=True).splitlines())
+          approved={
+             'deployment/bot03_reinstall.py',
+             'deployment/py312_requirements.py',
+             'deployment/ubuntu22_release_handoff.py',
+             'deployment/UBUNTU22_INTEGRATED_RELEASE.md',
+             'deployment/cloud-config-ubuntu2204-pr35-stage-only.yaml',
+             'tests/test_ubuntu22_integrated_release.py',
+             '.github/workflows/ubuntu22_integrated_release.yml',
+          }
+          assert changed==approved,('UNAPPROVED_SOURCE_CHANGE',sorted(changed^approved))
+          original=['main.py','run.py','exchange','requirements.txt',
+                    'release_manifest_sha256.json','release_checks',
+                    'deployment/install_once.py','deployment/prepare_ubuntu.py',
+                    'deployment/build_cloud_config.py',
+                    'deployment/cloud-config-ubuntu2204.yaml']
+          subprocess.run(['git','diff','--exit-code',base,'HEAD','--',*original],check=True)
+          for f in changed:
+              if f.endswith('.py'):
+                  compile(Path(f).read_bytes(),f,'exec')
+          print('ONLY_SEVEN_NONPRODUCT_FILES=PASS; FINANCE_DB_KEYS_AND_INSTALLER_UNCHANGED=PASS')
+      - name: Install complete original Python 3.10 environment
+        run: |
+          python -m pip install pip==26.3 setuptools==84.2.1
+          python -m pip install --no-cache-dir -r requirements.txt
+          python -m pip install pytest==9.1.1 pytest-subtests pytest-asyncio pytest-cov cryptography PyYAML==6.0.3 tzdata==2025.2
+          python -m pip check
+          python -c "import importlib.metadata as m; assert m.version('pendulum')=='2.1.2'"
+      - name: Entire integrated offline preservation negative and real-source E2E
+        run: python -m pytest tests/test_ubuntu22_integrated_release.py -q --tb=short --junitxml=ubuntu22-integrated.xml
+      - name: Original financial release signatures and pinned packaging
+        run: |
+          python release_checks/verify_release.py
+          python release_checks/verify_packaging.py
+          python release_checks/run.py -q --tb=short --junitxml=finance-isolated.xml
+      - name: Rehearse pinned one-click stage-only User Data build without execution
+        shell: python
+        run: |
+          import ast,hashlib,json,subprocess
+          from pathlib import Path
+          root=Path.cwd()
+          fn=next(node for node in ast.parse((root/'deployment/build_cloud_config.py').read_text()).body
+                  if isinstance(node,ast.FunctionDef) and node.name=='build_ubuntu')
+          ns={'HERE':root/'deployment','json':json}
+          exec(compile(ast.Module(body=[fn],type_ignores=[]),'audited_builder','exec'),ns)
+          head=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+          digest=hashlib.sha256((root/'release_manifest_sha256.json').read_bytes()).hexdigest()
+          cloud=ns['build_ubuntu'](head,digest)
+          assert cloud.startswith('#cloud-config\n')
+          data=json.loads(cloud.split('\n',1)[1])
+          assert data['final_message'].startswith('STAGED_NOT_LIVE')
+          assert all('ExecStartPre=/usr/bin/false' in file['content']
+                     for file in data['write_files'] if file['path'].endswith('.service.staged'))
+          assert 'NEW_SERVER_STAGE_ONLY' in cloud and 'RESTORE_VERIFIED=NO' in cloud
+          assert 'OPERATING_READY=NO' in cloud and '"credentials":' not in cloud
+          print('ONECLICK_STAGE_USERDATA_GENERATION=PASS; TRADING_AUTO_START=BLOCKED')
+      - name: Original Golden orders, fees, PnL, Safe Retry and Discord offline
+        run: python tests/run_offline.py
+      - name: Native four exchange fill Mock E2E
+        if: runner.os == 'Linux'
+        run: python release_checks/run_fill_confirmation.py -q --tb=short --junitxml=fills.xml
+      - name: Final no-activation boundary
+        shell: python
+        run: |
+          from pathlib import Path
+          src=(Path('deployment')/'ubuntu22_release_handoff.py').read_text()
+          assert not any(x in src for x in ('systemctl start','systemctl stop',
+                   'create_order(', 'shutil.rmtree(', 'os.replace(', 'git clone'))
+          print('ACTUAL_BOT03_DATA=UNTOUCHED; NO_DEPLOY_NO_LIVE_ORDERS=PASS')
+      - name: Upload only fixture test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ubuntu22-integrated-${{ matrix.os }}
+          path: |
+            ubuntu22-integrated.xml
+            finance-isolated.xml
+            fills.xml
+          if-no-files-found: ignore
