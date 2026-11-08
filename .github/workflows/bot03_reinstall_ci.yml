@@ -1,0 +1,76 @@
+name: POA BOT03 preserved existing-server reinstall offline staging gates
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'deployment/bot03_reinstall.py'
+      - 'deployment/BOT03_PRESERVE_REINSTALL.md'
+      - 'tests/test_bot03_reinstall.py'
+      - '.github/workflows/bot03_reinstall_ci.yml'
+permissions:
+  contents: read
+
+jobs:
+  bot03-offline-preserve:
+    name: bot03-reinstall-offline (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-24.04]
+    env:
+      MAIN_FIXED: c5566c4cc2a4ce716f1f0d66260bd60e4f95546f
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONIOENCODING: utf-8
+    steps:
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install strictly offline test tools (no trading SDK execution)
+        run: python -m pip install pytest==9.1.1 PyYAML==6.0.3
+      - name: Fail on any change to product / financial source
+        shell: python
+        run: |
+          import os,subprocess
+          from pathlib import Path
+          original=os.environ['MAIN_FIXED']
+          assert subprocess.check_output(['git','rev-parse',original],text=True).strip()==original
+          changed=set(subprocess.check_output(['git','diff','--name-only',original,'HEAD'],text=True).splitlines())
+          expected={
+              'deployment/bot03_reinstall.py',
+              'deployment/BOT03_PRESERVE_REINSTALL.md',
+              'tests/test_bot03_reinstall.py',
+              '.github/workflows/bot03_reinstall_ci.yml',
+          }
+          assert changed==expected, ('SCOPE_CHANGED',sorted(changed^expected))
+          subprocess.run(['git','diff','--exit-code',original,'HEAD','--',
+              'main.py','run.py','exchange','requirements.txt',
+              'release_manifest_sha256.json','deployment/install_once.py',
+              'deployment/prepare_ubuntu.py','deployment/build_cloud_config.py'],
+              check=True)
+          for path in changed:
+              if path.endswith('.py'):
+                  compile(Path(path).read_bytes(),path,'exec')
+          print('BOT03_EXACT_4_FILES=PASS; ORIGINAL_FINANCE_DB_KEYS=UNCHANGED')
+      - name: Synthetic metadata and staged-only reinstall E2E
+        run: python -m pytest tests/test_bot03_reinstall.py -q --tb=short -p no:cacheprovider --junitxml=bot03-reinstall.xml
+      - name: Original 72-file release manifest and offline packaging
+        run: |
+          python release_checks/verify_release.py
+          python release_checks/verify_packaging.py
+      - name: Preserve evidence only no deploy
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bot03-reinstall-evidence-${{ matrix.os }}
+          path: bot03-reinstall.xml
+          if-no-files-found: ignore
