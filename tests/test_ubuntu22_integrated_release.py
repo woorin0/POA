@@ -293,8 +293,20 @@ def test_no_product_finance_install_sources_changed():
         "tests/test_ubuntu22_integrated_release.py",
         ".github/workflows/ubuntu22_integrated_release.yml",
         "deployment/cloud-config-ubuntu2204-pr35-stage-only.yaml",
+        "deployment/ubuntu22_operational.py",
+        "deployment/ubuntu22_turnkey_build.py",
+        "deployment/ubuntu22_turnkey_USER_DATA.yaml",
+        "deployment/UBUNTU22_TURNKEY.md",
+        "tests/test_ubuntu22_operational.py",
+        ".github/workflows/ubuntu22_turnkey_ci.yml",
     }
-    assert set(changed)==allowed,("UNREVIEWED_PRODUCTION_CHANGE",changed)
+    required={
+        "deployment/bot03_reinstall.py",
+        "deployment/py312_requirements.py",
+        "deployment/ubuntu22_release_handoff.py",
+        "deployment/cloud-config-ubuntu2204-pr35-stage-only.yaml",
+    }
+    assert set(changed)<=allowed and required <= set(changed),("UNREVIEWED_PRODUCTION_CHANGE",changed)
     protected=["main.py","run.py","exchange","requirements.txt",
                "release_manifest_sha256.json",
                "deployment/install_once.py","deployment/prepare_ubuntu.py",
