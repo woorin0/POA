@@ -80,6 +80,7 @@ def prepare_packages():
         checked = {
             "install_once.py": "5572d3cef61050bfeba684dcb573b4057f0714da85fbdb6b9bfe62761a471374",
             "prepare_ubuntu.py": "7d8f570f756cd41694001de12b271f4dc443fd21a45a06acc1b68c972bad605b",
+            "validate_config.py": "9ecd177b5196c9c455d54f4a03e43f9ded7c663b6efff7710cca702d45736931",
         }
         for name, digest in checked.items():
             dst = target / name
@@ -103,6 +104,10 @@ def prepare_packages():
         sys.path.insert(0, str(target))
         from prepare_ubuntu import prepare
         prepare()
+    # Existing failed-stage servers already have these helpers, but
+    # brand-new servers need the systemd ExecStartPre validator too.
+    if not (Path("/usr/local/lib/poa") / "validate_config.py").is_file():
+        raise InstallationBlocked("RUNTIME_CONFIG_VALIDATOR_MISSING")
     execute(["apt-get", "install", "-y", "golang-go"], "GO_INSTALL_FAILED",
             env={**os.environ, "DEBIAN_FRONTEND": "noninteractive"})
 
