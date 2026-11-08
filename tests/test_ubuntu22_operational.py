@@ -226,7 +226,7 @@ def test_user_data_is_one_compact_pinned_script_without_secrets_or_auto_orders()
 
 def test_committed_userdata_matches_generator_and_fixed_ci_green_source():
     from deployment import ubuntu22_turnkey_build as B
-    pinned="cea1b7fc9d349249b92040f9a768cf66bdf428af"
+    pinned="b23fc5655f7e5d8f1d3946f365099a2bbb29edf2"
     expected=B.create(pinned)
     actual=(B.HERE/"ubuntu22_turnkey_USER_DATA.yaml").read_text(encoding="utf-8")
     assert actual==expected
@@ -272,3 +272,53 @@ def test_full_git_delta_does_not_modify_financial_order_source():
               "deployment/install_once.py","deployment/prepare_ubuntu.py"]
     subprocess.run(["git","diff","--exit-code",ancestor,"HEAD","--",*protected],
                    cwd=root,check=True)
+
+def test_resume_local_after_interrupted_health_check_preserves_db_and_keys(monkeypatch, tmp_path):
+    app = priv(tmp_path / "app", directory=True)
+    db = priv(tmp_path / "db", directory=True)
+    units = priv(tmp_path / "units", directory=True)
+    secret = priv(app / ".env")
+    marker = priv(app / "LOCAL_READY")
+    data = priv(db / "pb_data" / "data.db")
+    before = (secret.read_bytes(), marker.read_bytes(), data.read_bytes())
+    monkeypatch.setattr(O, "APP", app)
+    monkeypatch.setattr(O, "DB", db)
+    monkeypatch.setattr(O, "SERVICE_DIR", units)
+    monkeypatch.setattr(O, "_stage_ready", lambda: {"status": "STAGED_NOT_LIVE"})
+    actions = []
+    monkeypatch.setattr(O, "_run", lambda command, *a, **kw: actions.append(command))
+    monkeypatch.setattr(O, "_pocketbase_ready", lambda: None)
+    monkeypatch.setattr(O, "_local_ready", lambda: None)
+    monkeypatch.setattr(O.legacy, "bootstrap_db",
+                        lambda *a, **kw: pytest.fail("DB bootstrap must never repeat"))
+    O._install_units()
+    actions.clear()
+    report = O.resume_local()
+    assert report["state"] == "LOCAL_RUNNING_NO_PUBLIC_WEBHOOK"
+    assert report["public_orders_enabled"] is False
+    assert [a[:2] for a in actions].count(["systemctl", "start"]) == 2
+    assert not any("caddy" in " ".join(a).lower() or "publish" in a for a in actions)
+    assert (secret.read_bytes(), marker.read_bytes(), data.read_bytes()) == before
+
+def test_resume_local_refuses_uninitialized_db_or_modified_units(monkeypatch, tmp_path):
+    app = priv(tmp_path / "app", directory=True)
+    db = priv(tmp_path / "db", directory=True)
+    units = priv(tmp_path / "units", directory=True)
+    priv(app / ".env")
+    monkeypatch.setattr(O, "APP", app)
+    monkeypatch.setattr(O, "DB", db)
+    monkeypatch.setattr(O, "SERVICE_DIR", units)
+    monkeypatch.setattr(O, "_stage_ready", lambda: True)
+    actions = []
+    monkeypatch.setattr(O, "_run", lambda cmd, *a, **kw: actions.append(cmd))
+    with pytest.raises(O.SetupBlocked, match="LOCAL_ACTIVATION_NOT_YET_PREPARED"):
+        O.resume_local()
+    assert actions == []
+    priv(app / "LOCAL_READY")
+    priv(db / "pb_data" / "data.db")
+    O._install_units()
+    actions.clear()
+    (units / "poa.service").write_text("ExecStart=/bin/false\n")
+    with pytest.raises(O.SetupBlocked, match="EXISTING_SERVICE_PRESERVED_STOP"):
+        O.resume_local()
+    assert actions == []
