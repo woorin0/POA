@@ -14,6 +14,7 @@ import secrets
 import subprocess
 import sys
 import time
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 APP = Path("/root/POA")
@@ -23,6 +24,7 @@ INPUT = Path("/root/poa-oneclick-input.json")
 STAGE = Path("/root/POA_INSTALL_RESULT.json")
 RESULT = Path("/root/POA_ONECLICK_RESULT.json")
 STAMP = Path("/root/POA_INSTALL_DISCORD_ATTEMPT.json")
+NOTICE_STATUS = Path("/root/POA_INSTALL_DISCORD_STATUS.json")
 RUNTIME = Path("/root/poa-runtime-v3.json")
 SOURCE_COMMIT = "5b86b4368fb28adfe38bc98397bad32a01df9426"
 SOURCE_MANIFEST_SHA = "0c464b1387d7ced078d4d957a1a9bdc947b8bb1d425518aba631fcc623d279fa"
@@ -293,15 +295,31 @@ def complete_install(legacy, operations, oneclick, data):
         }]}, ensure_ascii=False).encode("utf-8")
         request = Request(data["credentials"]["DISCORD_WEBHOOK_URL"],
                           data=body,
-                          headers={"Content-Type": "application/json"},
+                          headers={"Content-Type": "application/json",
+                                   "Accept": "application/json",
+                                   "User-Agent": "POA-Install-Notifier/1.1"},
                           method="POST")
+        reason = "UNKNOWN"
         try:
-            with urlopen(request, timeout=12) as response:
-                sent = response.status in (200, 204)
-        except (OSError, ValueError):
+            with urlopen(request, timeout=15) as response:
+                status = int(response.status)
+            sent = status in (200, 204)
+            reason = "HTTP_" + str(status)
+        except HTTPError as error:
             sent = False
-        print("POA_INSTALL_DISCORD=" + ("SENT" if sent else "NOT_DELIVERED"),
-              flush=True)
+            reason = "HTTP_" + str(int(error.code))
+        except (URLError, OSError, ValueError):
+            sent = False
+            reason = "NETWORK_OR_TLS_ERROR"
+        # Persist a token-free explanation for diagnosis or a deliberate retry.
+        if not NOTICE_STATUS.exists():
+            private_write(NOTICE_STATUS, {
+                "event": "POA_INSTALL_COMPLETE",
+                "status": "SENT" if sent else "NOT_DELIVERED",
+                "reason": reason,
+            })
+        print("POA_INSTALL_DISCORD=" + ("SENT" if sent else "NOT_DELIVERED")
+              + " REASON=" + reason, flush=True)
     INPUT.unlink(missing_ok=True)
     RUNTIME.unlink(missing_ok=True)
     print("POA_ONECLICK_READY=" + report["webhook_url"], flush=True)
