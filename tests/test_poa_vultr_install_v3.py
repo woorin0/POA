@@ -93,6 +93,7 @@ def test_complete_send_one_discord_only_after_https_and_services(
     import deployment.poa_vultr_install_v3 as m
     monkeypatch.setattr(m, "RESULT", tmp_path / "result.json")
     monkeypatch.setattr(m, "STAMP", tmp_path / "sent.json")
+    monkeypatch.setattr(m, "NOTICE_STATUS", tmp_path / "notice_status.json")
     monkeypatch.setattr(m, "INPUT", tmp_path / "input.json")
     monkeypatch.setattr(m, "RUNTIME", tmp_path / "runtime.json")
     monkeypatch.setattr(m, "DB", tmp_path)
