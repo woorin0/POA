@@ -312,6 +312,11 @@ def test_no_product_finance_install_sources_changed():
         "deployment/UBUNTU22_TURNKEY.md",
         "tests/test_ubuntu22_operational.py",
         ".github/workflows/ubuntu22_turnkey_ci.yml",
+        "deployment/ubuntu22_oneclick.py",
+        "deployment/POA_VULTR_ONECLICK_USER_DATA.yaml",
+        "deployment/POA_VULTR_ONECLICK.md",
+        "tests/test_ubuntu22_oneclick.py",
+        ".github/workflows/ubuntu22_oneclick_ci.yml",
     }
     required={
         "deployment/bot03_reinstall.py",
