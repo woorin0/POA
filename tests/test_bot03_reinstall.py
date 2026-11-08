@@ -199,6 +199,23 @@ def test_invalid_new_stage_result_never_claims_installed(tmp_path,capsys):
     assert report["originals_modified"] is False
 
 
+def test_actual_poa_checkout_can_stage_whole_verified_source_without_db_or_keys(tmp_path):
+    """Exercise the real CI checkout, not only synthetic 72-file fixtures."""
+    source = Path(__file__).resolve().parents[1]
+    sha = git(source, "rev-parse", "HEAD")
+    target = private_parent(tmp_path)/"verified-release"
+    evidence = B.stage(source,target,sha)
+    assert evidence["pinned_source_commit"] == sha
+    assert evidence["manifest_entries_verified"] == 72
+    assert evidence["tracked_files_staged"] >= 72
+    assert evidence["approved_for_deployment"] is False
+    assert (target/"release_manifest_sha256.json").read_bytes() == (
+        source/"release_manifest_sha256.json").read_bytes()
+    for untracked in (".env","notifications.sqlite3","notifications.sqlite3-wal",
+                      "notifications.sqlite3-shm","pb_data"):
+        assert not (target/untracked).exists()
+
+
 def test_only_additive_pr_files_and_original_financial_tree_is_unchanged():
     root=Path(__file__).resolve().parents[1]
     baseline=B.ORIGINAL_MAIN
