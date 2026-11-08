@@ -10,6 +10,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -41,8 +42,6 @@ def check():
         raise RuntimeError("EXPECTED_PARTIAL_STAGE_MISSING")
     if STAGE.exists() or (APP/".env").exists() or (APP/"LOCAL_READY").exists() or (DB/"pb_data").exists():
         raise RuntimeError("EXISTING_DATA_STOP_NO_OVERWRITE")
-    if (DB/"pocketbase").exists():
-        raise RuntimeError("POCKETBASE_BINARY_ALREADY_PRESENT")
     if run(["git","-C",str(APP),"rev-parse","HEAD"],"SOURCE_UNAVAILABLE").decode().strip()!=PIN:
         raise RuntimeError("SOURCE_PIN_MISMATCH")
     if not (APP/".venv/bin/python").is_file():
@@ -55,7 +54,7 @@ def download():
     archive=DB/"pocketbase.zip"
     temp=DB/"pocketbase-recovery.tmp"
     if temp.exists():
-        raise RuntimeError("RECOVERY_TEMP_ALREADY_PRESENT")
+        temp.unlink()  # Only a previous failed downloader temporary file
     if archive.exists() and hashlib.sha256(archive.read_bytes()).hexdigest()==PB_SHA:
         return archive
     url=("https://github.com/pocketbase/pocketbase/releases/download/v0.22.48/"
@@ -66,10 +65,12 @@ def download():
           "--write-out","%{http_code}",url]
     proc=subprocess.run(args,capture_output=True,timeout=1500,check=False)
     if proc.returncode:
+        temp.unlink(missing_ok=True)
         code=proc.stdout.decode("ascii",errors="ignore").strip()
         raise RuntimeError("POCKETBASE_DOWNLOAD_FAILED_HTTP_"+code[:3] if len(code)==3
                            else "POCKETBASE_DOWNLOAD_FAILED_NETWORK")
     if hashlib.sha256(temp.read_bytes()).hexdigest()!=PB_SHA:
+        temp.unlink(missing_ok=True)
         raise RuntimeError("POCKETBASE_SHA256_MISMATCH")
     os.replace(temp,archive)
     return archive
@@ -88,9 +89,15 @@ def resume():
     with zipfile.ZipFile(pkg) as z:
         if "pocketbase" not in z.namelist():
             raise RuntimeError("POCKETBASE_ARCHIVE_INVALID")
-        with (DB/"pocketbase").open("xb") as output:
-            output.write(z.read("pocketbase"))
-    (DB/"pocketbase").chmod(0o700)
+        payload=z.read("pocketbase")
+    target=DB/"pocketbase"
+    if target.exists():
+        if not target.is_file() or hashlib.sha256(target.read_bytes()).digest()!=hashlib.sha256(payload).digest():
+            raise RuntimeError("PREEXISTING_POCKETBASE_BINARY_MISMATCH")
+    else:
+        with target.open("xb") as output:
+            output.write(payload)
+        target.chmod(0o700)
     python=str(APP/".venv/bin/python")
     run([python,"-m","pip","install","--no-cache-dir","pytest==9.1.1","PyYAML==6.0.3"],
         "OFFLINE_TEST_DEPS_FAILED")
@@ -101,9 +108,6 @@ def resume():
     inst.verify_source(MANIFEST)
     stage={"status":"STAGED_NOT_LIVE","commit":PIN,"manifest_sha256":MANIFEST,
            "RESTORE_VERIFIED":"NO","OPERATING_READY":"NO"}
-    fd=os.open(STAGE,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
-    with os.fdopen(fd,"w") as out:
-        json.dump(stage,out)
     # Fetch the already-published one-click scripts only, never another user's credentials.
     url=("https://raw.githubusercontent.com/woorin0/POA/"+SOURCE+
          "/deployment/POA_VULTR_ONECLICK_USER_DATA.yaml")
@@ -122,6 +126,9 @@ def resume():
         with os.fdopen(fd,"wb") as out:
             out.write(raw)
         os.replace(temp,target)
+    fd=os.open(STAGE,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+    with os.fdopen(fd,"w") as out:
+        json.dump(stage,out)
     print("POA_STAGE_RECOVERED; starting normal one-click activation",flush=True)
     run([sys.executable,"/usr/local/lib/poa/ubuntu22_oneclick.py"],
         "POA_LOCAL_ACTIVATION_FAILED",timeout=2400)
@@ -137,7 +144,7 @@ if __name__=="__main__":
     except Exception as e:
         # Only fixed enum-style errors are surfaced, never raw credentials.
         code=str(e)
-        if not code.replace("_","").replace("0","").replace("1","").replace("2","").replace("3","").replace("4","").replace("5","").replace("6","").replace("7","").replace("8","").replace("9","").isupper():
+        if not re.fullmatch(r"[A-Z0-9_]{3,100}",code):
             code="RECOVERY_UNEXPECTED_FAILURE"
         print("POA_RECOVERY_FAILED="+code,file=sys.stderr)
         raise SystemExit(75)
