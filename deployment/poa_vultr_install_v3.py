@@ -293,14 +293,14 @@ def complete_install(legacy, operations, oneclick, data):
                  "inline": False},
             ],
         }]}, ensure_ascii=False).encode("utf-8")
-        request = Request(data["credentials"]["DISCORD_WEBHOOK_URL"],
-                          data=body,
-                          headers={"Content-Type": "application/json",
-                                   "Accept": "application/json",
-                                   "User-Agent": "POA-Install-Notifier/1.1"},
-                          method="POST")
         reason = "UNKNOWN"
         try:
+            request = Request(data["credentials"]["DISCORD_WEBHOOK_URL"],
+                              data=body,
+                              headers={"Content-Type": "application/json",
+                                       "Accept": "application/json",
+                                       "User-Agent": "POA-Install-Notifier/1.1"},
+                              method="POST")
             with urlopen(request, timeout=15) as response:
                 status = int(response.status)
             sent = status in (200, 204)
@@ -308,9 +308,12 @@ def complete_install(legacy, operations, oneclick, data):
         except HTTPError as error:
             sent = False
             reason = "HTTP_" + str(int(error.code))
-        except (URLError, OSError, ValueError):
+        except (URLError, OSError):
             sent = False
             reason = "NETWORK_OR_TLS_ERROR"
+        except (ValueError, KeyError, TypeError):
+            sent = False
+            reason = "WEBHOOK_CONFIG_INVALID"
         # Persist a token-free explanation for diagnosis or a deliberate retry.
         if not NOTICE_STATUS.exists():
             private_write(NOTICE_STATUS, {
