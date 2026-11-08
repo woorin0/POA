@@ -1,0 +1,50 @@
+# PR26. NEW VULTR SERVER ISOLATED STAGE CONTRACT. NOT DEPLOYABLE AS-IS.
+# NEVER systemctl enable/start, never attach operating DB/API credentials.
+# The service does nothing: both ExecStartPre and ExecStart intentionally fail.
+[Unit]
+Description=POA inert Vultr airgap candidate (synthetic proof only, no orders)
+RefuseManualStart=yes
+RefuseManualStop=yes
+
+[Service]
+Type=simple
+DynamicUser=yes
+User=
+Group=
+UMask=0077
+NoNewPrivileges=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=none
+IPAddressDeny=any
+SystemCallArchitectures=native
+SystemCallFilter=~@network-io @privileged @mount io_uring_setup io_uring_enter io_uring_register
+SystemCallErrorNumber=EPERM
+RestrictNamespaces=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHostname=yes
+LockPersonality=yes
+RestrictSUIDSGID=yes
+RemoveIPC=yes
+MemoryDenyWriteExecute=yes
+WorkingDirectory=/
+Environment=POA_STAGE_ONLY=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStartPre=/usr/bin/false
+ExecStart=/usr/bin/false
+Restart=no
+StandardInput=null
+StandardOutput=journal
+StandardError=journal
+
+# Deliberately NO [Install] target, EnvFile, ListenStream, socket activation,
+# BindPaths, NetworkNamespacePath, or JoinsNamespaceOf. Existing POA units untouched.
