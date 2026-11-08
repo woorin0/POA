@@ -11,6 +11,8 @@ Original main pinned: c5566c4cc2a4ce716f1f0d66260bd60e4f95546f. No existing fina
 4. tests/test_ubuntu22_integrated_release.py uses synthetic-only backup/restores, tampering and failure cases, exercises actual repo fixed-commit staging and independent frozen KST/UTC/DST date calculations.
 5. .github/workflows/ubuntu22_integrated_release.yml runs Windows and Ubuntu22 Python3.10 with original 17 dependency pins, main source-protection/Manifest 72, independent finance gates, original Golden/4 venue mocks, entire release verification via the unmodified pr_verification.yml. Never start BOT03/app/exchange service.
 
+6. deployment/cloud-config-ubuntu2204-pr35-stage-only.yaml is a **secret-free new-server cloud-init** pinned to the independently green integrated candidate commit bc9f9af4807656b96cfd4da36efe169242181a4d, with the same original 72-entry Manifest hash. Its service units remain unstartable (ExecStartPre=/usr/bin/false). This static candidate does not track the latest PR HEAD because embedding a commit inside its own commit creates a circular pin. It is intentionally **STAGE-ONLY** and must never be described as fully operational User Data.
+
 ## Real-world limitations (explicit blockers)
 
 - The original deployment/install_once.py Ubuntu22 path and cloud-config-ubuntu2204.yaml remain **NEW_SERVER_STAGE_ONLY**, with ExecStartPre=/usr/bin/false on staged units and RESTORE_VERIFIED=NO / OPERATING_READY=NO. This PR does NOT silently remove the interlock, touch Caddy/Firewall, connect exchange keys or start a POA bot.
