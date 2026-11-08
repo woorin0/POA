@@ -35,8 +35,7 @@ RestrictSUIDSGID=yes
 RemoveIPC=yes
 MemoryDenyWriteExecute=yes
 WorkingDirectory=/
-Environment=POA_STAGE_ONLY=1
-Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=POA_STAGE_ONLY=1 PYTHONDONTWRITEBYTECODE=1
 ExecStartPre=/usr/bin/false
 ExecStart=/usr/bin/false
 Restart=no
