@@ -107,7 +107,7 @@ def run_fake(path, node, *, module=None, exc_type=None, expected_code="POA_ORDER
     guard, genuine, package = guard_namespace()
     callback = compile_method(path, node)
     fake = module if module is not None else genuine
-    exc = exc_type if exc_type is not None else guard["OrderExecutionBlocked"]
+    exc = exc_type if exc_type is not None else (fake.OrderExecutionBlocked if module is not None else guard["OrderExecutionBlocked"])
     with patch.dict(sys.modules, {"exchange": package,
                                   "exchange.order_execution_gate": fake}):
         return call_blocked(callback, exc, expected_code=expected_code)
