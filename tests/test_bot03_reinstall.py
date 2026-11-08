@@ -204,6 +204,17 @@ def test_actual_poa_checkout_can_stage_whole_verified_source_without_db_or_keys(
     source = Path(__file__).resolve().parents[1]
     sha = git(source, "rev-parse", "HEAD")
     target = private_parent(tmp_path)/"verified-release"
+    # Diagnose unusual pre-existing tracked file names without reading
+    # file contents, secrets, configuration values or DB state.
+    for record in B._git(source,"ls-files","--stage","-z").split(b"\0"):
+        if not record:
+            continue
+        name=record.split(b"\t",1)[1].decode("utf-8")
+        try:
+            B._relative_file(name)
+        except B.ReinstallBlocked as exc:
+            pytest.fail("EXISTING_GIT_FILENAME_UNSUPPORTED: "+
+                        repr(name)+" REASON="+exc.code)
     evidence = B.stage(source,target,sha)
     assert evidence["pinned_source_commit"] == sha
     assert evidence["manifest_entries_verified"] == 72
