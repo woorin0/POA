@@ -143,7 +143,16 @@ def _tracked(root: Path):
         try:
             prefix, raw = line.split(b"\t", 1)
             mode, _sha, stage = prefix.decode("ascii").split(" ")
-            path = _relative_file(raw.decode("utf-8"))
+            raw_name = raw.decode("utf-8")
+            # Some historical POA commits tracked CPython bytecode caches.
+            # Never carry stale compiled code into a new release candidate.
+            parts = raw_name.split("/")
+            if (not raw_name.startswith("/") and "\\" not in raw_name
+                    and all(p not in ("", ".", "..") for p in parts)
+                    and ("__pycache__" in parts or raw_name.endswith((".pyc", ".pyo")))
+                    and raw_name.endswith((".pyc", ".pyo"))):
+                continue
+            path = _relative_file(raw_name)
         except ReinstallBlocked:
             raise  # Preserve the specific secret/DB rejection reason.
         except (UnicodeError, ValueError):
