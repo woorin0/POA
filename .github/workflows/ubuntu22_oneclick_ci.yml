@@ -115,3 +115,4 @@ jobs:
         shell: bash
         run: |
           sudo systemctl status poa pocketbase caddy --no-pager -l 2>/dev/null | tail -n 75 || true
+          sudo journalctl -u poa.service -u pocketbase.service -u caddy.service --no-pager -n 110 2>/dev/null | tail -n 110 || true
