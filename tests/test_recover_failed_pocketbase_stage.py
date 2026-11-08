@@ -93,7 +93,7 @@ def test_existing_live_state_stops_before_any_command(tmp_path, monkeypatch):
     original = Path.read_text
 
     def fake_os_release(self, *args, **kwargs):
-        if str(self) == "/etc/os-release":
+        if str(self).replace("\\", "/").endswith("/etc/os-release"):
             return 'ID=ubuntu\nVERSION_ID="22.04"\n'
         return original(self, *args, **kwargs)
 
