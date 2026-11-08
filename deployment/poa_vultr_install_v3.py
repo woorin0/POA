@@ -260,6 +260,10 @@ def complete_install(legacy, operations, oneclick, data):
     # binary, then swaps out a temporary 0.22.x binary. Here a verified
     # v0.16.6 build already exists, so it needs neither download nor swap.
     operations._legacy_binary_for_fresh = already_compiled_pb
+    # SOURCE_COMMIT is deliberately immutable: set only its installer flags
+    # in memory before creating the brand-new .env. Existing installations
+    # are never modified; the verified order/finance source remains pinned.
+    legacy.FLAGS["POA_EXCHANGE_FILL_CONFIRMATION_ENABLED"] = True
     private_write(RUNTIME, data)
     operations.fresh(RUNTIME)
     operations.publish(data["domain"])
