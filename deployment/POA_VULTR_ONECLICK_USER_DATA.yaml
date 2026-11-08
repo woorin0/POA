@@ -206,7 +206,7 @@ write_files:
       def _setup_command(*arguments: str) -> None:
           # Never print child output: future diagnostics may contain credentials.
           proc = subprocess.run([sys.executable, "/usr/local/lib/poa/stage-full-history.py",
-                                 "setup", *arguments], capture_output=True, timeout=900,
+                                 "setup", *arguments], capture_output=True, timeout=1800,
                                 check=False)
           if proc.returncode:
               raise OneclickError("POA_SETUP_" + arguments[0].upper().replace("-", "_") + "_FAILED")
