@@ -103,9 +103,27 @@ jobs:
       - name: Original 4-venue native fills without external orders
         if: runner.os == 'Linux'
         run: python release_checks/run_fill_confirmation.py -q --tb=short --junitxml=fill.xml
-      - name: Full pytest regression on both Windows and Ubuntu24 Python312
+      - name: Original Windows full pytest and Ubuntu24 complete application tests
         if: matrix.python == '3.12'
-        run: python -m pytest -q --tb=short --ignore=release_checks --ignore=audit_artifacts/readonly_audit_v2 --junitxml=full-py312.xml
+        shell: python
+        run: |
+          import subprocess,sys
+          args=[sys.executable,'-m','pytest','-q','--tb=short',
+                '--junitxml=full-py312.xml',
+                # This exact finance-time suite already ran in a clean pytest
+                # process above; separate it from tests mocking sys.modules.
+                '--ignore=tests/test_py312_time_compat.py']
+          if sys.platform=='win32':
+              # Original PR verification runs the full Windows discovery with
+              # two historical audit exclusions for independently run gates.
+              args += ['--ignore=release_checks',
+                       '--ignore=audit_artifacts/readonly_audit_v2']
+          else:
+              # Some audit_artifacts tests assume Windows-only ctypes.WinDLL,
+              # and Windows absolute DB paths; the original Linux CI tests
+              # release + golden + native fills, not Windows-only archives.
+              args += ['tests']
+          subprocess.run(args,check=True,timeout=1800)
       - name: Upload CI evidence, never DB or credentials
         if: always()
         uses: actions/upload-artifact@v4
