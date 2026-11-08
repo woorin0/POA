@@ -105,7 +105,12 @@ class _Handler(socketserver.BaseRequestHandler):
             pass  # Closed local client; never trigger retry or an order.
 
 
-class _LocalServer(socketserver.UnixStreamServer):
+# Windows Python lacks UnixStreamServer; import stays safe for Mock tests.
+# Actual socket service remains strictly Linux-only, never falls back to TCP.
+_UnixBase = getattr(socketserver, "UnixStreamServer", socketserver.BaseServer)
+
+
+class _LocalServer(_UnixBase):
     allow_reuse_address = False
     request_queue_size = 8
 
@@ -126,6 +131,8 @@ def serve(role: str, path: str) -> None:
             raise ValueError("SOCKET_DIRECTORY_MUST_BE_PRIVATE")
     if os.path.lexists(location):
         raise ValueError("SOCKET_PATH_ALREADY_EXISTS")  # never unlink old paths
+    if not hasattr(socketserver, "UnixStreamServer"):
+        raise ValueError("LINUX_ONLY_UNIX_SOCKET")  # never substitute TCP
     mask = os.umask(0o077)
     try:
         with _LocalServer(str(location), _Handler) as server:
