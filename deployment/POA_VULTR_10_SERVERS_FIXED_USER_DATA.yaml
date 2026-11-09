@@ -38,7 +38,9 @@ write_files:
       }
 # [2] 자동 설치: PocketBase 0.16.6만 사용(Go 1.18 공식 소스 빌드).
 # 기존 POA 금융/주문 소스 검증·PocketBase DB·HTTPS·Discord 완료 알림까지.
-# GitHub의 고정 설치 스크립트를 가져오므로 아래 영역 수정 불필요.
+# [2] 다운로드 URL의 40자리 SHA만 설치 대상 커밋으로 교체.
+# 최초 1회만 이 템플릿 사용. 다음 릴리스부터 이 URL 한 곳만 수정.
+# 스크립트는 URL SHA를 읽어 동일 커밋의 앱·매니페스트·도구를 설치.
 package_update: false
 packages: [python3, curl, ca-certificates]
 runcmd:
@@ -46,9 +48,10 @@ runcmd:
     - -euc
     - >-
       umask 077;
+      POA_INSTALL_SOURCE_URL=https://raw.githubusercontent.com/woorin0/POA/0000000000000000000000000000000000000000/deployment/poa_vultr_install_v3.py;
+      export POA_INSTALL_SOURCE_URL;
       curl --fail --silent --show-error --location --retry 3
       --connect-timeout 20 --max-time 90
-      --output /root/poa-vultr-install-v3.py
-      https://raw.githubusercontent.com/woorin0/POA/08c1add4b40cb89b058b77177b09ccddf3a2b854/deployment/poa_vultr_install_v3.py;
+      --output /root/poa-vultr-install-v3.py "$POA_INSTALL_SOURCE_URL";
       python3 /root/poa-vultr-install-v3.py
 final_message: "POA setup attempted. Check sudo cat /root/POA_ONECLICK_RESULT.json; a Discord success message is sent only after full HTTP/HTTPS health verification."
