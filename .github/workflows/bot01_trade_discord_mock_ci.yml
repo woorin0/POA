@@ -1,4 +1,4 @@
-name: BOT01 TradingView to verified Discord fill - offline proof
+name: BOT01 five-venue simple order amount - offline proof
 on:
   pull_request:
     branches: [main]
@@ -37,7 +37,7 @@ jobs:
           python -m pip check
       - name: Verify BOT01 exact source and flags with no exchange or Discord connections
         run: python -m pytest -q tests/test_bot01_tv_trade_discord_readiness.py --tb=short --junitxml=bot01-source.xml
-      - name: Four exchange simple amount alerts (no exchange orders or Discord delivery)
+      - name: Five exchange quantity price amount alerts (no exchange orders or Discord delivery)
         run: python -m pytest -q tests/test_simple_order_amount_alerts.py --tb=short --junitxml=bot01-simple-amount.xml
       - name: Verify mocked native exchange reads through signed fill to Discord outbox
         run: |
