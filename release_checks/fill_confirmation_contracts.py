@@ -33,7 +33,10 @@ def original_log(settings):
     nodes = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in ('log', 'is_verified_exchange')]
     ns = dict(settings=settings, dispatch_verified_alert=DP.dispatch_verified_alert)
     exec(compile(ast.Module(body=nodes, type_ignores=[]), str(ROOT/'main.py'), 'exec'), ns)
-    return ns['log']
+    # The production webhook now deliberately uses simple response amounts.
+    # Exercise the retained native proof engine directly, not the new route.
+    return lambda exchange, result, info: DP.dispatch_order_observation(
+        exchange, result, info, settings, producer_entry=ns['log'])
 
 
 def setup(tmp_path, monkeypatch, exchange='UPBIT', future=False, side='sell', count=2, base='SOL', close=None, short=False):
