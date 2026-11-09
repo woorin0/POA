@@ -85,3 +85,24 @@ def test_no_private_order_query_and_no_order_replay():
     assert '("UPBIT", "BINANCE", "BYBIT", "BITGET")' in log
     assert '("UPBIT", "BINANCE", "BYBIT", "BITGET")' in schedule
     assert "background_tasks.add_task(log" in schedule
+
+
+def test_sell_without_response_price_can_use_public_ticker_as_estimate():
+    request=info("BITGET","sell")
+    request.price=None
+    amount,kind=order_amount("BITGET",{"id":"ack","amount":"2"},request,reference_price="105")
+    assert (str(amount),kind)==("210","estimate")
+    _,embed=build_simple_amount_alert("BITGET",{"id":"ack","amount":"2"},request,reference_price="105")
+    assert "210 USDT (공개 현재가 추정·미검증)" in embed.data["description"]
+
+
+def test_public_ticker_failure_never_invents_a_price(monkeypatch):
+    from exchange.utility import simple_order_amount as helper
+    class FakeExchange:
+        def __init__(self,*args,**kwargs):
+            pass
+        def fetch_ticker(self,symbol):
+            raise RuntimeError("PUBLIC_PRICE_UNAVAILABLE")
+    import ccxt
+    monkeypatch.setattr(ccxt,"bitget",FakeExchange)
+    assert helper.public_reference_price("BITGET","XRP/USDT") is None
