@@ -106,3 +106,24 @@ def test_public_ticker_failure_never_invents_a_price(monkeypatch):
     import ccxt
     monkeypatch.setattr(ccxt,"bitget",FakeExchange)
     assert helper.public_reference_price("BITGET","XRP/USDT") is None
+
+
+@pytest.mark.parametrize("exchange", VENUES)
+@pytest.mark.parametrize("side", ("buy", "sell"))
+def test_logmaker_routes_one_order_to_one_simple_discord_embed(exchange,side):
+    import importlib.util
+    import sys
+    from unittest.mock import patch
+    source=ROOT/"exchange"/"utility"/"LogMaker.py"
+    with patch("loguru.logger.remove"), patch("loguru.logger.add"):
+        spec=importlib.util.spec_from_file_location("exchange.utility.LogMaker",source)
+        lm=importlib.util.module_from_spec(spec)
+        sys.modules["exchange.utility.LogMaker"]=lm
+        spec.loader.exec_module(lm)
+    sent=[]
+    lm.log_message=lambda message,embed=None: sent.append((message,embed.data))
+    lm.log_order_message(exchange,{"id":"ack","cost":"256","filled":"2","price":"128"},info(exchange,side))
+    assert len(sent)==1
+    assert "256" in sent[0][1]["description"]
+    assert "미검증" in sent[0][1]["description"]
+    assert "주문 응답" in sent[0][1]["title"]
