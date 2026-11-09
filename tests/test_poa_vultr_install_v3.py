@@ -230,7 +230,7 @@ def test_installer_download_must_match_url_contents(monkeypatch):
 def test_cloud_init_sha_occurs_only_in_one_downloader_url():
     p=Path(__file__).resolve().parents[1]/"deployment/POA_VULTR_10_SERVERS_FIXED_USER_DATA.yaml"
     import re
-    cfg=yaml.safe_load(p.read_text())
+    cfg=yaml.safe_load(p.read_text(encoding="utf-8"))
     cmd=cfg["runcmd"][0][2]
     sentinel="0"*40
     assert cmd.count(sentinel)==1
@@ -243,7 +243,7 @@ def test_cloud_init_sha_occurs_only_in_one_downloader_url():
 
 def test_installer_selects_url_before_any_install_mutation():
     import ast
-    code=Path(V.__file__).read_text()
+    code=Path(V.__file__).read_text(encoding="utf-8")
     tree=ast.parse(code)
     entry=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=="main")
     body=ast.get_source_segment(code,entry)
