@@ -15,6 +15,10 @@ import secrets
 import subprocess
 import sys
 import time
+# The source tree contains tracked .pyc objects; never regenerate them during
+# imports, build checks or tests, otherwise a clean pinned checkout is changed.
+sys.dont_write_bytecode = True
+os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
