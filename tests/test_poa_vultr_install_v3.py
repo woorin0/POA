@@ -173,3 +173,79 @@ def test_no_overwrite_when_old_runtime_exists(tmp_path, monkeypatch):
     with pytest.raises(V.InstallationBlocked, match="EXISTING_DB_OR_ORDER_CONFIGURATION_STOP"):
         V.ready_requirements()
     assert (app / ".env").read_text() == "valuable credentials"
+
+
+def test_one_url_sha_is_only_version_selector_and_updates_manifest(monkeypatch):
+    import hashlib
+    root = Path(__file__).resolve().parents[1]
+    source = Path(V.__file__).read_bytes()
+    manifest = (root / "release_manifest_sha256.json").read_bytes()
+    entries = json.loads(manifest)
+    hashes = {x["Path"]: x["SHA256"].lower() for x in entries}
+    responses = []
+    class Response:
+        def __init__(self, raw): self.raw = raw
+        def read(self, n): return self.raw[:n]
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+    def mock_open(url, timeout=None):
+        responses.append(url)
+        if url.endswith("/release_manifest_sha256.json"): return Response(manifest)
+        if url.endswith("/deployment/poa_vultr_install_v3.py"): return Response(source)
+        pytest.fail("Unexpected fetch path")
+    monkeypatch.setattr(V,"urlopen",mock_open)
+    for digest in ("a"*40,"b"*40):
+        url="https://raw.githubusercontent.com/woorin0/POA/"+digest+"/deployment/poa_vultr_install_v3.py"
+        assert V.configure_release_url(url)==digest
+        assert V.SOURCE_COMMIT==digest
+        assert V.SOURCE_MANIFEST_SHA==hashlib.sha256(manifest).hexdigest()
+        assert V.PREPARE_DIGESTS["install_once.py"]==hashes["deployment/install_once.py"]
+        assert responses[-2:]==[url,"https://raw.githubusercontent.com/woorin0/POA/"+digest+"/release_manifest_sha256.json"]
+
+
+@pytest.mark.parametrize("bad", [
+    "", "main",
+    "https://raw.githubusercontent.com/woorin0/POA/main/deployment/poa_vultr_install_v3.py",
+    "https://raw.githubusercontent.com/woorin0/POA/"+"a"*39+"/deployment/poa_vultr_install_v3.py",
+    "https://raw.githubusercontent.com/woorin0/POA/"+"A"*40+"/deployment/poa_vultr_install_v3.py",
+    "https://evil.example/woorin0/POA/"+"a"*40+"/deployment/poa_vultr_install_v3.py",
+    "https://raw.githubusercontent.com/woorin0/POA/"+"a"*40+"/deployment/poa_vultr_install_v3.py?ref=main",
+])
+def test_sha_validation_rejects_unpinned_or_foreign_urls(bad,monkeypatch):
+    monkeypatch.setattr(V,"urlopen",lambda *a,**kw:pytest.fail("Malformed URL touched network"))
+    with pytest.raises(V.InstallationBlocked,match="EXACT_INSTALLER_URL_SHA_REQUIRED"):
+        V.configure_release_url(bad)
+
+
+def test_installer_download_must_match_url_contents(monkeypatch):
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self,*args): return False
+        def read(self, n): return b"tampered"
+    monkeypatch.setattr(V,"urlopen",lambda *a,**kw: Response())
+    with pytest.raises(V.InstallationBlocked,match="INSTALLER_URL_CONTENT_MISMATCH"):
+        V.configure_release_url("https://raw.githubusercontent.com/woorin0/POA/"+"a"*40+"/deployment/poa_vultr_install_v3.py")
+
+
+def test_cloud_init_sha_occurs_only_in_one_downloader_url():
+    p=Path(__file__).resolve().parents[1]/"deployment/POA_VULTR_10_SERVERS_FIXED_USER_DATA.yaml"
+    import re
+    cfg=yaml.safe_load(p.read_text())
+    cmd=cfg["runcmd"][0][2]
+    sentinel="0"*40
+    assert cmd.count(sentinel)==1
+    assert cmd.count("POA_INSTALL_SOURCE_URL=")==1
+    assert "export POA_INSTALL_SOURCE_URL" in cmd
+    assert '"$POA_INSTALL_SOURCE_URL"' in cmd
+    assert re.search(r"raw.githubusercontent.com/woorin0/POA/"+sentinel+r"/deployment/poa_vultr_install_v3\.py",cmd)
+    assert "python3 /root/poa-vultr-install-v3.py" in cmd
+
+
+def test_installer_selects_url_before_any_install_mutation():
+    import ast
+    code=Path(V.__file__).read_text()
+    tree=ast.parse(code)
+    entry=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=="main")
+    body=ast.get_source_segment(code,entry)
+    assert body.index("configure_release_url(")<body.index("ready_requirements()")
+    assert body.index("ready_requirements()")<body.index("prepare_packages()")
