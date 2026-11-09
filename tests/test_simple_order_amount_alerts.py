@@ -67,7 +67,7 @@ def test_linear_futures_five_columns_and_correct_action(venue,side,title,action)
 def test_response_missing_cost_uses_request_estimate_with_provenance(venue,side):
     info=request(venue,side)
     value,source=order_amount(venue,{"id":"ack"},info)
-    assert (str(value),source)==("200","estimate")
+    assert value == 200 and source == "estimate"
     _,embed=build_simple_amount_alert(venue,{"id":"ack"},info)
     body=embed.data["description"]
     assert "수량: 2 XRP (요청·미검증)" in body
@@ -90,7 +90,7 @@ def test_exchange_native_quote_receipt_field(venue,field):
 @pytest.mark.parametrize("bad",["NaN","Infinity","-1","0","invalid",True,None])
 def test_untrusted_cost_is_not_displayed(bad):
     value,origin=order_amount("UPBIT",{"cost":bad},request("UPBIT","buy"))
-    assert (str(value),origin)==("200","estimate")
+    assert value == 200 and origin == "estimate"
 
 
 def test_price_is_derived_only_from_consistent_response_quantity_and_cost():
