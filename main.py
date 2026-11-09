@@ -299,9 +299,9 @@ def is_verified_exchange(exchange_name):
 
 
 def log(exchange_name, result, order_info):
-    # Four crypto venues deliberately use the original POA-style order
+    # Five crypto venues deliberately use the original POA-style order
     # response notification. No authenticated fill read or guessed execution.
-    if exchange_name in ("UPBIT", "BINANCE", "BYBIT", "BITGET"):
+    if exchange_name in ("UPBIT", "BINANCE", "BYBIT", "BITGET", "OKX"):
         from exchange.utility.simple_order_amount import is_rejected_response
         if not isinstance(result, dict) or is_rejected_response(result):
             return
@@ -328,7 +328,7 @@ def log_error(error_message, order_info):
 
 
 def schedule_order_log(background_tasks, exchange_name, result, order_info):
-    if exchange_name in ("UPBIT", "BINANCE", "BYBIT", "BITGET"):
+    if exchange_name in ("UPBIT", "BINANCE", "BYBIT", "BITGET", "OKX"):
         from exchange.utility.simple_order_amount import is_rejected_response
         if not isinstance(result, dict) or is_rejected_response(result):
             from exchange.verified_pnl.operational_alerts import report
