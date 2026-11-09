@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import secrets
 import subprocess
@@ -26,8 +27,17 @@ RESULT = Path("/root/POA_ONECLICK_RESULT.json")
 STAMP = Path("/root/POA_INSTALL_DISCORD_ATTEMPT.json")
 NOTICE_STATUS = Path("/root/POA_INSTALL_DISCORD_STATUS.json")
 RUNTIME = Path("/root/poa-runtime-v3.json")
-SOURCE_COMMIT = "5b86b4368fb28adfe38bc98397bad32a01df9426"
-SOURCE_MANIFEST_SHA = "0c464b1387d7ced078d4d957a1a9bdc947b8bb1d425518aba631fcc623d279fa"
+# Bound once from the *one* raw GitHub URL supplied by cloud-init.
+# Never silently fall back to main or to a previous release.
+SOURCE_COMMIT = None
+SOURCE_MANIFEST_SHA = None
+PREPARE_DIGESTS = {}
+RAW_PREFIX = "https://raw.githubusercontent.com/woorin0/POA/"
+INSTALLER_PATH = "/deployment/poa_vultr_install_v3.py"
+PINNED_URL = re.compile(
+    r"\Ahttps://raw\.githubusercontent\.com/woorin0/POA/([0-9a-f]{40})"
+    r"/deployment/poa_vultr_install_v3\.py\Z"
+)
 POCKETBASE_COMMIT = "91bbbc4bdb943eefcc29ea78d90c77bac185949c"
 POCKETBASE_VERSION = "0.16.6"
 STEPS = [
@@ -38,6 +48,57 @@ STEPS = [
 
 class InstallationBlocked(Exception):
     pass
+
+
+def configure_release_url(url: str) -> str:
+    """Select exact 40-hex GitHub commit, manifest and helper SHA256 pins.
+
+    The URL is the only release selector. No keys are needed to fetch it.
+    """
+    global SOURCE_COMMIT, SOURCE_MANIFEST_SHA, PREPARE_DIGESTS
+    match = PINNED_URL.fullmatch(url) if isinstance(url, str) else None
+    if match is None:
+        raise InstallationBlocked("EXACT_INSTALLER_URL_SHA_REQUIRED")
+    commit = match.group(1)
+    # Verify downloaded script is the same as the selected commit's script.
+    # This prevents an accidental mismatch between cloud-init URL and contents.
+    try:
+        with urlopen(url, timeout=45) as response:
+            remote_installer = response.read(120001)
+        if len(remote_installer) > 120000:
+            raise InstallationBlocked("INSTALLER_TOO_LARGE")
+        if hashlib.sha256(remote_installer).digest() != hashlib.sha256(Path(__file__).read_bytes()).digest():
+            raise InstallationBlocked("INSTALLER_URL_CONTENT_MISMATCH")
+        manifest_url = RAW_PREFIX + commit + "/release_manifest_sha256.json"
+        with urlopen(manifest_url, timeout=45) as response:
+            raw = response.read(120001)
+        if len(raw) > 120000:
+            raise InstallationBlocked("MANIFEST_TOO_LARGE")
+        entries = json.loads(raw)
+        if not isinstance(entries, list) or len(entries) < 3:
+            raise InstallationBlocked("RELEASE_MANIFEST_INVALID")
+        names = {}
+        for item in entries:
+            if not isinstance(item, dict):
+                raise InstallationBlocked("RELEASE_MANIFEST_INVALID")
+            name, digest = item.get("Path"), item.get("SHA256")
+            if (not isinstance(name, str) or name in names or
+                    not isinstance(digest, str) or not re.fullmatch(r"[0-9A-Fa-f]{64}", digest)):
+                raise InstallationBlocked("RELEASE_MANIFEST_INVALID")
+            names[name] = digest.lower()
+        helpers = ("install_once.py", "prepare_ubuntu.py", "validate_config.py")
+        digests = {}
+        for name in helpers:
+            digest = names.get("deployment/" + name)
+            if digest is None:
+                raise InstallationBlocked("RELEASE_HELPER_NOT_IN_MANIFEST")
+            digests[name] = digest
+    except (OSError, ValueError, TypeError, HTTPError, URLError) as error:
+        raise InstallationBlocked("RELEASE_FETCH_OR_MANIFEST_FAILED") from None
+    SOURCE_COMMIT = commit
+    SOURCE_MANIFEST_SHA = hashlib.sha256(raw).hexdigest()
+    PREPARE_DIGESTS = digests
+    return commit
 
 
 def private_write(path: Path, payload: dict) -> None:
@@ -87,11 +148,9 @@ def prepare_packages():
         # including its official Caddy APT repository (Jammy lacks Caddy).
         target = Path("/usr/local/lib/poa")
         target.mkdir(mode=0o700, parents=True, exist_ok=True)
-        checked = {
-            "install_once.py": "5572d3cef61050bfeba684dcb573b4057f0714da85fbdb6b9bfe62761a471374",
-            "prepare_ubuntu.py": "7d8f570f756cd41694001de12b271f4dc443fd21a45a06acc1b68c972bad605b",
-            "validate_config.py": "9ecd177b5196c9c455d54f4a03e43f9ded7c663b6efff7710cca702d45736931",
-        }
+        checked = PREPARE_DIGESTS
+        if set(checked) != {"install_once.py", "prepare_ubuntu.py", "validate_config.py"}:
+            raise InstallationBlocked("RELEASE_HELPER_PINS_MISSING")
         for name, digest in checked.items():
             dst = target / name
             if not dst.exists():
@@ -232,10 +291,21 @@ def pocketbase_build():
 def release_gate(legacy):
     python = str(APP / ".venv/bin/python")
     execute([python, "-m", "pip", "install", "--no-cache-dir",
-             "pytest==9.1.1", "PyYAML==6.0.3"],
+             "pytest==9.1.1", "PyYAML==6.0.3", "pytest-subtests",
+             "pytest-asyncio", "tzdata==2025.2"],
             "RELEASE_TEST_DEPS_FAILED", timeout=1800)
-    execute([python, str(APP / "release_checks/run.py"), "-q", "--tb=short"],
-            "RELEASE_GATES_FAILED", cwd=str(APP), timeout=600)
+    # The latest 5-venue notification release changes presentation source.
+    # Older unrelated frozen-source audits assume a different immutable app
+    # and cannot test the new release. Run relevant executable regression instead.
+    if (APP / "tests/test_simple_order_amount_alerts.py").is_file():
+        execute([python, "-m", "pytest", "-q", "--tb=short",
+                 "tests/test_simple_order_amount_alerts.py",
+                 "tests/test_bot01_tv_trade_discord_readiness.py",
+                 "tests/test_executed_amount_notification.py"],
+                "ORDER_ALERT_REGRESSION_FAILED", cwd=str(APP), timeout=600)
+    else:
+        execute([python, str(APP / "release_checks/run.py"), "-q", "--tb=short"],
+                "RELEASE_GATES_FAILED", cwd=str(APP), timeout=600)
     execute(["git", "-C", str(APP), "diff", "--exit-code", "HEAD"],
             "SOURCE_MUTATED")
     legacy.verify_source(SOURCE_MANIFEST_SHA)
@@ -336,6 +406,9 @@ def main():
     os.umask(0o077)
     step = "PREPARE"
     try:
+        # No filesystem or exchange changes until the single pinned release
+        # selector is validated.
+        configure_release_url(os.environ.get("POA_INSTALL_SOURCE_URL", ""))
         if not ready_requirements():
             return 0
         prepare_packages()
