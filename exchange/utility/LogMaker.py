@@ -99,13 +99,18 @@ def _get_discord_embed_module():
 
 
 def log_order_message(exchange_name, order_result: dict, order_info: MarketOrder):
-    # Original POA's immediate response display for four exchanges, with
-    # explicit estimation labels. Never perform a second exchange read.
-    if exchange_name in ("UPBIT", "BINANCE", "BYBIT", "BITGET"):
-        from .simple_order_amount import build_simple_amount_alert, order_amount, public_reference_price
-        amount, _ = order_amount(exchange_name, order_result, order_info)
+    # Immediate, explicitly unverified, original-POA-style order response.
+    # A public ticker is only a fallback when no response or request price exists.
+    if exchange_name in ("UPBIT", "BINANCE", "BYBIT", "BITGET", "OKX"):
+        from .simple_order_amount import (
+            build_simple_amount_alert, is_rejected_response, order_price,
+            public_reference_price,
+        )
+        if not isinstance(order_result, dict) or is_rejected_response(order_result):
+            return
+        price, _ = order_price(exchange_name, order_result, order_info)
         reference_price = None
-        if amount is None and isinstance(order_result, dict) and (order_result.get("id") or order_result.get("uuid")):
+        if price is None and (order_result.get("id") or order_result.get("uuid")):
             reference_price = public_reference_price(exchange_name, order_info.unified_symbol)
         content, embed = build_simple_amount_alert(exchange_name, order_result, order_info, reference_price)
         log_message(content, embed)
