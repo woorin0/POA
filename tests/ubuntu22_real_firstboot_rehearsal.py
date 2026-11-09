@@ -67,10 +67,18 @@ def main():
     require(runcmd[:2] == ["bash", "-euc"], "UNEXPECTED_BOOT_COMMAND")
     command = runcmd[2]
     require(command.count("; python3 ") == 1, "UNEXPECTED_BOOT_COMMAND")
-    # Execute the actual User Data's exact pinned download command, then
-    # invoke the downloaded main() with CI-only TLS/Discord replacements.
+    # The template SHA is a placeholder. CI substitutes ONLY that 40-hex
+    # segment with the exact checked-out GitHub commit under test.
+    sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+    require(len(sha)==40, "INVALID_TEST_COMMIT")
+    command = command.replace("0"*40, sha)
+    url = "https://raw.githubusercontent.com/woorin0/POA/" + sha + "/deployment/poa_vultr_install_v3.py"
+    require(command.count(url)==1, "RELEASE_URL_NOT_UNIQUE")
+    # Execute the actual cloud-init downloader, then pass the same URL
+    # to the imported installer main() for pinned source selection.
     download = command.split("; python3 ")[0]
     subprocess.run(["bash", "-euc", download], check=True, timeout=180)
+    os.environ["POA_INSTALL_SOURCE_URL"] = url
     script = Path("/root/poa-vultr-install-v3.py")
     require(script.is_file(), "PINNED_SCRIPT_DOWNLOAD_FAILED")
     installed = importlib.util.spec_from_file_location("poa_firstboot_real", script)
