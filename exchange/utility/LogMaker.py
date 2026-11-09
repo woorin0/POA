@@ -99,6 +99,13 @@ def _get_discord_embed_module():
 
 
 def log_order_message(exchange_name, order_result: dict, order_info: MarketOrder):
+    # Original POA's immediate response display for four exchanges, with
+    # explicit estimation labels. Never perform a second exchange read.
+    if exchange_name in ("UPBIT", "BINANCE", "BYBIT", "BITGET"):
+        from .simple_order_amount import build_simple_amount_alert
+        content, embed = build_simple_amount_alert(exchange_name, order_result, order_info)
+        log_message(content, embed)
+        return
     date = parse_time(datetime.now(timezone.utc).timestamp())
     if not order_info.is_futures and order_info.is_buy and exchange_name in COST_BASED_ORDER_EXCHANGES:
         f_name = "비용"
