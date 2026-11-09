@@ -301,7 +301,7 @@ def test_full_git_delta_does_not_modify_financial_order_source():
     subprocess.run(["git","diff","--exit-code",ancestor,"HEAD","--",*protected],
                    cwd=root,check=True)
     import ast, hashlib, json
-    original=subprocess.check_output(["git","show",ancestor+":main.py"],cwd=root,text=True)
+    original=subprocess.check_output(["git","show",ancestor+":main.py"],cwd=root,text=True,encoding="utf-8")
     current=(root/"main.py").read_text(encoding="utf-8")
     def protected_main(code):
         return [ast.dump(node,include_attributes=False) for node in ast.parse(code).body
