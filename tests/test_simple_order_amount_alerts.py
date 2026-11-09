@@ -1,182 +1,210 @@
-"""Four-exchange simple amount alerts: local-only; no exchange or Discord I/O."""
-from types import SimpleNamespace
-import ast
+"""Five-venue immediate order-response Discord notifications (no real I/O)."""
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+import ast
+import importlib.util
+import sys
 
 import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 from harness import setup
 setup(ROOT)
-from exchange.utility.simple_order_amount import order_amount, build_simple_amount_alert
-VENUES = ("UPBIT", "BINANCE", "BYBIT", "BITGET")
+from exchange.model import OrderRequest
+from exchange.utility.simple_order_amount import (
+    SUPPORTED, order_amount, order_price, build_simple_amount_alert,
+    public_reference_price,
+)
+
+VENUES = ("UPBIT", "BINANCE", "BYBIT", "BITGET", "OKX")
+DERIVATIVES = ("BINANCE", "BYBIT", "BITGET", "OKX")
+ACTIONS = ("entry/buy", "entry/sell", "close/sell", "close/buy")
 
 
-def info(exchange, side, future=False, **extra):
-    return SimpleNamespace(exchange=exchange, side=side, is_buy=side=="buy",
-        is_sell=side=="sell", is_futures=future, is_entry=future,
-        is_close=False, is_contract=False, contract_size=None,
-        base="XRP", quote="KRW" if exchange=="UPBIT" else "USDT",
-        unified_symbol="XRP/KRW" if exchange=="UPBIT" else "XRP/USDT"+(":USDT" if future else ""),
-        strategy_id="LL", order_name="LL", amount=2, price=100, **extra)
+def request(exchange, side, future=False, **extra):
+    return OrderRequest(exchange=exchange, base="XRP",
+                        quote=("KRW" if exchange=="UPBIT" else "USDT.P" if future else "USDT"),
+                        side=side, amount=2, price=100, strategy_id="STRATEGY-TEST", **extra)
 
 
-@pytest.mark.parametrize("exchange", VENUES)
-@pytest.mark.parametrize("side", ("buy", "sell"))
-@pytest.mark.parametrize("future", (False, True))
-def test_simple_amount_both_sides_and_markets(exchange, side, future):
-    if exchange=="UPBIT" and future:
-        return  # Upbit has no futures market.
-    request=info(exchange, side, future)
-    total,source=order_amount(exchange, {"id":"test-order","cost":"204","filled":"2","average":"102"}, request)
-    assert (str(total),source)==("204","response")
-    content,embed=build_simple_amount_alert(exchange, {"id":"test-order","cost":"204"}, request)
+@pytest.mark.parametrize("venue",VENUES)
+@pytest.mark.parametrize("side",("buy","sell"))
+def test_spot_five_exchanges_all_values_and_no_financial_fields(venue,side):
+    info=request(venue,side)
+    _,embed=build_simple_amount_alert(venue,{"id":"ord-1","cost":"204","filled":"2","average":"102"},info)
     body=embed.data["description"]
-    assert "204" in body and "(주문 응답·미검증)" in body
-    assert "실체결 검증 안 함" in body
-    assert "수수료·실현손익: 미확정" in body
-    assert "test-order" in body
-    assert "체결 확인 완료" not in body
+    assert "수량: 2 XRP (주문 응답·미검증)" in body
+    assert ("가격: 102 KRW" if venue=="UPBIT" else "가격: 102 USDT") in body
+    assert (("매수액: " if side=="buy" else "매도액: ") +
+             ("204 KRW" if venue=="UPBIT" else "204 USDT") +
+             " (주문 응답·미검증)") in body
+    assert "수수료" not in body and "실현손익" not in body
+    assert "손익" not in body and "수익률" not in body
+    assert "실체결 미검증" in body and "ord-1" in body
+    assert "매수액" not in body if side=="sell" else "매도액" not in body
 
 
-@pytest.mark.parametrize("exchange", VENUES)
-@pytest.mark.parametrize("side", ("buy", "sell"))
-def test_original_order_amount_price_fallback_is_labeled_estimate(exchange,side):
-    req=info(exchange,side)
-    value,origin=order_amount(exchange,{"id":"ack"},req)
-    assert (str(value),origin)==("200","estimate")
-    _,embed=build_simple_amount_alert(exchange,{"id":"ack"},req)
-    assert "200" in embed.data["description"]
-    assert "수량×가격 추정·미검증" in embed.data["description"]
+@pytest.mark.parametrize("venue",DERIVATIVES)
+@pytest.mark.parametrize("side,title,action",[
+    ("entry/buy","롱 진입","매수액"),("entry/sell","숏 진입","매도액"),
+    ("close/sell","롱 청산","매도액"),("close/buy","숏 청산","매수액"),
+])
+def test_linear_futures_five_columns_and_correct_action(venue,side,title,action):
+    info=request(venue,side,True)
+    assert info.unified_symbol=="XRP/USDT:USDT" and info.is_futures
+    _,embed=build_simple_amount_alert(venue,{"id":"f-1","cost":"200","filled":"2","average":"100"},info)
+    assert title in embed.data["title"]
+    body=embed.data["description"]
+    assert "수량: 2 XRP" in body
+    assert "가격: 100 USDT" in body
+    assert action+" (계약 명목가치): 200 USDT (주문 응답·미검증)" in body
+    assert "USDT.P" not in body and "수수료" not in body and "손익" not in body
 
 
-@pytest.mark.parametrize("exchange,field", [
+@pytest.mark.parametrize("venue",VENUES)
+@pytest.mark.parametrize("side",("buy","sell"))
+def test_response_missing_cost_uses_request_estimate_with_provenance(venue,side):
+    info=request(venue,side)
+    value,source=order_amount(venue,{"id":"ack"},info)
+    assert (str(value),source)==("200","estimate")
+    _,embed=build_simple_amount_alert(venue,{"id":"ack"},info)
+    body=embed.data["description"]
+    assert "수량: 2 XRP (요청·미검증)" in body
+    assert ("가격: 100 KRW" if venue=="UPBIT" else "가격: 100 USDT") in body
+    assert "요청 참고가·미검증" in body
+    assert ("매수액: 200" if side=="buy" else "매도액: 200") in body
+    assert "(추정·미검증)" in body
+
+
+@pytest.mark.parametrize("venue,field",[
     ("BINANCE","cumQuote"),("BINANCE","cummulativeQuoteQty"),
     ("BYBIT","cumExecValue"),("BITGET","quoteVolume"),
+    ("BITGET","fillTotalAmount"),
 ])
-def test_native_quote_fields_used_as_response_only(exchange,field):
-    val,kind=order_amount(exchange,{"info":{field:"345.12"}},info(exchange,"buy"))
-    assert (str(val),kind)==("345.12","response")
+def test_exchange_native_quote_receipt_field(venue,field):
+    value,kind=order_amount(venue,{"info":{field:"345.12"}},request(venue,"buy"))
+    assert (str(value),kind)==("345.12","response")
 
 
-@pytest.mark.parametrize("bad",["NaN","Infinity","-1","0","nope",True,None])
-def test_invalid_cost_cannot_be_displayed_as_amount(bad):
-    request=info("UPBIT","buy")
-    value,kind=order_amount("UPBIT",{"cost":bad},request)
-    assert (str(value),kind)==("200","estimate")
+@pytest.mark.parametrize("bad",["NaN","Infinity","-1","0","invalid",True,None])
+def test_untrusted_cost_is_not_displayed(bad):
+    value,origin=order_amount("UPBIT",{"cost":bad},request("UPBIT","buy"))
+    assert (str(value),origin)==("200","estimate")
 
 
-def test_unknown_price_is_unavailable_not_fabricated():
-    request=info("UPBIT","sell")
-    request.price=None
-    val,kind=order_amount("UPBIT",{"id":"ack","amount":2,"price":None},request)
-    assert val is None and kind=="unavailable"
-    _,embed=build_simple_amount_alert("UPBIT",{"id":"ack"},request)
-    assert "확인 불가" in embed.data["description"]
+def test_price_is_derived_only_from_consistent_response_quantity_and_cost():
+    info=request("UPBIT","buy")
+    p,source=order_price("UPBIT",{"cost":"305","filled":"2"},info)
+    assert p==152.5 and source=="응답 금액÷수량 추정"
+    _,embed=build_simple_amount_alert("UPBIT",{"cost":"305","filled":"2"},info)
+    assert "가격: 152.5 KRW (응답 금액÷수량 추정·미검증)" in embed.data["description"]
 
 
-def test_no_private_order_query_and_no_order_replay():
-    code=(ROOT/"exchange/utility/simple_order_amount.py").read_text()
-    assert "fetch_order(" not in code and "create_order(" not in code
-    assert "privateGet" not in code
-    main=ast.parse((ROOT/"main.py").read_text())
-    funcs={n.name:n for n in main.body if isinstance(n,ast.FunctionDef)}
-    log=ast.get_source_segment((ROOT/"main.py").read_text(),funcs["log"])
-    schedule=ast.get_source_segment((ROOT/"main.py").read_text(),funcs["schedule_order_log"])
-    assert '("UPBIT", "BINANCE", "BYBIT", "BITGET")' in log
-    assert '("UPBIT", "BINANCE", "BYBIT", "BITGET")' in schedule
-    assert "background_tasks.add_task(log" in schedule
+def test_price_unknown_and_public_ticker_estimate():
+    info=request("OKX","sell")
+    info.price=None
+    assert order_price("OKX",{"id":"ack","amount":2},info)==(None,"확인 불가")
+    _,empty=build_simple_amount_alert("OKX",{"id":"ack","amount":2},info)
+    assert "가격: 확인 불가" in empty.data["description"]
+    assert "매도액: 확인 불가" in empty.data["description"]
+    _,estimate=build_simple_amount_alert("OKX",{"id":"ack","amount":2},info,reference_price="103")
+    body=estimate.data["description"]
+    assert "가격: 103 USDT (공개 현재가 추정·미검증)" in body
+    assert "매도액: 206 USDT (추정·미검증)" in body
 
 
-def test_sell_without_response_price_can_use_public_ticker_as_estimate():
-    request=info("BITGET","sell")
-    request.price=None
-    amount,kind=order_amount("BITGET",{"id":"ack","amount":"2"},request,reference_price="105")
-    assert (str(amount),kind)==("210","estimate")
-    _,embed=build_simple_amount_alert("BITGET",{"id":"ack","amount":"2"},request,reference_price="105")
-    assert "210 USDT (공개 현재가 추정·미검증)" in embed.data["description"]
-
-
-def test_public_ticker_failure_never_invents_a_price(monkeypatch):
-    from exchange.utility import simple_order_amount as helper
-    class FakeExchange:
-        def __init__(self,*args,**kwargs):
-            pass
-        def fetch_ticker(self,symbol):
-            raise RuntimeError("PUBLIC_PRICE_UNAVAILABLE")
+def test_public_ticker_failure_does_not_fabricate_price(monkeypatch):
     import ccxt
-    monkeypatch.setattr(ccxt,"bitget",FakeExchange)
-    assert helper.public_reference_price("BITGET","XRP/USDT") is None
+    class Fake:
+        def __init__(self,*args,**kwargs): pass
+        def fetch_ticker(self,*args): raise RuntimeError("NO_PUBLIC_PRICE")
+    monkeypatch.setattr(ccxt,"okx",Fake)
+    assert public_reference_price("OKX","XRP/USDT") is None
 
 
-@pytest.mark.parametrize("exchange", VENUES)
-@pytest.mark.parametrize("side", ("buy", "sell"))
-def test_logmaker_routes_one_order_to_one_simple_discord_embed(exchange,side):
-    import importlib.util
-    import sys
-    from unittest.mock import patch
-    source=ROOT/"exchange"/"utility"/"LogMaker.py"
+def test_okx_linear_contract_size_conversion_not_double_applied():
+    info=request("OKX","entry/buy",True)
+    info.is_contract=True
+    info.contract_size=0.1
+    value,source=order_amount("OKX",{"id":"okx-c","filled":"20","price":"100"},info)
+    assert (str(value),source)==("200.0","estimate")
+    _,embed=build_simple_amount_alert("OKX",{"id":"okx-c","filled":"20","price":"100"},info)
+    body=embed.data["description"]
+    assert "수량: 2 XRP (응답 계약 환산·미검증)" in body
+    assert "가격: 100 USDT" in body
+    assert "매수액 (계약 명목가치): 200 USDT (추정·미검증)" in body
+    assert "20 XRP" not in body
+
+
+def test_okx_inverse_contract_notional_in_usd_without_price_multiplication():
+    info=request("OKX","entry/buy",True)
+    info.quote="USD"
+    info.unified_symbol="BTC/USD:BTC"
+    info.is_contract=True
+    info.is_coinm=True
+    info.contract_size=100
+    info.base="BTC"
+    value,source=order_amount("OKX",{"id":"inverse","filled":"3","price":"50000"},info)
+    assert (value,source)==(300,"estimate")
+    _,embed=build_simple_amount_alert("OKX",{"id":"inverse","filled":"3","price":"50000"},info)
+    body=embed.data["description"]
+    assert "수량: 3 계약" in body
+    assert "가격: 50000 USD" in body
+    assert "매수액 (계약 명목가치): 300 USD" in body
+
+
+@pytest.mark.parametrize("venue",VENUES)
+@pytest.mark.parametrize("side",("buy","sell"))
+def test_logmaker_single_discord_embed_no_hidden_pnl_fields(venue,side):
+    src=ROOT/"exchange"/"utility"/"LogMaker.py"
     with patch("loguru.logger.remove"), patch("loguru.logger.add"):
-        spec=importlib.util.spec_from_file_location("exchange.utility.LogMaker",source)
+        spec=importlib.util.spec_from_file_location("exchange.utility.LogMaker",src)
         lm=importlib.util.module_from_spec(spec)
         sys.modules["exchange.utility.LogMaker"]=lm
         spec.loader.exec_module(lm)
     sent=[]
     lm.log_message=lambda message,embed=None: sent.append((message,embed.data))
-    lm.log_order_message(exchange,{"id":"ack","cost":"256","filled":"2","price":"128"},info(exchange,side))
+    lm.log_order_message(venue,{"id":"ack","cost":"256","filled":"2","price":"128"},request(venue,side))
     assert len(sent)==1
-    assert "256" in sent[0][1]["description"]
-    assert "미검증" in sent[0][1]["description"]
-    assert "주문 응답" in sent[0][1]["title"]
+    desc=sent[0][1]["description"]
+    assert "수량:" in desc and "가격:" in desc
+    assert ("매수액:" if side=="buy" else "매도액:") in desc
+    assert "수수료" not in desc and "실현손익" not in desc
 
 
-@pytest.mark.parametrize("exchange", ("BINANCE", "BYBIT", "BITGET"))
-@pytest.mark.parametrize("side,expected_title", [
-    ("entry/buy", "롱 진입"), ("entry/sell", "숏 진입"),
-    ("close/sell", "롱 청산"), ("close/buy", "숏 청산"),
-])
-def test_actual_pine_futures_quote_and_position_directions(exchange, side, expected_title):
-    from exchange.model import OrderRequest
-    request=OrderRequest(exchange=exchange,base="XRP",quote="USDT.P",side=side,amount=2,price=100)
-    assert request.is_futures is True
-    assert request.unified_symbol=="XRP/USDT:USDT"
-    _,embed=build_simple_amount_alert(exchange,{"id":"f-1","cost":"200"},request)
-    assert expected_title in embed.data["title"]
-    desc=embed.data["description"]
-    assert "계약 명목가치: 200 USDT (주문 응답·미검증)" in desc
-    assert "USDT.P" not in desc
-
-
-@pytest.mark.parametrize("exchange", VENUES)
-@pytest.mark.parametrize("side", ("buy", "sell"))
-def test_main_never_schedules_success_notification_on_failure_or_rejection(exchange,side,monkeypatch):
-    from exchange.model import OrderRequest
-    import sys
-    import types
-    from unittest.mock import Mock
-    request=OrderRequest(exchange=exchange,base="XRP",
-                         quote="KRW" if exchange=="UPBIT" else "USDT",
-                         side=side,amount=2,price=100)
-    source=(ROOT/"main.py").read_text(encoding="utf-8")
-    nodes=ast.parse(source).body
-    selected=[n for n in nodes if isinstance(n,ast.FunctionDef) and
-              n.name in ("log","schedule_order_log")]
-    calls=[]
+@pytest.mark.parametrize("venue",VENUES)
+@pytest.mark.parametrize("side",("buy","sell"))
+def test_rejected_or_missing_order_response_never_schedules_success(venue,side,monkeypatch):
+    from exchange.verified_pnl import operational_alerts as ops
     reported=[]
-    import exchange.verified_pnl.operational_alerts as ops
     monkeypatch.setattr(ops,"report",lambda *a,**kw: reported.append((a,kw)))
+    src=(ROOT/"main.py").read_text(encoding="utf-8")
+    selected=[n for n in ast.parse(src).body if isinstance(n,ast.FunctionDef)
+              and n.name in ("log","schedule_order_log")]
+    calls=[]
     scope={"settings":SimpleNamespace(VERIFIED_DISCORD_ALERTS=True),
-           "log_order_message":lambda *a: calls.append(a),
-           "is_verified_exchange":lambda *a: True}
+           "log_order_message":lambda *args: calls.append(args),
+           "is_verified_exchange":lambda *args: True}
     exec(compile(ast.Module(body=selected,type_ignores=[]),str(ROOT/"main.py"),"exec"),scope)
     class Background:
-        def add_task(self,*args):
-            calls.append(args)
-    background=Background()
+        def add_task(self,*a): calls.append(a)
+    inf=request(venue,side); bg=Background()
     for bad in (None,{"id":"1","status":"rejected","cost":"200"},
                 {"id":"2","status":"canceled","filled":"0.5","cost":"50"}):
-        scope["log"](exchange,bad,request)
-        scope["schedule_order_log"](background,exchange,bad,request)
-    assert calls==[]
-    assert len(reported)==3
-    scope["schedule_order_log"](background,exchange,{"id":"3","cost":"200"},request)
+        scope["log"](venue,bad,inf)
+        scope["schedule_order_log"](bg,venue,bad,inf)
+    assert calls==[] and len(reported)==3
+    scope["schedule_order_log"](bg,venue,{"id":"3","cost":"200"},inf)
     assert len(calls)==1
+
+
+def test_five_venue_route_and_no_new_private_reads():
+    code=(ROOT/"exchange/utility/simple_order_amount.py").read_text()
+    assert "fetch_order(" not in code and "create_order(" not in code
+    assert "privateGet" not in code
+    src=(ROOT/"main.py").read_text(encoding="utf-8")
+    defs={n.name:ast.get_source_segment(src,n) for n in ast.parse(src).body if isinstance(n,ast.FunctionDef)}
+    for name in ("log","schedule_order_log"):
+        assert '("UPBIT", "BINANCE", "BYBIT", "BITGET", "OKX")' in defs[name]
+    assert set(SUPPORTED)==set(VENUES)
