@@ -33,7 +33,7 @@ def _first(*values):
     return None
 
 
-def order_amount(exchange, result, order_info):
+def order_amount(exchange, result, order_info, reference_price=None):
     """Return (amount, source) where source is response, estimate, or unavailable."""
     result = result if isinstance(result, dict) else {}
     native = result.get("info")
@@ -51,7 +51,7 @@ def order_amount(exchange, result, order_info):
         return quote, "response"
 
     qty = _first(result.get("filled"), result.get("amount"), getattr(order_info, "amount", None))
-    price = _first(result.get("average"), result.get("price"), getattr(order_info, "price", None))
+    price = _first(result.get("average"), result.get("price"), getattr(order_info, "price", None), reference_price)
     # For quote-quantity market buys, do not accidentally multiply quote units
     # by price a second time. The original POA's order_info.amount is base qty
     # for its four market-buy adapters, but unknown native orderQty is not.
@@ -65,7 +65,24 @@ def order_amount(exchange, result, order_info):
     return None, "unavailable"
 
 
-def build_simple_amount_alert(exchange, result, order_info):
+def public_reference_price(exchange, symbol):
+    """Optional anonymous ticker GET, only when a response lacks any amount/price.
+
+    This is a *current-market* estimate, not the order's execution price.
+    Never supply API credentials or submit an order. Failure is nonfatal.
+    """
+    if exchange not in SUPPORTED or not isinstance(symbol, str) or "/" not in symbol:
+        return None
+    try:
+        import ccxt
+        client = getattr(ccxt, exchange.lower())({"timeout": 3500, "enableRateLimit": True})
+        value = client.fetch_ticker(symbol)
+        return _positive(value.get("last")) if isinstance(value, dict) else None
+    except Exception:
+        return None
+
+
+def build_simple_amount_alert(exchange, result, order_info, reference_price=None):
     """Use the legacy Discord sender only; no order calls, fills reads, or DB writes."""
     from dhooks import Embed
     from exchange.utility.discord_embed import sanitize_discord_text, enforce_embed_bounds
@@ -81,11 +98,11 @@ def build_simple_amount_alert(exchange, result, order_info):
                    str(getattr(order_info, "base", "")) + "/" + str(getattr(order_info, "quote", "")), 48)
     quote_currency = "KRW" if exchange == "UPBIT" else clean(getattr(order_info, "quote", None) or "USDT", 10)
     quote_currency = quote_currency.split(":")[0]
-    amount, source = order_amount(exchange, result, order_info)
+    amount, source = order_amount(exchange, result, order_info, reference_price)
     if source == "response":
         amount_text = _fmt(amount) + " " + quote_currency + " (주문 응답·미검증)"
     elif source == "estimate":
-        amount_text = _fmt(amount) + " " + quote_currency + " (수량×가격 추정·미검증)"
+        amount_text = _fmt(amount) + " " + quote_currency + (" (공개 현재가 추정·미검증)" if reference_price is not None and not _first(result.get("average") if isinstance(result, dict) else None, result.get("price") if isinstance(result, dict) else None, getattr(order_info, "price", None)) else " (수량×가격 추정·미검증)")
     else:
         amount_text = "확인 불가 (주문 응답에 금액·가격 정보 없음)"
     result = result if isinstance(result, dict) else {}
