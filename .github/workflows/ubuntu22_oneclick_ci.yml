@@ -48,7 +48,7 @@ jobs:
           import ast, subprocess
           from pathlib import Path
           base=subprocess.check_output(['git','show','c5566c4cc2a4ce716f1f0d66260bd60e4f95546f:main.py'],text=True,encoding='utf-8')
-          current=Path('main.py').read_text()
+          current=Path('main.py').read_text(encoding='utf-8')
           def source_without_notifications(code):
               tree=ast.parse(code)
               return [ast.dump(node,include_attributes=False) for node in tree.body
