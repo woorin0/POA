@@ -4,9 +4,10 @@ import ast
 from pathlib import Path
 
 import pytest
-from exchange.utility.simple_order_amount import order_amount, build_simple_amount_alert
-
 ROOT = Path(__file__).resolve().parents[1]
+from harness import setup
+setup(ROOT)
+from exchange.utility.simple_order_amount import order_amount, build_simple_amount_alert
 VENUES = ("UPBIT", "BINANCE", "BYBIT", "BITGET")
 
 
