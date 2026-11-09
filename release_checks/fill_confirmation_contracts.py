@@ -35,8 +35,12 @@ def original_log(settings):
     exec(compile(ast.Module(body=nodes, type_ignores=[]), str(ROOT/'main.py'), 'exec'), ns)
     # The production webhook now deliberately uses simple response amounts.
     # Exercise the retained native proof engine directly, not the new route.
-    return lambda exchange, result, info: DP.dispatch_order_observation(
-        exchange, result, info, settings, producer_entry=ns['log'])
+    def retained_native_entry(exchange, result, info):
+        if getattr(info, 'is_futures', False):
+            return DP.dispatch_verified_alert(exchange, result, info, settings, producer_entry=ns['log'])
+        return DP.dispatch_order_observation(
+            exchange, result, info, settings, producer_entry=ns['log'])
+    return retained_native_entry
 
 
 def setup(tmp_path, monkeypatch, exchange='UPBIT', future=False, side='sell', count=2, base='SOL', close=None, short=False):
