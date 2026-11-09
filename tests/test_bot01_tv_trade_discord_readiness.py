@@ -14,7 +14,7 @@ BOT01_SOURCE = "5b86b4368fb28adfe38bc98397bad32a01df9426"
 
 def test_bot01_order_notification_source_is_unchanged():
     for path in (
-        "main.py",
+        # main.py changes only the notification routing, not order execution.
         "exchange/verified_pnl/dispatcher.py",
         "exchange/verified_pnl/outbox.py",
         "exchange/verified_pnl/order_fill_confirmation.py",
@@ -90,3 +90,15 @@ def test_tv_signal_is_never_execution_proof():
     assert "confirmed=False" in body
     assert "price_source='UNAVAILABLE'" in body
     assert "notional=value" in body  # Signal-based estimate only, not an execution receipt
+
+
+def test_simple_four_venue_alert_overrides_native_fill_without_trading_changes():
+    source=(ROOT / "main.py").read_text(encoding="utf-8")
+    tree=ast.parse(source)
+    log=next(x for x in tree.body if isinstance(x,ast.FunctionDef) and x.name=="log")
+    scheduler=next(x for x in tree.body if isinstance(x,ast.FunctionDef) and x.name=="schedule_order_log")
+    log_source=ast.get_source_segment(source,log)
+    schedule_source=ast.get_source_segment(source,scheduler)
+    assert '("UPBIT", "BINANCE", "BYBIT", "BITGET")' in log_source
+    assert '("UPBIT", "BINANCE", "BYBIT", "BITGET")' in schedule_source
+    assert log_source.index("log_order_message(exchange_name, result, order_info)") < log_source.index("dispatch_order_observation")
