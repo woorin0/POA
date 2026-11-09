@@ -127,3 +127,56 @@ def test_logmaker_routes_one_order_to_one_simple_discord_embed(exchange,side):
     assert "256" in sent[0][1]["description"]
     assert "미검증" in sent[0][1]["description"]
     assert "주문 응답" in sent[0][1]["title"]
+
+
+@pytest.mark.parametrize("exchange", ("BINANCE", "BYBIT", "BITGET"))
+@pytest.mark.parametrize("side,expected_title", [
+    ("entry/buy", "롱 진입"), ("entry/sell", "숏 진입"),
+    ("close/sell", "롱 청산"), ("close/buy", "숏 청산"),
+])
+def test_actual_pine_futures_quote_and_position_directions(exchange, side, expected_title):
+    from exchange.model import OrderRequest
+    request=OrderRequest(exchange=exchange,base="XRP",quote="USDT.P",side=side,amount=2,price=100)
+    assert request.is_futures is True
+    assert request.unified_symbol=="XRP/USDT:USDT"
+    _,embed=build_simple_amount_alert(exchange,{"id":"f-1","cost":"200"},request)
+    assert expected_title in embed.data["title"]
+    desc=embed.data["description"]
+    assert "계약 명목가치: 200 USDT (주문 응답·미검증)" in desc
+    assert "USDT.P" not in desc
+
+
+@pytest.mark.parametrize("exchange", VENUES)
+@pytest.mark.parametrize("side", ("buy", "sell"))
+def test_main_never_schedules_success_notification_on_failure_or_rejection(exchange,side,monkeypatch):
+    from exchange.model import OrderRequest
+    import sys
+    import types
+    from unittest.mock import Mock
+    request=OrderRequest(exchange=exchange,base="XRP",
+                         quote="KRW" if exchange=="UPBIT" else "USDT",
+                         side=side,amount=2,price=100)
+    source=(ROOT/"main.py").read_text(encoding="utf-8")
+    nodes=ast.parse(source).body
+    selected=[n for n in nodes if isinstance(n,ast.FunctionDef) and
+              n.name in ("log","schedule_order_log")]
+    calls=[]
+    reported=[]
+    import exchange.verified_pnl.operational_alerts as ops
+    monkeypatch.setattr(ops,"report",lambda *a,**kw: reported.append((a,kw)))
+    scope={"settings":SimpleNamespace(VERIFIED_DISCORD_ALERTS=True),
+           "log_order_message":lambda *a: calls.append(a),
+           "is_verified_exchange":lambda *a: True}
+    exec(compile(ast.Module(body=selected,type_ignores=[]),str(ROOT/"main.py"),"exec"),scope)
+    class Background:
+        def add_task(self,*args):
+            calls.append(args)
+    background=Background()
+    for bad in (None,{"id":"1","status":"rejected","cost":"200"},
+                {"id":"2","status":"canceled","filled":"0.5","cost":"50"}):
+        scope["log"](exchange,bad,request)
+        scope["schedule_order_log"](background,exchange,bad,request)
+    assert calls==[]
+    assert len(reported)==3
+    scope["schedule_order_log"](background,exchange,{"id":"3","cost":"200"},request)
+    assert len(calls)==1
