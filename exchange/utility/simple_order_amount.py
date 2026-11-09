@@ -7,6 +7,12 @@ from decimal import Decimal, InvalidOperation
 from datetime import datetime, timezone, timedelta
 
 SUPPORTED = frozenset(("UPBIT", "BINANCE", "BYBIT", "BITGET"))
+REJECTED_STATUSES = frozenset(("rejected", "canceled", "cancelled", "expired", "failed"))
+
+
+def is_rejected_response(result):
+    """A terminal rejected/canceled response must not appear as a buy/sell acknowledgement."""
+    return isinstance(result, dict) and str(result.get("status") or "").lower() in REJECTED_STATUSES
 
 
 def _positive(value):
@@ -96,8 +102,10 @@ def build_simple_amount_alert(exchange, result, order_info, reference_price=None
     action = "매수" if getattr(order_info, "is_buy", False) else "매도" if getattr(order_info, "is_sell", False) else "주문"
     symbol = clean(getattr(order_info, "unified_symbol", None) or
                    str(getattr(order_info, "base", "")) + "/" + str(getattr(order_info, "quote", "")), 48)
-    quote_currency = "KRW" if exchange == "UPBIT" else clean(getattr(order_info, "quote", None) or "USDT", 10)
-    quote_currency = quote_currency.split(":")[0]
+    # Request quotes use USDT.P for swaps, but their monetary unit is USDT.
+    quote_currency = "KRW" if exchange == "UPBIT" else clean(symbol.split("/", 1)[-1].split(":", 1)[0], 10)
+    if quote_currency.endswith(".P"):
+        quote_currency = quote_currency[:-2]
     amount, source = order_amount(exchange, result, order_info, reference_price)
     if source == "response":
         amount_text = _fmt(amount) + " " + quote_currency + " (주문 응답·미검증)"
