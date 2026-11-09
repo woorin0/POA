@@ -281,13 +281,39 @@ def test_full_git_delta_does_not_modify_financial_order_source():
         ".github/workflows/bot01_trade_discord_mock_ci.yml",
         ".github/workflows/pr_verification.yml",
         "deployment/POA_VULTR_ONECLICK.md",
+        # Explicitly requested notification-only release.
+        "main.py",
+        "exchange/utility/LogMaker.py",
+        "exchange/utility/simple_order_amount.py",
+        "release_manifest_sha256.json",
+        "release_checks/fill_confirmation_contracts.py",
+        "tests/test_simple_order_amount_alerts.py",
+        "tests/test_discord_embed_v2.py",
     }
     assert set(changed)<=expected,("UNREQUESTED_CHANGE",changed)
-    protected=["main.py","run.py","exchange","requirements.txt",
-              "release_manifest_sha256.json","release_checks",
-              "deployment/install_once.py","deployment/prepare_ubuntu.py"]
+    # Core order execution, financial source, requirements and DB bootstrap
+    # stay byte-identical. Notification route changes are audited by AST below.
+    protected=["run.py","requirements.txt",
+              "deployment/install_once.py","deployment/prepare_ubuntu.py",
+              "exchange",":(exclude)exchange/utility/LogMaker.py",
+              ":(exclude)exchange/utility/simple_order_amount.py",
+              "release_checks",":(exclude)release_checks/fill_confirmation_contracts.py"]
     subprocess.run(["git","diff","--exit-code",ancestor,"HEAD","--",*protected],
                    cwd=root,check=True)
+    import ast, hashlib, json
+    original=subprocess.check_output(["git","show",ancestor+":main.py"],cwd=root,text=True)
+    current=(root/"main.py").read_text(encoding="utf-8")
+    def protected_main(code):
+        return [ast.dump(node,include_attributes=False) for node in ast.parse(code).body
+                if not (isinstance(node,ast.FunctionDef) and
+                        node.name in ("log","schedule_order_log"))]
+    assert protected_main(original)==protected_main(current), "ORDER_EXECUTION_MAIN_CHANGED"
+    entries=json.loads((root/"release_manifest_sha256.json").read_text(encoding="utf-8"))
+    for path in ("main.py","exchange/utility/LogMaker.py"):
+        entry=next(v for v in entries if v["Path"]==path)
+        raw=(root/path).read_bytes()
+        assert entry["Bytes"]==len(raw)
+        assert entry["SHA256"]==hashlib.sha256(raw).hexdigest().upper()
 
 def test_resume_local_after_interrupted_health_check_preserves_db_and_keys(monkeypatch, tmp_path):
     app = priv(tmp_path / "app", directory=True)
