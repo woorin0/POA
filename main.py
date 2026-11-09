@@ -299,6 +299,11 @@ def is_verified_exchange(exchange_name):
 
 
 def log(exchange_name, result, order_info):
+    # Four crypto venues deliberately use the original POA-style order
+    # response notification. No authenticated fill read or guessed execution.
+    if exchange_name in ("UPBIT", "BINANCE", "BYBIT", "BITGET"):
+        log_order_message(exchange_name, result, order_info)
+        return
     if getattr(settings, "VERIFIED_DISCORD_ALERTS", False) and is_verified_exchange(exchange_name):
         if not getattr(order_info,'is_futures',False) and exchange_name in {'BINANCE','BYBIT','OKX','UPBIT'}:
             from exchange.verified_pnl.dispatcher import dispatch_order_observation
@@ -320,6 +325,9 @@ def log_error(error_message, order_info):
 
 
 def schedule_order_log(background_tasks, exchange_name, result, order_info):
+    if exchange_name in ("UPBIT", "BINANCE", "BYBIT", "BITGET"):
+        background_tasks.add_task(log, exchange_name, result, order_info.copy(deep=True))
+        return
     if settings.VERIFIED_DISCORD_ALERTS and is_verified_exchange(exchange_name):
         # Persist identifiers before the HTTP response. No network call here.
         # Snapshotting also avoids another request mutating the cached bot state.
