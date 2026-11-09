@@ -306,8 +306,13 @@ def release_gate(legacy):
     else:
         execute([python, str(APP / "release_checks/run.py"), "-q", "--tb=short"],
                 "RELEASE_GATES_FAILED", cwd=str(APP), timeout=600)
-    execute(["git", "-C", str(APP), "diff", "--exit-code", "HEAD"],
-            "SOURCE_MUTATED")
+    changed = execute(["git", "-C", str(APP), "diff", "--name-only", "HEAD"],
+                      "SOURCE_STATUS_FAILED").decode("utf-8", errors="replace").splitlines()
+    if changed:
+        # Report only bounded tracked relative paths (never source contents).
+        names = [name for name in changed if len(name) <= 150][:20]
+        print("POA_SOURCE_CHANGED_PATHS=" + json.dumps(names), file=sys.stderr)
+        raise InstallationBlocked("SOURCE_MUTATED")
     legacy.verify_source(SOURCE_MANIFEST_SHA)
     if not STAGE.exists():
         private_write(STAGE, {"status": "STAGED_NOT_LIVE",
