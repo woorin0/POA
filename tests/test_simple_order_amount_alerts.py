@@ -158,7 +158,7 @@ def test_okx_inverse_contract_notional_in_usd_without_price_multiplication():
     _,embed=build_simple_amount_alert("OKX",{"id":"inverse","filled":"3","price":"50000"},info)
     body=embed.data["description"]
     assert "수량: 3 계약" in body
-    assert "가격: 50000 USD" in body
+    assert "가격: 50,000 USD" in body
     assert "매수액: 300 USD" in body
 
 
