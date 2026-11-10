@@ -34,7 +34,7 @@ jobs:
         run: |
           python -m pip install pip==26.3 setuptools==84.2.1
           python -m pip install -r requirements.txt
-          python -m pip install pytest==9.1.1 pytest-subtests pytest-asyncio pytest-cov cryptography PyYAML
+          python -m pip install pytest==9.1.1 pytest-subtests pytest-asyncio pytest-cov cryptography PyYAML tzdata==2025.2
           python -c "import importlib.metadata as m; print('SETUPTOOLS_VERSION=' + m.version('setuptools')); assert m.version('setuptools') == '84.2.1'"
           python -m pip check
       - name: Audit complete installed Python environment (no suppressions)

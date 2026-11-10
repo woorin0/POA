@@ -1,0 +1,132 @@
+name: POA Vultr Ubuntu22 one-click boot and finance-source regression
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'deployment/ubuntu22_oneclick.py'
+      - 'deployment/POA_VULTR_ONECLICK_USER_DATA.yaml'
+      - 'deployment/POA_VULTR_ONECLICK.md'
+      - 'tests/test_ubuntu22_oneclick.py'
+      - 'deployment/recover_failed_pocketbase_stage.py'
+      - 'tests/test_recover_failed_pocketbase_stage.py'
+      - 'deployment/poa_vultr_install_v3.py'
+      - 'deployment/POA_VULTR_10_SERVERS_FIXED_USER_DATA.yaml'
+      - 'tests/test_poa_vultr_install_v3.py'
+      - 'tests/ubuntu22_real_firstboot_rehearsal.py'
+      - 'deployment/retry_install_discord.py'
+      - 'tests/test_retry_install_discord.py'
+      - 'tests/test_ubuntu22_operational.py'
+      - '.github/workflows/ubuntu22_oneclick_ci.yml'
+permissions:
+  contents: read
+jobs:
+  oneclick:
+    name: One-click installer mock-${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-22.04]
+    steps:
+      - name: Preserve source bytes
+        shell: bash
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Preserve original execution and finance code, allow notification changes only
+        shell: bash
+        run: |
+          git diff --exit-code c5566c4cc2a4ce716f1f0d66260bd60e4f95546f HEAD -- run.py requirements.txt deployment/install_once.py deployment/prepare_ubuntu.py exchange ':(exclude)exchange/utility/LogMaker.py' ':(exclude)exchange/utility/simple_order_amount.py'
+          python - <<'PY'
+          import ast, subprocess
+          from pathlib import Path
+          base=subprocess.check_output(['git','show','c5566c4cc2a4ce716f1f0d66260bd60e4f95546f:main.py'],text=True,encoding='utf-8')
+          current=Path('main.py').read_text(encoding='utf-8')
+          def source_without_notifications(code):
+              tree=ast.parse(code)
+              return [ast.dump(node,include_attributes=False) for node in tree.body
+                      if not (isinstance(node,ast.FunctionDef) and node.name in
+                              ('log','schedule_order_log'))]
+          assert source_without_notifications(base)==source_without_notifications(current), 'ORDER_EXECUTION_SOURCE_CHANGED'
+          PY
+      - name: Install offline pytest only
+        run: python -m pip install pytest==9.1.1 PyYAML==6.0.3
+      - name: One-click boot, auto hostname, secret handling and HTTPS mock regression
+        run: python -m pytest -q tests/test_ubuntu22_oneclick.py tests/test_recover_failed_pocketbase_stage.py tests/test_poa_vultr_install_v3.py tests/test_retry_install_discord.py --tb=short --junitxml=oneclick.xml
+      - name: Keep existing cloud-init and restore Mock E2E
+        run: python -m pytest -q tests/test_ubuntu22_operational.py --tb=short --junitxml=operational.xml
+      - name: Cloud-init exact stage source and no order calls
+        shell: python
+        run: |
+          from pathlib import Path
+          import ast,yaml
+          source=Path('deployment/POA_VULTR_ONECLICK_USER_DATA.yaml').read_text(encoding='utf-8')
+          assert source.startswith('#cloud-config\n')
+          obj=yaml.safe_load(source)
+          embedded={x['path']:x for x in obj['write_files']}
+          code=embedded['/usr/local/lib/poa/ubuntu22_oneclick.py']['content']
+          ast.parse(code)
+          assert code==Path('deployment/ubuntu22_oneclick.py').read_text(encoding='utf-8')
+          assert len(source.encode('utf-8')) < 16000
+          assert not any('order' in str(x).lower() for x in obj['runcmd'])
+          print('ONECLICK_FILE=PASS; PROTECTED_ORDER_SOURCE=UNCHANGED; REAL_ORDERS_NOT_SENT')
+      - name: Compile real PocketBase v0.16.6 on Ubuntu 22.04 (not a mock)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq golang-go
+          go version
+          git clone --depth 1 --branch v0.16.6 https://github.com/pocketbase/pocketbase.git /tmp/poa-pocketbase-v0166
+          test "$(git -C /tmp/poa-pocketbase-v0166 rev-parse HEAD)" = "91bbbc4bdb943eefcc29ea78d90c77bac185949c"
+          mkdir -p /tmp/poa-go/pkg/mod
+          cd /tmp/poa-pocketbase-v0166
+          export HOME=/home/runner GOPATH=/tmp/poa-go GOMODCACHE=/tmp/poa-go/pkg/mod
+          export CGO_ENABLED=0 GOTOOLCHAIN=local GOPROXY=https://proxy.golang.org,direct
+          export GOSUMDB=sum.golang.org GOFLAGS=-p=1 GOMAXPROCS=2 GOGC=50
+          go build -trimpath -ldflags '-X github.com/pocketbase/pocketbase.Version=0.16.6' -o /tmp/poa-pocketbase-real ./examples/base
+          /tmp/poa-pocketbase-real --version
+          /tmp/poa-pocketbase-real --version | grep -F 0.16.6
+      - name: Upload fixture evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: poa-oneclick-${{ matrix.os }}
+          path: |
+            oneclick.xml
+            operational.xml
+          if-no-files-found: ignore
+
+  fresh-firstboot-real:
+    name: Real Ubuntu22 first boot, services, local TLS, Discord capture (no orders)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 50
+    steps:
+      - name: Checkout PR scripts
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Install YAML parser
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-yaml
+      - name: Run exact User Data downloader and complete real fresh installer
+        shell: bash
+        run: |
+          sudo env PYTHONPATH="$GITHUB_WORKSPACE" /usr/bin/python3 tests/ubuntu22_real_firstboot_rehearsal.py
+      - name: Print only bounded failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          sudo systemctl status poa pocketbase caddy --no-pager -l 2>/dev/null | tail -n 75 || true
+          sudo journalctl -u poa.service -u pocketbase.service -u caddy.service --no-pager -n 110 2>/dev/null | tail -n 110 || true

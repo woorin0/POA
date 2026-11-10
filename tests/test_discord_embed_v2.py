@@ -920,7 +920,21 @@ class DiscordEmbedV2Tests(unittest.TestCase):
         http_files = assert_http_source_pins(ROOT)
         # Only the four exact security versions are admitted; all other files
         # retain the original full diff guard. No wildcard dependency exemption.
-        unchanged_files = [p for p in protected_files if p != 'requirements.txt' and p not in http_files]
+        # The requested notification-only route changes two named functions.
+        # Keep every other main.py function, including live order execution,
+        # byte/AST equivalent to the immutable original.
+        import ast
+        original_main = subprocess.check_output(
+            ["git", "show", base_sha + ":main.py"], cwd=ROOT, text=True
+        )
+        current_main = (ROOT / "main.py").read_text(encoding="utf-8")
+        def preserved_main_nodes(source):
+            tree=ast.parse(source)
+            return [ast.dump(n,include_attributes=False) for n in tree.body
+                    if not (isinstance(n,ast.FunctionDef) and
+                            n.name in ("log","schedule_order_log"))]
+        self.assertEqual(preserved_main_nodes(original_main),preserved_main_nodes(current_main))
+        unchanged_files = [p for p in protected_files if p not in ('requirements.txt','main.py') and p not in http_files]
         proc = subprocess.run(
             ["git", "diff", base_sha, "--"] + unchanged_files,
             cwd=ROOT,

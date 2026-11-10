@@ -1,0 +1,49 @@
+#cloud-config
+{
+  "package_update": false,
+  "timezone": "UTC",
+  "packages": [
+    "python3",
+    "ca-certificates"
+  ],
+  "write_files": [
+    {
+      "path": "/root/poa-stage-input.json",
+      "owner": "root:root",
+      "permissions": "0600",
+      "content": "{\"install_mode\":\"NEW_SERVER_STAGE_ONLY\",\"repo_ref\":\"b23fc5655f7e5d8f1d3946f365099a2bbb29edf2\",\"release_manifest_sha256\":\"0c464b1387d7ced078d4d957a1a9bdc947b8bb1d425518aba631fcc623d279fa\"}"
+    },
+    {
+      "path": "/usr/local/lib/poa/verified_script_hashes.json",
+      "owner": "root:root",
+      "permissions": "0600",
+      "content": "{\"install_once.py\": \"5572d3cef61050bfeba684dcb573b4057f0714da85fbdb6b9bfe62761a471374\", \"prepare_ubuntu.py\": \"7d8f570f756cd41694001de12b271f4dc443fd21a45a06acc1b68c972bad605b\", \"ubuntu22_operational.py\": \"f34c22811d6c189ca456b230ba4c1e99bcabfc2f0b5b2435f751755624e80e57\", \"ubuntu22_release_handoff.py\": \"cced9aa68710c57384c9de4ea4fbf5e06a9b60b485600912d09e3d8d3ea478a5\", \"validate_config.py\": \"9ecd177b5196c9c455d54f4a03e43f9ded7c663b6efff7710cca702d45736931\"}"
+    },
+    {
+      "path": "/usr/local/lib/poa/bootstrap-ubuntu22.py",
+      "owner": "root:root",
+      "permissions": "0600",
+      "content": "import hashlib\nimport json\nimport os\nfrom pathlib import Path\nimport subprocess\nimport sys\nfrom urllib.request import Request, urlopen\n\ndef main():\n    os.umask(0o077)\n    pinned = json.loads(Path(\"/root/poa-stage-input.json\").read_text())\n    commit = pinned[\"repo_ref\"]\n    scripts = json.loads(Path(\"/usr/local/lib/poa/verified_script_hashes.json\").read_text())\n    target = Path(\"/usr/local/lib/poa\")\n    if not target.is_dir() or len(scripts) != 5:\n        raise RuntimeError(\"STAGE_SCRIPT_INVENTORY_INVALID\")\n    for name, digest in scripts.items():\n        if name not in (\"install_once.py\",\"prepare_ubuntu.py\",\n                        \"ubuntu22_operational.py\",\"ubuntu22_release_handoff.py\",\n                        \"validate_config.py\"):\n            raise RuntimeError(\"STAGE_SCRIPT_NOT_APPROVED\")\n        url = (\"https://raw.githubusercontent.com/woorin0/POA/\"\n               + commit + \"/deployment/\" + name)\n        with urlopen(Request(url, headers={\"User-Agent\":\"POA-Stage\"}), timeout=45) as resp:\n            content = resp.read(90000)\n        if hashlib.sha256(content).hexdigest() != digest:\n            raise RuntimeError(\"PINNED_STAGE_SCRIPT_HASH_MISMATCH\")\n        f = target / name\n        with f.open(\"xb\") as output:\n            output.write(content)\n        f.chmod(0o600)\n    # Runtime package/service preparation uses original verified install code.\n    for name in (\"prepare_ubuntu.py\", \"install_once.py\"):\n        p = subprocess.run([\"python3\", str(target/name)], check=False, timeout=2400)\n        if p.returncode:\n            raise RuntimeError(\"STAGE_PREPARATION_OR_INSTALL_FAILED\")\n    result = json.loads(Path(\"/root/POA_INSTALL_RESULT.json\").read_text())\n    if result.get(\"status\") != \"STAGED_NOT_LIVE\" or result.get(\"commit\") != commit:\n        raise RuntimeError(\"STAGE_COMPLETION_UNVERIFIED\")\n    print(\"POA_STAGE_INSTALLED; run poa-setup fresh or restore locally\")\nif __name__==\"__main__\":\n    try:\n        main()\n    except Exception as exc:\n        print(\"POA_BOOTSTRAP_BLOCKED:\",str(exc),file=sys.stderr)\n        raise SystemExit(75)\n"
+    },
+    {
+      "path": "/usr/local/bin/poa-setup",
+      "owner": "root:root",
+      "permissions": "0700",
+      "content": "#!/bin/sh\nexec /usr/bin/python3 /usr/local/lib/poa/ubuntu22_operational.py \"$@\"\n"
+    },
+    {
+      "path": "/root/poa-config.example.json",
+      "owner": "root:root",
+      "permissions": "0600",
+      "content": "{\n  \"domain\": \"your-published-domain.example.org\",\n  \"db_admin_email\": \"admin@your-domain.example.org\",\n  \"credentials\": {\n    \"PASSWORD\": \"CHANGE_ME_TRADINGVIEW_PASSWORD\",\n    \"DISCORD_WEBHOOK_URL\": \"https://discord.com/api/webhooks/REPLACE\",\n    \"UPBIT_KEY\": \"CHANGE_ME_UPBIT_KEY\",\n    \"UPBIT_SECRET\": \"CHANGE_ME_UPBIT_SECRET\"\n  }\n}"
+    }
+  ],
+  "runcmd": [
+    [
+      "bash",
+      "-euc",
+      "umask 077; python3 /usr/local/lib/poa/bootstrap-ubuntu22.py"
+    ]
+  ],
+  "final_message": "STAGED_READY_NO_TRADES. To configure: sudo cp /root/poa-config.example.json /root/poa-config.json; sudo nano /root/poa-config.json; sudo poa-setup fresh --config /root/poa-config.json. No API keys are included in this User Data."
+}

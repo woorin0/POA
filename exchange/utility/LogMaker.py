@@ -99,6 +99,22 @@ def _get_discord_embed_module():
 
 
 def log_order_message(exchange_name, order_result: dict, order_info: MarketOrder):
+    # Immediate, explicitly unverified, original-POA-style order response.
+    # A public ticker is only a fallback when no response or request price exists.
+    if exchange_name in ("UPBIT", "BINANCE", "BYBIT", "BITGET", "OKX"):
+        from .simple_order_amount import (
+            build_simple_amount_alert, is_rejected_response, order_price,
+            public_reference_price,
+        )
+        if not isinstance(order_result, dict) or is_rejected_response(order_result):
+            return
+        price, _ = order_price(exchange_name, order_result, order_info)
+        reference_price = None
+        if price is None and (order_result.get("id") or order_result.get("uuid")):
+            reference_price = public_reference_price(exchange_name, order_info.unified_symbol)
+        content, embed = build_simple_amount_alert(exchange_name, order_result, order_info, reference_price)
+        log_message(content, embed)
+        return
     date = parse_time(datetime.now(timezone.utc).timestamp())
     if not order_info.is_futures and order_info.is_buy and exchange_name in COST_BASED_ORDER_EXCHANGES:
         f_name = "비용"

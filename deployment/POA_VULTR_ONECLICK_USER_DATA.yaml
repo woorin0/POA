@@ -1,0 +1,343 @@
+#cloud-config
+# 서버별 [1] 설정만 변경: domain=기존 도메인(https://·/order 제외)
+# PASSWORD=기존 인증값 또는 AUTO(새 암호), DISCORD_WEBHOOK_URL=알림 주소
+# 거래소 KEY/SECRET(OKX·BITGET은 PASSPHRASE) 입력, 미사용 거래소는 ""
+# 기존 DNS A레코드가 이 서버 IP를 가리켜야 HTTPS 작동. 비밀키 파일 공유 금지.
+write_files:
+  # ---------------------------------------------------------------------------
+  # [1] 서버별 설정: 기존 도메인 / TradingView 비밀번호 / Discord 웹훅 / 거래소 키
+  # ---------------------------------------------------------------------------
+  - path: /root/poa-oneclick-input.json
+    owner: root:root
+    permissions: "0600"
+    content: |-
+      {
+        "domain": "SET_EXISTING_DOMAIN",
+        "db_admin_email": "poa-admin@example.org",
+        "credentials": {
+          "PASSWORD": "AUTO",
+          "DISCORD_WEBHOOK_URL": "SET_DISCORD_WEBHOOK_URL",
+      
+          "UPBIT_KEY": "",
+          "UPBIT_SECRET": "",
+      
+          "BINANCE_KEY": "",
+          "BINANCE_SECRET": "",
+      
+          "BYBIT_KEY": "",
+          "BYBIT_SECRET": "",
+      
+          "OKX_KEY": "",
+          "OKX_SECRET": "",
+          "OKX_PASSPHRASE": "",
+      
+          "BITGET_KEY": "",
+          "BITGET_SECRET": "",
+          "BITGET_PASSPHRASE": ""
+        }
+      }
+  # ---------------------------------------------------------------------------
+  # [2] 자동 설치 구성 요소 (아래 영역 수정 금지)
+  # ---------------------------------------------------------------------------
+  - path: /root/poa-stage-input.json
+    owner: root:root
+    permissions: "0600"
+    content: |-
+      {"install_mode":"NEW_SERVER_STAGE_ONLY","repo_ref":"5b86b4368fb28adfe38bc98397bad32a01df9426","release_manifest_sha256":"0c464b1387d7ced078d4d957a1a9bdc947b8bb1d425518aba631fcc623d279fa"}
+  - path: /usr/local/lib/poa/verified_script_hashes.json
+    owner: root:root
+    permissions: "0600"
+    content: |-
+      {"install_once.py": "5572d3cef61050bfeba684dcb573b4057f0714da85fbdb6b9bfe62761a471374", "prepare_ubuntu.py": "7d8f570f756cd41694001de12b271f4dc443fd21a45a06acc1b68c972bad605b", "ubuntu22_operational.py": "f34c22811d6c189ca456b230ba4c1e99bcabfc2f0b5b2435f751755624e80e57", "ubuntu22_release_handoff.py": "cced9aa68710c57384c9de4ea4fbf5e06a9b60b485600912d09e3d8d3ea478a5", "validate_config.py": "9ecd177b5196c9c455d54f4a03e43f9ded7c663b6efff7710cca702d45736931"}
+  - path: /usr/local/lib/poa/bootstrap-ubuntu22.py
+    owner: root:root
+    permissions: "0600"
+    content: |
+      import hashlib
+      import json
+      import os
+      from pathlib import Path
+      import subprocess
+      import sys
+      from urllib.request import Request, urlopen
+      
+      def main():
+          os.umask(0o077)
+          pinned = json.loads(Path("/root/poa-stage-input.json").read_text())
+          commit = pinned["repo_ref"]
+          scripts = json.loads(Path("/usr/local/lib/poa/verified_script_hashes.json").read_text())
+          target = Path("/usr/local/lib/poa")
+          if not target.is_dir() or len(scripts) != 5:
+              raise RuntimeError("STAGE_SCRIPT_INVENTORY_INVALID")
+          for name, digest in scripts.items():
+              if name not in ("install_once.py","prepare_ubuntu.py",
+                              "ubuntu22_operational.py","ubuntu22_release_handoff.py",
+                              "validate_config.py"):
+                  raise RuntimeError("STAGE_SCRIPT_NOT_APPROVED")
+              url = ("https://raw.githubusercontent.com/woorin0/POA/"
+                     + commit + "/deployment/" + name)
+              with urlopen(Request(url, headers={"User-Agent":"POA-Stage"}), timeout=45) as resp:
+                  content = resp.read(90000)
+              if hashlib.sha256(content).hexdigest() != digest:
+                  raise RuntimeError("PINNED_STAGE_SCRIPT_HASH_MISMATCH")
+              f = target / name
+              with f.open("xb") as output:
+                  output.write(content)
+              f.chmod(0o600)
+          # Runtime package/service preparation uses original verified install code.
+          for name in ("prepare_ubuntu.py", "stage-full-history.py"):
+              p = subprocess.run(["python3", str(target/name)], check=False, timeout=2400)
+              if p.returncode:
+                  raise RuntimeError("STAGE_PREPARATION_OR_INSTALL_FAILED")
+          result = json.loads(Path("/root/POA_INSTALL_RESULT.json").read_text())
+          if result.get("status") != "STAGED_NOT_LIVE" or result.get("commit") != commit:
+              raise RuntimeError("STAGE_COMPLETION_UNVERIFIED")
+          print("POA_STAGE_INSTALLED; run poa-setup fresh or restore locally")
+      if __name__=="__main__":
+          try:
+              main()
+          except Exception as exc:
+              print("POA_BOOTSTRAP_BLOCKED:",str(exc),file=sys.stderr)
+              raise SystemExit(75)
+  - path: /usr/local/bin/poa-setup
+    owner: root:root
+    permissions: "0700"
+    content: |
+      #!/bin/sh
+      exec /usr/bin/python3 /usr/local/lib/poa/ubuntu22_operational.py "$@"
+  - path: /root/poa-config.example.json
+    owner: root:root
+    permissions: "0600"
+    content: |-
+      {
+        "domain": "your-published-domain.example.org",
+        "db_admin_email": "admin@your-domain.example.org",
+        "credentials": {
+          "PASSWORD": "CHANGE_ME_TRADINGVIEW_PASSWORD",
+          "DISCORD_WEBHOOK_URL": "https://discord.com/api/webhooks/REPLACE",
+          "UPBIT_KEY": "CHANGE_ME_UPBIT_KEY",
+          "UPBIT_SECRET": "CHANGE_ME_UPBIT_SECRET"
+        }
+      }
+  - path: /usr/local/lib/poa/ubuntu22_oneclick.py
+    owner: root:root
+    permissions: "0600"
+    content: |
+      """New Ubuntu 22.04: complete the existing pinned Stage into a running POA.
+      
+      Runs once from cloud-init after bootstrap-ubuntu22.py. Only operator-owned
+      credentials in the private cloud-init config are used. No orders are submitted.
+      Financial, exchange, PocketBase and existing BOT03 code/data remain unchanged.
+      """
+      from __future__ import annotations
+      
+      import ipaddress
+      import json
+      import os
+      from pathlib import Path
+      import secrets
+      import socket
+      import subprocess
+      import sys
+      from urllib.request import Request, urlopen
+      
+      try:
+          from deployment import install_once as legacy
+      except ModuleNotFoundError:
+          import install_once as legacy
+      
+      CONFIG_PATH = Path("/root/poa-oneclick-input.json")
+      STAGE_PATH = Path("/root/POA_INSTALL_RESULT.json")
+      RUNTIME_PATH = Path("/root/poa-oneclick-runtime.json")
+      RESULT_PATH = Path("/root/POA_ONECLICK_RESULT.json")
+      SETUP = "/usr/local/bin/poa-setup"
+      
+      
+      class OneclickError(Exception):
+          pass
+      
+      
+      def public_ipv4():
+          with urlopen("https://api.ipify.org", timeout=20) as response:
+              address = response.read(64).decode("ascii").strip()
+          ip = ipaddress.ip_address(address)
+          if ip.version != 4 or not ip.is_global:
+              raise OneclickError("PUBLIC_IPV4_UNAVAILABLE")
+          return str(ip)
+      
+      
+      def normalized_input(raw: dict, *, public_ip: str | None = None) -> dict:
+          """Resolve zero-config domain and webhook password before existing validation."""
+          if not isinstance(raw, dict):
+              raise OneclickError("CONFIG_JSON_REQUIRED")
+          data = json.loads(json.dumps(raw))
+          if data.get("domain") in ("AUTO", "", None):
+              ip = ipaddress.ip_address(public_ip or public_ipv4())
+              if ip.version != 4 or not ip.is_global:
+                  raise OneclickError("PUBLIC_IPV4_UNAVAILABLE")
+              data["domain"] = str(ip) + ".sslip.io"
+          credentials = data.get("credentials")
+          if not isinstance(credentials, dict):
+              raise OneclickError("CREDENTIALS_REQUIRED")
+          if credentials.get("PASSWORD") == "AUTO":
+              credentials["PASSWORD"] = secrets.token_urlsafe(32)
+          for name, value in credentials.items():
+              if isinstance(value, str) and value.startswith(("SET_", "REPLACE_", "CHANGE_ME", "YOUR_")):
+                  raise OneclickError("SET_REQUIRED_CREDENTIAL_" + name)
+          # Preserve the original finance/order/runtime configuration validation.
+          legacy.validate(data)
+          return data
+      
+      
+      def _read_private_json(path: Path) -> dict:
+          status = path.lstat()
+          if not path.is_file() or status.st_mode & 0o077:
+              raise OneclickError("ROOT_PRIVATE_CONFIG_REQUIRED")
+          return json.loads(path.read_text(encoding="utf-8"))
+      
+      
+      def _private_write(path: Path, data: dict) -> None:
+          fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+          with os.fdopen(fd, "w", encoding="utf-8") as output:
+              json.dump(data, output, ensure_ascii=False)
+          path.chmod(0o600)
+      
+      
+      def _setup_command(*arguments: str) -> None:
+          # Never print child output: future diagnostics may contain credentials.
+          proc = subprocess.run([sys.executable, "/usr/local/lib/poa/stage-full-history.py",
+                                 "setup", *arguments], capture_output=True, timeout=1800,
+                                check=False)
+          if proc.returncode:
+              raise OneclickError("POA_SETUP_" + arguments[0].upper().replace("-", "_") + "_FAILED")
+      
+      
+      def _https_ready(domain: str) -> None:
+          # The public Caddy router intentionally replies 403 on GET /; the
+          # verified TLS certificate and that 403 prove HTTPS is actually serving.
+          legacy.wait_ready(lambda: legacy.local_https(domain),
+                            "PUBLIC_HTTPS_NOT_READY", seconds=180)
+      
+      
+      
+      def _notify_success(data: dict, report: dict) -> bool:
+          """One Discord success message, only after local+HTTPS checks pass."""
+          marker = RESULT_PATH.with_name("POA_INSTALL_DISCORD_ATTEMPT.json")
+          _private_write(marker, {"event": "INSTALL_COMPLETED", "attempted": True})
+          payload = {"embeds": [{
+              "title": "✅ POA 설치 완료",
+              "description": "Vultr POA · PocketBase · HTTPS 정상 기동",
+              "color": 2263842,
+              "fields": [
+                  {"name": "서버 도메인", "value": data["domain"], "inline": False},
+                  {"name": "TradingView 웹훅", "value": report["webhook_url"], "inline": False}
+              ]
+          }]}
+          body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+          req = Request(data["credentials"]["DISCORD_WEBHOOK_URL"], data=body,
+                        headers={"Content-Type": "application/json",
+                                 "User-Agent": "POA-Firstboot/1.0"}, method="POST")
+          try:
+              with urlopen(req, timeout=12) as response:
+                  return response.status in (200, 204)
+          except (OSError, ValueError):
+              return False
+      
+      
+      def complete() -> dict:
+          if os.name != "posix" or os.geteuid() != 0:
+              raise OneclickError("UBUNTU_ROOT_REQUIRED")
+          stage = _read_private_json(STAGE_PATH)
+          if stage.get("status") != "STAGED_NOT_LIVE":
+              raise OneclickError("STAGE_NOT_READY")
+          data = normalized_input(_read_private_json(CONFIG_PATH))
+          _private_write(RUNTIME_PATH, data)
+          _setup_command("fresh", "--config", str(RUNTIME_PATH))
+          _setup_command("publish", "--domain", data["domain"])
+          _https_ready(data["domain"])
+          report = {
+              "state": "RUNNING_HTTPS",
+              "poa": "LOCAL_HEALTH_PASS",
+              "pocketbase": "LOCAL_HEALTH_PASS",
+              "https": "TLS_VALID_403_ON_GET",
+              "webhook_url": "https://" + data["domain"] + "/order",
+              "webhook_endpoint_published": True,
+              "live_order_test_performed": False,
+              "source_commit": stage.get("commit"),
+          }
+          _private_write(RESULT_PATH, report)
+          sent = _notify_success(data, report)
+          print("POA_INSTALL_DISCORD=" + ("SENT" if sent else "NOT_DELIVERED"),
+                flush=True)
+          RUNTIME_PATH.unlink(missing_ok=True)
+          CONFIG_PATH.unlink(missing_ok=True)
+          print("POA_ONECLICK_READY=" + report["webhook_url"], flush=True)
+          return report
+      
+      
+      def main() -> int:
+          os.umask(0o077)
+          try:
+              complete()
+              return 0
+          except (OneclickError, legacy.InstallError, OSError, ValueError,
+                  json.JSONDecodeError, subprocess.TimeoutExpired):
+              print("POA_ONECLICK_FAILED: inspect cloud-init and systemd logs; no orders submitted",
+                    file=sys.stderr)
+              return 75
+      
+      
+      if __name__ == "__main__":
+          raise SystemExit(main())
+  - path: /usr/local/lib/poa/stage-full-history.py
+    owner: root:root
+    permissions: "0600"
+    content: |
+      """Run unchanged verified Stage with the missing complete Git history.
+      
+      The checked-out finance/order/installer sources and release manifest stay byte-exact.
+      """
+      from __future__ import annotations
+      import json
+      import sys
+      sys.path.insert(0, '/usr/local/lib/poa')
+      import install_once as installer
+      
+      original_run = installer.run
+      
+      def run_with_full_history(args, code, cwd=None, timeout=300):
+          if code in ('POCKETBASE_DOWNLOAD_FAILED', 'POCKETBASE_LEGACY_DOWNLOAD_FAILED'):
+              args = [args[0], '--retry', '6', '--retry-all-errors', '--retry-delay', '4',
+                      '--connect-timeout', '20', '--max-time', '180', *args[1:]]
+              timeout = max(timeout, 1000)
+          result = original_run(args, code, cwd=cwd, timeout=timeout)
+          if code == 'GIT_CHECKOUT_FAILED':
+              repo = str(installer.APP)
+              original_run(['git','-C',repo,'fetch','--no-tags','--unshallow','origin'],
+                           'GIT_FULL_HISTORY_FAILED', timeout=900)
+              shallow = original_run(['git','-C',repo,'rev-parse','--is-shallow-repository'],
+                                     'GIT_HISTORY_STATUS_FAILED').decode().strip()
+              if shallow != 'false':
+                  raise installer.InstallError('GIT_HISTORY_INCOMPLETE')
+              original_run(['git','-C',repo,'cat-file','-e',
+                            'de969040dec42a369274adb1a59a3d44a2ba3aa6:deployment/build_cloud_config.py'],
+                           'GIT_BASELINE_MISSING')
+          return result
+      
+      installer.run = run_with_full_history
+      if len(sys.argv) > 1 and sys.argv[1] == 'setup':
+          import ubuntu22_operational as operations
+          raise SystemExit(operations.main(sys.argv[2:]))
+      installer.install(json.loads(installer.STAGE_INPUT.read_text(encoding='utf-8')))
+      
+package_update: false
+timezone: UTC
+packages:
+  - python3
+  - ca-certificates
+
+runcmd:
+  - ["bash", "-euc", "umask 077; python3 /usr/local/lib/poa/bootstrap-ubuntu22.py"]
+  - ["bash", "-euc", "umask 077; python3 /usr/local/lib/poa/ubuntu22_oneclick.py"]
+
+final_message: "POA one-click boot attempted. Verify: sudo cloud-init status --wait && sudo cat /root/POA_ONECLICK_RESULT.json"
