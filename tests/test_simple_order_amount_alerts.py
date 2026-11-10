@@ -34,14 +34,17 @@ def test_spot_five_exchanges_all_values_and_no_financial_fields(venue,side):
     info=request(venue,side)
     _,embed=build_simple_amount_alert(venue,{"id":"ord-1","cost":"204","filled":"2","average":"102"},info)
     body=embed.data["description"]
-    assert "수량: 2 XRP (주문 응답·미검증)" in body
+    assert "수량: 2 XRP" in body
     assert ("가격: 102 KRW" if venue=="UPBIT" else "가격: 102 USDT") in body
     assert (("매수액: " if side=="buy" else "매도액: ") +
              ("204 KRW" if venue=="UPBIT" else "204 USDT") +
-             " (주문 응답·미검증)") in body
+             "") in body
     assert "수수료" not in body and "실현손익" not in body
     assert "손익" not in body and "수익률" not in body
-    assert "실체결 미검증" in body and "ord-1" in body
+    assert "ord-1" not in body
+    assert embed.data["color"] == 0x3498DB
+    assert ("현물 매수" if side=="buy" else "현물 매도") in embed.data["title"]
+    assert all(s not in body for s in ("미검증","주문번호","상태:","요청 참고가","주문 응답","추정","수수료","실현손익"))
     assert "매수액" not in body if side=="sell" else "매도액" not in body
 
 
@@ -58,7 +61,10 @@ def test_linear_futures_five_columns_and_correct_action(venue,side,title,action)
     body=embed.data["description"]
     assert "수량: 2 XRP" in body
     assert "가격: 100 USDT" in body
-    assert action+" (계약 명목가치): 200 USDT (주문 응답·미검증)" in body
+    assert action+": 200 USDT" in body
+    assert "선물 " + title in embed.data["title"]
+    assert embed.data["color"] == 0x3498DB
+    assert all(s not in body for s in ("미검증","주문번호","상태:","수수료","실현손익","추정"))
     assert "USDT.P" not in body and "수수료" not in body and "손익" not in body
 
 
@@ -70,11 +76,12 @@ def test_response_missing_cost_uses_request_estimate_with_provenance(venue,side)
     assert value == 200 and source == "estimate"
     _,embed=build_simple_amount_alert(venue,{"id":"ack"},info)
     body=embed.data["description"]
-    assert "수량: 2 XRP (요청·미검증)" in body
+    assert "수량: 2 XRP" in body
     assert ("가격: 100 KRW" if venue=="UPBIT" else "가격: 100 USDT") in body
-    assert "요청 참고가·미검증" in body
+    assert "요청 참고가" not in body and "미검증" not in body
     assert ("매수액: 200" if side=="buy" else "매도액: 200") in body
-    assert "(추정·미검증)" in body
+    assert "(추정·미검증)" not in body
+    assert embed.data["color"] == 0x3498DB
 
 
 @pytest.mark.parametrize("venue,field",[
@@ -98,7 +105,7 @@ def test_price_is_derived_only_from_consistent_response_quantity_and_cost():
     p,source=order_price("UPBIT",{"cost":"305","filled":"2"},info)
     assert p==152.5 and source=="응답 금액÷수량 추정"
     _,embed=build_simple_amount_alert("UPBIT",{"cost":"305","filled":"2"},info)
-    assert "가격: 152.5 KRW (응답 금액÷수량 추정·미검증)" in embed.data["description"]
+    assert "가격: 152.5 KRW" in embed.data["description"]
 
 
 def test_price_unknown_and_public_ticker_estimate():
@@ -110,8 +117,9 @@ def test_price_unknown_and_public_ticker_estimate():
     assert "매도액: 확인 불가" in empty.data["description"]
     _,estimate=build_simple_amount_alert("OKX",{"id":"ack","amount":2},info,reference_price="103")
     body=estimate.data["description"]
-    assert "가격: 103 USDT (공개 현재가 추정·미검증)" in body
-    assert "매도액: 206 USDT (추정·미검증)" in body
+    assert "가격: 103 USDT" in body
+    assert "매도액: 206 USDT" in body
+    assert "추정" not in body and estimate.data["color"] == 0x3498DB
 
 
 def test_public_ticker_failure_does_not_fabricate_price(monkeypatch):
@@ -131,9 +139,9 @@ def test_okx_linear_contract_size_conversion_not_double_applied():
     assert (str(value),source)==("200.0","estimate")
     _,embed=build_simple_amount_alert("OKX",{"id":"okx-c","filled":"20","price":"100"},info)
     body=embed.data["description"]
-    assert "수량: 2 XRP (응답 계약 환산·미검증)" in body
+    assert "수량: 2 XRP" in body
     assert "가격: 100 USDT" in body
-    assert "매수액 (계약 명목가치): 200 USDT (추정·미검증)" in body
+    assert "매수액: 200 USDT" in body
     assert "20 XRP" not in body
 
 
@@ -151,7 +159,7 @@ def test_okx_inverse_contract_notional_in_usd_without_price_multiplication():
     body=embed.data["description"]
     assert "수량: 3 계약" in body
     assert "가격: 50000 USD" in body
-    assert "매수액 (계약 명목가치): 300 USD" in body
+    assert "매수액: 300 USD" in body
 
 
 @pytest.mark.parametrize("venue",VENUES)
@@ -171,6 +179,9 @@ def test_logmaker_single_discord_embed_no_hidden_pnl_fields(venue,side):
     assert "수량:" in desc and "가격:" in desc
     assert ("매수액:" if side=="buy" else "매도액:") in desc
     assert "수수료" not in desc and "실현손익" not in desc
+    assert sent[0][1]["color"] == 0x3498DB
+    assert all(x not in desc for x in ("미검증","주문번호","상태:","실현손익","요청 참고가","수수료"))
+    assert all(x not in sent[0][1]["title"] for x in ("미검증","주문 응답","체결 완료"))
 
 
 @pytest.mark.parametrize("venue",VENUES)
@@ -208,3 +219,33 @@ def test_five_venue_route_and_no_new_private_reads():
     for name in ("log","schedule_order_log"):
         assert '("UPBIT", "BINANCE", "BYBIT", "BITGET", "OKX")' in defs[name]
     assert set(SUPPORTED)==set(VENUES)
+
+
+@pytest.mark.parametrize("venue",VENUES)
+@pytest.mark.parametrize("side",("buy","sell"))
+def test_blue_card_formats_large_amounts_without_unverified_status_or_order_id(venue,side):
+    req=request(venue,side)
+    unit="KRW" if venue=="UPBIT" else "USDT"
+    result={"id":"DO_NOT_SHOW","status":"open","cost":"1234567.50",
+            "filled":"1234.5","average":"1000"}
+    _,card=build_simple_amount_alert(venue,result,req)
+    body=card.data["description"]
+    assert card.data["color"]==0x3498DB
+    assert "수량: 1,234.5 XRP" in body
+    assert "가격: 1,000 "+unit in body
+    assert ("매수액: " if side=="buy" else "매도액: ")+"1,234,567.5 "+unit in body
+    assert "DO_NOT_SHOW" not in body
+    assert all(x not in body for x in ("미검증","주문번호","상태:","수수료","실현손익",
+                                       "수익률","요청 참고가","주문 응답", "계약 명목가치"))
+    assert "체결 완료" not in card.data["title"]
+
+
+@pytest.mark.parametrize("venue",DERIVATIVES)
+def test_unpriced_swap_does_not_present_unverified_fill_or_fake_numbers(venue):
+    info=request(venue,"entry/buy",True)
+    info.price=None
+    _,card=build_simple_amount_alert(venue,{"id":"id-should-not-appear"},info)
+    assert "가격: 확인 불가" in card.data["description"]
+    assert "매수액: 확인 불가" in card.data["description"]
+    assert card.data["color"]==0x3498DB
+    assert "id-should-not-appear" not in card.data["description"]
