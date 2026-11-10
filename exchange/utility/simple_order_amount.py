@@ -27,7 +27,7 @@ def _positive(value):
 
 
 def _fmt(n):
-    value = format(n, "f")
+    value = format(n, ",f")
     return value.rstrip("0").rstrip(".") if "." in value else value
 
 
@@ -173,40 +173,25 @@ def build_simple_amount_alert(exchange, result, order_info, reference_price=None
     qty, base_qty, qty_source, contracts = _quantity(result, order_info)
     price, price_source = order_price(exchange, result, order_info, reference_price)
     amount, source = order_amount(exchange, result, order_info, reference_price)
+    # Presentation-only change: the origin of each value remains available to
+    # the calculation layer, but the Discord card stays concise as requested.
     if qty is None:
         qty_line = "확인 불가"
     elif contracts is not None and getattr(order_info, "is_coinm", False):
-        qty_line = _fmt(qty) + " 계약 (주문 응답·미검증)"
+        qty_line = _fmt(qty) + " 계약"
     else:
-        tag = ("응답 계약 환산" if qty_source == "응답 계약 환산"
-               else "주문 응답" if qty_source == "응답" else "요청")
-        qty_line = _fmt(qty) + " " + base + " (" + tag + "·미검증)"
-    price_line = (_fmt(price) + " " + currency + " (" + price_source + "·미검증)"
-                  if price is not None else "확인 불가")
-    if amount is None:
-        amount_line = "확인 불가"
-    elif source == "response":
-        amount_line = _fmt(amount) + " " + currency + " (주문 응답·미검증)"
-    else:
-        amount_line = _fmt(amount) + " " + currency + " (추정·미검증)"
+        qty_line = _fmt(qty) + " " + base
+    price_line = _fmt(price) + " " + currency if price is not None else "확인 불가"
+    amount_line = _fmt(amount) + " " + currency if amount is not None else "확인 불가"
     amount_label = action + "액"
-    if getattr(order_info, "is_futures", False):
-        amount_label += " (계약 명목가치)"
-    oid = result.get("id") or result.get("uuid")
-    if not isinstance(oid, (str, int)) or isinstance(oid, bool) or len(str(oid)) > 128:
-        oid = None
     lines = [
         "전략: " + clean(getattr(order_info, "strategy_id", None) or getattr(order_info, "order_name", None) or "미확인"),
         "수량: " + qty_line,
         "가격: " + price_line,
         amount_label + ": " + amount_line,
-    ]
-    if oid is not None:
-        lines.append("주문번호: " + clean(oid, 128))
-    lines += [
-        "상태: 주문 응답 수신 (실체결 미검증)",
         "시각: " + datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S KST"),
     ]
-    title = clean(exchange, 12) + " · " + symbol + " · " + direction + " 주문 응답"
-    embed = enforce_embed_bounds(Embed(title=title, description="\n".join(lines), color=0x64748B))
-    return "[" + clean(exchange) + "] " + symbol + " " + direction + " 주문 응답", embed
+    market = "선물" if getattr(order_info, "is_futures", False) else "현물"
+    title = clean(exchange, 12) + " · " + symbol + " · " + market + " " + direction
+    embed = enforce_embed_bounds(Embed(title=title, description="\n".join(lines), color=0x3498DB))
+    return "[" + clean(exchange) + "] " + symbol + " " + market + " " + direction, embed
